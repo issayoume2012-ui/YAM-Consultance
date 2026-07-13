@@ -311,18 +311,12 @@ if selected == "🏠 Accueil":
     st.write("") 
     st.success("YAM en synergie avec les institutions publiques pour une agriculture résiliente, durable et souveraine.")
 # =========================================================================
+# =========================================================================
 elif selected == "📊 Tableau de Bord":
 
     import pandas as pd
     import streamlit as st
-    import io
     
-    # Imports requis pour l'impression professionnelle en PDF
-    from reportlab.lib.pagesizes import letter, landscape
-    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
-    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-    from reportlab.lib import colors
-
     # 1. STYLE CSS VISUEL AVANCÉ (ALIGNÉ SUR LE CORE PREMIUM)
     st.markdown("""
     <style>
@@ -553,7 +547,7 @@ elif selected == "📊 Tableau de Bord":
             st.success("✨ **Optimisation Structurelle** : Augmentation de la valeur ajoutée agricole par hectare aménagé.")
 
     # =========================================================================
-    # 5. NOUVELLE FONCTIONNALITÉ SYSTÉMIQUE : VALORISATION ET AUDIT ÉCONOMIQUE
+    # 5. VALORISATION ET AUDIT ÉCONOMIQUE
     # =========================================================================
     st.markdown(f"<div class='db-section-title'>💰 Analyse d'Impact Budgétaire et d'Efficience Économique : <b>{region_choisie}</b></div>", unsafe_allow_html=True)
     
@@ -565,13 +559,8 @@ elif selected == "📊 Tableau de Bord":
     total_stockage_t = df_filtre["Capacité Stockage/Transit SEMUM [Tonnes]"].sum()
 
     # Formules économiques dérivées
-    # 1. Valeur Marchande Estimée (Prix moyens pondérés simulés)
     valeur_marchande_milliards = ((total_cereales_t * 250) + (total_arachide_t * 300)) / 1_000_000_000
-    
-    # 2. Coût d'opportunité de stockage SEMUM (Hypothèse 15 000 FCFA / T mobilisée corrigée par la logistique)
     cout_logistique_milliards = (total_stockage_t * 15000 * coef_logistique) / 1_000_000_000
-    
-    # 3. Efficience de la subvention : Tonnes produites par Tonne d'intrants investie
     efficience_intrant = (total_cereales_t + total_arachide_t) / total_intrants_t if total_intrants_t > 0 else 0
 
     ecocol1, ecocol2, ecocol3 = st.columns(3)
@@ -676,81 +665,6 @@ elif selected == "📊 Tableau de Bord":
             
         texte_ia = generer_synthese_ia_economique(df_filtre)
         st.markdown(f"<div class='ai-box'>{texte_ia}</div>", unsafe_allow_html=True)
-
-    # =========================================================================
-    # 8. SYSTÈME D'IMPRESSION EN PDF (MIS À PY REPRENDRE LES AXES ÉCONOMIQUES)
-    # =========================================================================
-    st.markdown("<div class='db-section-title'>🖨️ Édition de Rapports Économiques Officiels (PDF)</div>", unsafe_allow_html=True)
-    
-    def compiler_rapport_pdf_eco(df, scenario_nom, analyse_texte):
-        buffer = io.BytesIO()
-        doc = SimpleDocTemplate(buffer, pagesize=landscape(letter), rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
-        story = []
-        styles = getSampleStyleSheet()
-        
-        title_style = ParagraphStyle(
-            'PdfTitle', parent=styles['Heading1'], fontName='Helvetica-Bold', fontSize=14, textColor=colors.HexColor('#0b3c1a'), alignment=1, spaceAfter=12
-        )
-        meta_style = ParagraphStyle(
-            'PdfMeta', parent=styles['Normal'], fontName='Helvetica-Oblique', fontSize=9, textColor=colors.gray, alignment=1, spaceAfter=20
-        )
-        h2_style = ParagraphStyle(
-            'PdfH2', parent=styles['Heading2'], fontName='Helvetica-Bold', fontSize=12, textColor=colors.HexColor('#e2b13c'), spaceBefore=15, spaceAfter=8
-        )
-        body_style = ParagraphStyle(
-            'PdfBody', parent=styles['Normal'], fontName='Helvetica', fontSize=10, leading=14, spaceAfter=10
-        )
-        
-        story.append(Paragraph("REPUBLIQUE DU SENEGAL - OBSERVATOIRE DE LA SOUVERAINETÉ ALIMENTAIRE", title_style))
-        story.append(Paragraph(f"Rapport d'Audit Macro-économique Budgétaire | Zone : {region_choisie} | Modèle : {scenario_nom}", meta_style))
-        
-        story.append(Paragraph("1. Indicateurs Territoriaux Multi-Agences Consolidés", h2_style))
-        
-        entetes_pdf = ["Région", "PIB (Mrds)", "Intrants (T)", "SONACOS (T)", "SADAGRI (Ha)", "SEMUM (T)", "MEPA Vacc.", "MSAS N-Conf"]
-        donnees_table = [entetes_pdf]
-        
-        for _, row in df[colonnes_matrice].iterrows():
-            donnees_table.append([
-                str(row[colonnes_matrice[0]]),
-                str(row[colonnes_matrice[1]]),
-                f"{row[colonnes_matrice[2]]:,}".replace(",", " "),
-                f"{row[colonnes_matrice[3]]:,}".replace(",", " "),
-                f"{row[colonnes_matrice[4]]:,}".replace(",", " "),
-                f"{row[colonnes_matrice[5]]:,}".replace(",", " "),
-                f"{row[colonnes_matrice[6]]:.1f}%",
-                f"{row[colonnes_matrice[7]]:.2f}%"
-            ])
-            
-        t = Table(donnees_table, hAlign='CENTER')
-        t.setStyle(TableStyle([
-            ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#0b3c1a')),
-            ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
-            ('ALIGN', (0,0), (-1,-1), 'CENTER'),
-            ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0,0), (-1,0), 8.5),
-            ('BOTTOMPADDING', (0,0), (-1,0), 5),
-            ('BACKGROUND', (0,1), (-1,-1), colors.HexColor('#f8fafc')),
-            ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#cbd5e1')),
-            ('FONTSIZE', (0,1), (-1,-1), 8),
-        ]))
-        story.append(t)
-        story.append(Spacer(1, 15))
-        
-        story.append(Paragraph("2. Synthèse et Recommandation Émise par l'Agent IA Souveraine", h2_style))
-        story.append(Paragraph(analyse_texte.replace("**", ""), body_style))
-        
-        doc.build(story)
-        buffer.seek(0)
-        return buffer
-
-    if not df_filtre.empty:
-        pdf_genere = compiler_rapport_pdf_eco(df_filtre, scenario, texte_ia)
-        st.download_button(
-            label=f"📥 Imprimer le Rapport Économique Officiel ({region_choisie}) en PDF",
-            data=pdf_genere,
-            file_name=f"Rapport_Impact_Economique_{region_choisie.replace(' ', '_')}_2026.pdf",
-            mime="application/pdf"
-        )
 # SECTION CONSULTATION / HUB D'INTELLIGENCE AGRICOLE BIOMÉTRIQUE DU SÉNÉGAL
 elif selected == "💼 Consultance":
     import random
@@ -758,12 +672,6 @@ elif selected == "💼 Consultance":
     import pandas as pd
     import streamlit as st
     
-    # Imports requis pour l'impression professionnelle en PDF
-    from reportlab.lib.pagesizes import letter, landscape
-    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
-    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-    from reportlab.lib import colors
-
     st.markdown("""
     <style>
     /* Empêche la coupure des nombres (...) et adapte la taille dans st.metric */
@@ -1086,8 +994,8 @@ elif selected == "💼 Consultance":
                 st.markdown("</div>", unsafe_allow_html=True)
 
                 st.markdown("<div class='feature-card'>", unsafe_allow_html=True)
-                st.write("📑 **10. Générateur de Rapport d'Expertise (Format Prêt pour Impression)**")
-                st.caption("Activez le mode d'impression standard pour soumettre ce dossier aux analystes de crédit.")
+                st.write("📑 **10. Rapport d'Expertise Validé**")
+                st.caption("Ce dossier est désormais prêt à être présenté et soumis aux autorités compétentes et aux analystes de crédit.")
                 st.markdown("</div>", unsafe_allow_html=True)
 
             # --- MODULE INTÉGRATION DE L'INTELLIGENCE ARTIFICIELLE PAR INTÉGRATION SOUVERAINE ---
@@ -1106,96 +1014,11 @@ elif selected == "💼 Consultance":
             st.markdown("#### 🏛️ Directives Institutionnelles Intégrées (Décision Finale)")
             st.markdown(f"""
 * <span class='agency-tag'>ISRA</span> **Avis Scientifique Semences :** Le cycle végétatif complet exige **{data_produit['cycle_jours']} jours**. Les besoins nutritionnels de calage N-P-K pour sécuriser le rendement s'élvènt à **{data_produit['npk_requis']}**.
-* <span class='agency-tag'>INP</span> **Diagnostic du Profil Sol :** Le périmètre présente un substrat de type *{profil_sol['sol']}*. L'irrigation s'appuiera sur : *{profil_sol['eau']}*.
+* <span class='agency-tag'>INP</span> **Diagnostic du Profil Sol :** Le périmètre presents un substrat de type *{profil_sol['sol']}*. L'irrigation s'appuiera sur : *{profil_sol['eau']}*.
 * <span class='agency-tag'>ENC / MAER</span> **Filière & Encadrement :** Ce projet s'inscrit dans la zone de compétence de la **{profil_sol['agence_suivi']}** avec pour débouché économique prioritaire : *{profil_sol['commerce_eco']}*.
 * <span class='agency-tag'>DER/FJ</span> **Guichet de Financement Éligible :** L'analyse valide l'accès prioritaire au programme : *{profil_sol['subventions_der']}*.
             """, unsafe_allow_html=True)
             st.markdown("</div>", unsafe_allow_html=True)
-
-            # --- SYSTÈME D'EXPORTATION EN RAPPORT PDF PROFESSIONNEL ---
-            st.markdown("---")
-            st.markdown("### 🖨️ Téléchargement & Partage Institutionnel")
-            
-            def compiler_rapport_consultance_pdf(nom_prod, zone_nom, rend, prod, eau, ca, note_ia, directives_sol):
-                buffer = io.BytesIO()
-                doc = SimpleDocTemplate(buffer, pagesize=landscape(letter), rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
-                story = []
-                styles = getSampleStyleSheet()
-                
-                title_style = ParagraphStyle(
-                    'PdfTitle', parent=styles['Heading1'], fontName='Helvetica-Bold', fontSize=14, textColor=colors.HexColor('#1e3a8a'), alignment=1, spaceAfter=15
-                )
-                h2_style = ParagraphStyle(
-                    'PdfH2', parent=styles['Heading2'], fontName='Helvetica-Bold', fontSize=11, textColor=colors.HexColor('#14b8a6'), spaceBefore=12, spaceAfter=6
-                )
-                body_style = ParagraphStyle(
-                    'PdfBody', parent=styles['Normal'], fontName='Helvetica', fontSize=9.5, leading=14, spaceAfter=8
-                )
-                
-                story.append(Paragraph("MINISTERE DE L'AGRICULTURE ET DE LA SOUVERAINETÉ ALIMENTAIRE", title_style))
-                story.append(Paragraph(f"Rapport d'Expertise Agro-Édaphique Inter-Agences | Culture : {nom_prod}", ParagraphStyle('Sub', parent=styles['Normal'], alignment=1, spaceAfter=20, fontName='Helvetica-Oblique', fontSize=10, textColor=colors.gray)))
-                
-                # Tableau des KPI simulés
-                entetes = ["Terroir d'Implantation", "Rendement Estimé", "Production Totale", "Besoins en Eau (m³)", "Chiffre d'Affaires Brut"]
-                lignes_data = [
-                    entetes,
-                    [zone_nom, f"{rend:.2f} T/Ha", f"{prod:.2f} T", f"{int(eau):,}".replace(",", " "), f"{int(ca):,}/FCFA".replace(",", " ")]
-                ]
-                
-                t = Table(lignes_data, hAlign='CENTER')
-                t.setStyle(TableStyle([
-                    ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#1e3a8a')),
-                    ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
-                    ('ALIGN', (0,0), (-1,-1), 'CENTER'),
-                    ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
-                    ('FONTSIZE', (0,0), (-1,0), 9),
-                    ('BACKGROUND', (0,1), (-1,-1), colors.HexColor('#f8fafc')),
-                    ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#cbd5e1')),
-                    ('FONTSIZE', (0,1), (-1,-1), 9),
-                    ('PADDING', (0,0), (-1,-1), 6),
-                ]))
-                
-                story.append(Paragraph("1. Synthèse des Métriques Clés d'Exploitation", h2_style))
-                story.append(t)
-                story.append(Spacer(1, 15))
-                
-                story.append(Paragraph("2. Analyse Avancée Générée par l'Intelligence Artificielle", h2_style))
-                story.append(Paragraph(note_ia.replace("**", ""), body_style))
-                story.append(Spacer(1, 10))
-                
-                story.append(Paragraph("3. Spécifications du Profil Édaphique (INP / ISRA)", h2_style))
-                story.append(Paragraph(f"• Typologie de Sol Dominant : {directives_sol['sol']}", body_style))
-                story.append(Paragraph(f"• Régime d'Approvisionnement Hydrique : {directives_sol['eau']}", body_style))
-                story.append(Paragraph(f"• Agence Sectorielle Référente : {directives_sol['agence_suivi']}", body_style))
-                story.append(Paragraph(f"• Circuit Commercial : {directives_sol['commerce_eco']}", body_style))
-
-                doc.build(story)
-                buffer.seek(0)
-                return buffer
-
-            pdf_rapport = compiler_rapport_consultance_pdf(produit_selected, zone_selected, rendement_reel, production_totale, besoin_eau_m3, chiffre_affaire, texte_ia_analyse, profil_sol)
-            
-            col_dl1, col_dl2 = st.columns([4, 4])
-            with col_dl1:
-                st.download_button(
-                    label="📥 Télécharger le Rapport d'Expertise (PDF)",
-                    data=pdf_rapport,
-                    file_name=f"Rapport_Expertise_ISRA_{produit_selected.replace(' ', '_')}.pdf",
-                    mime="application/pdf",
-                    use_container_width=True
-                )
-            with col_dl2:
-                # Bouton d'archivage automatique par messagerie
-                sujet_national = f"DOSSIER AGRO SENEGAL - {data_produit['id']}"
-                corps_national = f"Rapport Integre de Simulation Agricole 2026.%0D%0A" \
-                                 f"Culture: {produit_selected}%0D%0ATerroir: {zone_selected}%0D%0A" \
-                                 f"Rendement Reussite: {rendement_reel:.2f} T/Ha | Production: {production_totale:.2f} Tonnes.%0D%0A" \
-                                 f"Transmis pour archivage automatique."
-                st.markdown(f"""
-                    <a href="mailto:issayoume2012@gmail.com?subject={sujet_national}&body={corps_national}" style="background-color: #1e3a8a; display: block; text-align: center; color: white; padding: 9px 20px; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 14px;">
-                        📧 Archiver par Email (issayoume2012@gmail.com)
-                    </a>
-                """, unsafe_allow_html=True)
 ##############################################################""
 
 elif selected == "🌱 Conseil" :
