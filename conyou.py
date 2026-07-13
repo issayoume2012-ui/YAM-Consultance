@@ -129,354 +129,199 @@ selected = st.radio(
 
 # ACCUEIL
 # =====================================================
+# =====================================================
 if selected == "🏠 Accueil":
 
+    # --- STYLE CSS SÉCURISÉ (Injecté globalement) ---
     st.markdown("""
     <style>
-    /* Intégration d'une police moderne */
-    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;800&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght=400;600;700;800&display=swap');
     
     .main .block-container {
         font-family: 'Plus Jakarta Sans', sans-serif;
     }
 
-    /* FORÇAGE DE LA HAUTEUR IDENTIQUE POUR TOUTES LES COLONNES STREAMLIT */
-    div[data-testid="stColumn"] > div {
-        height: 100%;
-        display: flex;
-        flex-direction: column;
-    }
-
-    /* Section HERO VERSION XXL */
-    .hero {
-        background: linear-gradient(135deg, rgba(27, 94, 32, 0.9), rgba(2, 136, 209, 0.7)),
-                    url("https://images.unsplash.com/photo-1500937386664-56d1dfef3854");
-        background-size: cover;
-        background-position: center;
-        border-radius: 32px;
-        padding: 130px 60px;
+    /* Hero Section */
+    .hero-box {
+        background: linear-gradient(135deg, #1E4620 0%, #0D2310 100%);
+        border-radius: 20px;
+        padding: 50px 30px;
         text-align: center;
         color: white;
-        margin-bottom: 60px;
-        box-shadow: 0 30px 60px rgba(27, 94, 32, 0.25);
-        transition: transform 0.5s ease, box-shadow 0.5s ease;
+        margin-bottom: 30px;
+        box-shadow: 0 10px 30px rgba(30, 70, 32, 0.15);
     }
-
-    .hero:hover {
-        transform: scale(1.01);
-        box-shadow: 0 35px 70px rgba(27, 94, 32, 0.35);
-    }
-
-    .hero h1 {
-        font-size: 72px;
+    .hero-box h1 {
+        font-size: 40px;
         font-weight: 800;
-        margin-bottom: 20px;
-        letter-spacing: -2px;
-        text-shadow: 0 4px 15px rgba(0,0,0,0.3);
+        margin-bottom: 10px;
+        color: white !important;
     }
-
-    .hero h2 {
-        font-size: 32px;
-        font-weight: 600;
-        margin-bottom: 40px;
-        opacity: 0.95;
-        letter-spacing: 1px;
-    }
-
-    .hero p {
-        max-width: 950px;
+    .hero-box p {
+        font-size: 16px;
+        opacity: 0.9;
+        max-width: 800px;
         margin: 0 auto;
+        color: #E8F5E9;
+    }
+
+    /* Titres de section */
+    .sec-title {
         font-size: 22px;
-        line-height: 1.8;
-        opacity: 0.95;
-    }
-
-    /* Titres des Sections */
-    .section-title {
-        text-align: center;
-        font-size: 36px;
-        font-weight: 800;
-        color: #1B5E20;
-        margin: 70px 0 40px 0;
-        position: relative;
-    }
-    
-    .section-title::after {
-        content: '';
-        display: block;
-        width: 80px;
-        height: 5px;
-        background: linear-gradient(90deg, #43A047, #0288D1);
-        margin: 15px auto 0 auto;
-        border-radius: 3px;
-    }
-
-    /* Base universelle des cartes */
-    .glass-base {
-        border-radius: 22px;
-        padding: 35px 25px;
-        height: 100%;
-        flex-grow: 1;
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
-        align-items: center;
-        text-align: center;
-        transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
-        box-shadow: 0 10px 25px rgba(0, 0, 0, 0.03);
-        box-sizing: border-box;
-    }
-
-    .glass-base:hover {
-        transform: translateY(-6px);
-    }
-
-    /* 📊 STYLE DYNAMIQUE DES CHIFFRES CLÉS (CUSTOM METRICS) */
-    .stat-card {
-        background: white;
-        border-radius: 20px;
-        padding: 25px 20px;
-        text-align: center;
-        box-shadow: 0 10px 30px rgba(0,0,0,0.05);
-        border: 1px solid rgba(0,0,0,0.03);
-        transition: all 0.4s ease;
-        height: 100%;
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
-        align-items: center;
-    }
-    .stat-card:hover {
-        transform: translateY(-8px);
-        box-shadow: 0 20px 40px rgba(0,0,0,0.12);
-    }
-    .stat-number {
-        font-size: 46px;
-        font-weight: 800;
-        line-height: 1;
-        margin-bottom: 8px;
-    }
-    .stat-label {
-        font-size: 15px;
-        font-weight: 600;
-        color: #666;
-    }
-    /* Couleurs spécifiques des stats */
-    .stat-plante .stat-number { color: #2E7D32; }
-    .stat-plante { border-bottom: 4px solid #2E7D32; }
-    .stat-sol .stat-number { color: #6D4C41; }
-    .stat-sol { border-bottom: 4px solid #6D4C41; }
-    .stat-eau .stat-number { color: #0288D1; }
-    .stat-eau { border-bottom: 4px solid #0288D1; }
-    .stat-innovation .stat-number { color: #673AB7; }
-    .stat-innovation { border-bottom: 4px solid #673AB7; }
-
-    /* 🌾 STYLE DYNAMIQUE DES DOMAINES D'INTERVENTION */
-    .domaine-card {
-        background: rgba(255, 255, 255, 0.9);
-        border-radius: 18px;
-        padding: 25px;
-        text-align: center;
         font-weight: 700;
+        color: #1E4620;
+        margin: 30px 0 15px 0;
+        border-left: 5px solid #E1A91A;
+        padding-left: 12px;
+    }
+
+    /* Cartes */
+    .card-box {
+        background: #F8F9FA;
+        border: 1px solid #E9ECEF;
+        border-radius: 14px;
+        padding: 20px;
+        text-align: center;
+        margin-bottom: 15px;
+        min-height: 180px;
+    }
+    .card-box h3 {
+        color: #1E4620 !important;
         font-size: 18px;
-        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.04);
-        transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-        cursor: pointer;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 10px;
-        height: 100%;
-        box-sizing: border-box;
+        font-weight: 700;
+        margin-top: 0;
     }
-    /* Effets de survol interactifs par thème */
-    .domaine-plante { border: 2px solid rgba(46, 125, 50, 0.2); color: #2E7D32; }
-    .domaine-plante:hover { background: #2E7D32; color: white; transform: scale(1.05); }
-
-    .domaine-eau { border: 2px solid rgba(2, 136, 209, 0.2); color: #0288D1; }
-    .domaine-eau:hover { background: #0288D1; color: white; transform: scale(1.05); }
-
-    .domaine-innovation { border: 2px solid rgba(103, 58, 183, 0.2); color: #673AB7; }
-    .domaine-innovation:hover { background: #673AB7; color: white; transform: scale(1.05); }
-
-    .domaine-sol { border: 2px solid rgba(109, 76, 65, 0.2); color: #6D4C41; }
-    .domaine-sol:hover { background: #6D4C41; color: white; transform: scale(1.05); }
-
-    /* VARIATIONS THÉMATIQUES DES SERVICES */
-    .card-eau { background: rgba(225, 245, 254, 0.85); border: 1px solid rgba(2, 136, 209, 0.25); backdrop-filter: blur(10px); }
-    .card-eau:hover { box-shadow: 0 20px 40px rgba(2, 136, 209, 0.2); border-color: rgba(2, 136, 209, 0.5); }
-    .card-eau h3 { color: #0288D1; font-weight: 700; margin-bottom: 12px; font-size: 22px; }
-    .card-eau p { color: #01579B; font-size: 15px; line-height: 1.6; margin: 0; }
-
-    .card-innovation { background: rgba(243, 229, 245, 0.85); border: 1px solid rgba(124, 77, 255, 0.25); backdrop-filter: blur(10px); }
-    .card-innovation:hover { box-shadow: 0 20px 40px rgba(124, 77, 255, 0.2); border-color: rgba(124, 77, 255, 0.5); }
-    .card-innovation h3 { color: #673AB7; font-weight: 700; margin-bottom: 12px; font-size: 22px; }
-    .card-innovation p { color: #4A148C; font-size: 15px; line-height: 1.6; margin: 0; }
-
-    .card-sol { background: rgba(245, 240, 235, 0.9); border: 1px solid rgba(141, 110, 99, 0.25); backdrop-filter: blur(10px); }
-    .card-sol:hover { box-shadow: 0 20px 40px rgba(141, 110, 99, 0.2); border-color: rgba(141, 110, 99, 0.5); }
-    .card-sol h3 { color: #5D4037; font-weight: 700; margin-bottom: 12px; font-size: 22px; }
-    .card-sol p { color: #3E2723; font-size: 15px; line-height: 1.6; margin: 0; }
-
-    .card-plante { background: rgba(232, 245, 233, 0.85); border: 1px solid rgba(67, 160, 71, 0.25); backdrop-filter: blur(10px); }
-    .card-plante:hover { box-shadow: 0 20px 40px rgba(67, 160, 71, 0.2); border-color: rgba(67, 160, 71, 0.5); }
-    .card-plante h3 { color: #1B5E20; font-weight: 700; margin-bottom: 12px; font-size: 22px; }
-    .card-plante p { color: #1B5E20; font-size: 15px; line-height: 1.6; margin: 0; }
-
-    .vision-nature {
-        background: linear-gradient(135deg, #1B5E20, #0288D1, #8D6E63);
-        color: white; border-radius: 22px; padding: 35px 25px; height: 100%; flex-grow: 1;
-        display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center;
-        box-shadow: 0 12px 30px rgba(27, 94, 32, 0.25); transition: all 0.3s ease; box-sizing: border-box;
+    .card-box p {
+        font-size: 13px;
+        color: #495057;
+        line-height: 1.4;
     }
-    .vision-nature:hover { transform: translateY(-6px); box-shadow: 0 25px 50px rgba(27, 94, 32, 0.4); }
-    .vision-nature h3 { color: white; font-weight: 700; margin-bottom: 12px; font-size: 22px; }
-    .vision-nature p { color: rgba(255, 255, 255, 0.95); font-size: 15px; line-height: 1.6; margin: 0; }
 
-    /* =======================================================
-       # RESPONSIVE DESIGN (TABLETTES & SMARTPHONES)
-       ======================================================= */
-    @media (max-width: 992px) {
-        .hero { padding: 90px 30px; }
-        .hero h1 { font-size: 52px; }
-        .hero h2 { font-size: 24px; }
+    /* Badges */
+    .badge-box {
+        background: #E8F5E9;
+        color: #1E4620;
+        padding: 12px;
+        border-radius: 10px;
+        font-weight: 600;
+        font-size: 12px;
+        text-align: center;
+        border: 1px solid #C8E6C9;
+        margin-bottom: 10px;
+        min-height: 80px;
     }
-    @media (max-width: 768px) {
-        .hero { padding: 60px 20px; margin-bottom: 40px; }
-        .hero h1 { font-size: 38px; }
-        .hero h2 { font-size: 20px; }
-        .hero p { font-size: 16px; }
-        .section-title { font-size: 28px; }
-        .glass-base, .vision-nature { padding: 25px 15px; }
-        .stat-number { font-size: 36px; }
-    }
-    @media (max-width: 480px) {
-        .hero h1 { font-size: 30px; }
-        .hero h2 { font-size: 16px; }
-        .section-title { font-size: 24px; }
+    .badge-box span {
+        font-size: 10px;
+        font-weight: normal;
+        color: #4B6F44;
+        display: block;
+        margin-top: 4px;
     }
     </style>
     """, unsafe_allow_html=True)
 
-    # HERO XXL
+    # --- HERO SECTION ---
     st.markdown("""
-    <div class="hero">
-        <h1>🌾 YouAgronoMe</h1>
-        <h2>Eau • Innovation • Sol • Plante</h2>
-        <p>
-            Nous optimisons les ressources vitales et déployons des technologies intelligentes 
-            pour façonner une agriculture durable, résiliente et hautement productive.
-        </p>
+    <div class="hero-box">
+        <h1>YouAgronoMe-ConsultanceSn</h1>
+        <p>La plateforme numérique qui connecte les décisions de terrain des acteurs agricoles aux données scientifiques, météorologiques et stratégiques des institutions publiques du Sénégal.</p>
     </div>
     """, unsafe_allow_html=True)
 
-    # STATISTIQUES REFAITES (PLUS DYNAMIQUES)
-    st.markdown("<div class='section-title'>📊 Chiffres Clés</div>", unsafe_allow_html=True)
+    # --- VALEUR AJOUTÉE PAR PROFIL ---
+    st.markdown("<div class='sec-title'>🎯 Solutions pour les Acteurs du Terrain</div>", unsafe_allow_html=True)
     
-    stat_cols = st.columns(4)
-    
-    with stat_cols[0]:
-        st.markdown("""
-        <div class="stat-card stat-plante">
-            <div class="stat-number">+500</div>
-            <div class="stat-label">👨‍🌾 Producteurs Accompagnés</div>
-        </div>
-        """, unsafe_allow_html=True)
-        
-    with stat_cols[1]:
-        st.markdown("""
-        <div class="stat-card stat-sol">
-            <div class="stat-number">+150</div>
-            <div class="stat-label">🌱 Exploitations Suivies</div>
-        </div>
-        """, unsafe_allow_html=True)
-        
-    with stat_cols[2]:
-        st.markdown("""
-        <div class="stat-card stat-eau">
-            <div class="stat-number">+20</div>
-            <div class="stat-label">📍 Zones d'Intervention</div>
-        </div>
-        """, unsafe_allow_html=True)
-        
-    with stat_cols[3]:
-        st.markdown("""
-        <div class="stat-card stat-innovation">
-            <div class="stat-number">+40</div>
-            <div class="stat-label">🤝 Partenaires Stratégiques</div>
-        </div>
-        """, unsafe_allow_html=True)
-
-    # SERVICES
-    st.markdown("<div class='section-title'>🚀 Nos Services</div>", unsafe_allow_html=True)
-
-    services = [
-        ("🌱 Conseils Agricoles", "Accompagnement technique adapté à chaque type de culture.", "card-plante"),
-        ("💧 Irrigation Intelligente", "Gestion optimale, connectée et raisonnée des ressources précieuses en eau.", "card-eau"),
-        ("🟤 Analyse des Sols", "Cartographie complète, suivi de la fertilité et aide à la régénération des sols arables.", "card-sol"),
-        ("💻 Technologie Agritech", "Drones imageries, capteurs IoT et outils digitaux d'aide à la décision.", "card-innovation"),
-        ("🛒 Accès aux Marchés", "Valorisation optimale des récoltes et création de débouchés fiables.", "card-plante"),
-        ("📚 Formations & R&D", "Renforcement continu des compétences et vulgarisation des pratiques innovantes.", "card-innovation")
-    ]
-
-    cols = st.columns(3)
-    for i, (titre, texte, theme_class) in enumerate(services):
-        with cols[i % 3]:
-            st.markdown(f"""
-            <div class="glass-base {theme_class}">
-                <h3>{titre}</h3>
-                <p>{texte}</p>
-            </div>
-            """, unsafe_allow_html=True)
-
-    # MISSION & VISION
-    st.markdown("<div class='section-title'>🎯 Notre Engagement</div>", unsafe_allow_html=True)
-
-    col1, col2 = st.columns(2)
+    # Pour éviter le bug de removeChild, on injecte le HTML des colonnes de manière indépendante et simplifiée
+    col1, col2, col3 = st.columns(3)
     with col1:
         st.markdown("""
-        <div class="glass-base card-sol">
-            <h3>🟤 Notre Mission</h3>
-            <p>Régénérer les sols, maximiser l'efficience de l'eau et sécuriser les rendements des producteurs grâce au savoir-faire technique et aux alternatives écologiques.</p>
+        <div class="card-box">
+            <h3>🧑‍🌾 Agriculteurs</h3>
+            <p>Accédez à des conseils culturaux adaptés à votre zone, des alertes de pluie locales et des recommandations d'irrigation pour sécuriser vos récoltes au quotidien.</p>
         </div>
         """, unsafe_allow_html=True)
-
     with col2:
         st.markdown("""
-        <div class="vision-nature">
-            <h3>🌍 Notre Vision</h3>
-            <p>Impulser la révolution agricole moderne au Sénégal, où l'innovation technologique s'harmonise parfaitement avec les cycles de la nature pour nourrir durablement.</p>
+        <div class="card-box">
+            <h3>📈 Techniciens</h3>
+            <p>Disposez d'outils de diagnostic des sols, de suivi de la santé des plantes et de planification des intrants pour guider efficacement les coopératives.</p>
+        </div>
+        """, unsafe_allow_html=True)
+    with col3:
+        st.markdown("""
+        <div class="card-box">
+            <h3>🌍 ONG & Projets</h3>
+            <p>Suivez l'impact de vos projets de résilience, cartographiez les vulnérabilités hydriques et pilotez vos indicateurs de souveraineté alimentaire.</p>
         </div>
         """, unsafe_allow_html=True)
 
-    # DOMAINES D'INTERVENTION REFAITS (BADGES INTERACTIFS ET ANIMÉS)
-    st.markdown("<div class='section-title'>🌾 Domaines d'Intervention</div>", unsafe_allow_html=True)
+    # --- SERVICES PAR LES INSTITUTIONS SÉNÉGALAISES ---
+    st.markdown("<div class='sec-title'>⚙️ Services basés sur l'expertise nationale</div>", unsafe_allow_html=True)
 
-    domaines = [
-        ("🥦 Maraîchage", "domaine-plante"),
-        ("💧 Gestion de l'Eau", "domaine-eau"),
-        ("🛸 Agritech & Drones", "domaine-innovation"),
-        ("🌾 Cultures Vivrières", "domaine-sol"),
-        ("🐐 Élevage Durable", "domaine-plante"),
-        ("🧪 Hydroponie", "domaine-eau")
-    ]
+    col4, col5, col6 = st.columns(3)
+    with col4:
+        st.markdown("""
+        <div class="card-box">
+            <h3>💧 Alertes & Eau</h3>
+            <p>Planification de l'arrosage et suivi des nappes grâce aux données croisées de la <b>DGPRE</b>, de la <b>SAED</b> et de la <b>SODAGRI</b>.</p>
+        </div>
+        """, unsafe_allow_html=True)
+    with col5:
+        st.markdown("""
+        <div class="card-box">
+            <h3>🔬 Recherche & Sols</h3>
+            <p>Recommandations de fertilisation bio, de semences adaptées et de traitement des sols validées par l'<b>ISRA</b>.</p>
+        </div>
+        """, unsafe_allow_html=True)
+    with col6:
+        st.markdown("""
+        <div class="card-box">
+            <h3>🌾 Climat & Vulgarisation</h3>
+            <p>Bulletins agrométéorologiques de l'<b>ANACIM</b> combinés au conseil d'appui à la vulgarisation de l'<b>ANCAR</b>.</p>
+        </div>
+        """, unsafe_allow_html=True)
 
-    cols = st.columns(3)
-    for i, (domaine, theme_class) in enumerate(domaines):
-        with cols[i % 3]:
-            st.markdown(f"""
-            <div class="domaine-card {theme_class}">
-                {domaine}
-            </div>
-            """, unsafe_allow_html=True)
+    # --- LES COLLABORATEURS INSTITUTIONNELS ---
+    st.markdown("<div class='sec-title'>🏛️ Référentiel des Écosystèmes Partenaires</div>", unsafe_allow_html=True)
+    st.info("Cette application traduit les orientations et données techniques des structures étatiques sénégalaises en actions concrètes et compréhensibles sur le terrain.")
 
+    # Ligne d'institutions 1
+    col7, col8, col9, col10 = st.columns(4)
+    with col7:
+        st.markdown('<div class="badge-box">MAERSA <span>Ministère de l\'Agriculture et de la Souveraineté Alimentaire</span></div>', unsafe_allow_html=True)
+    with col8:
+        st.markdown('<div class="badge-box">ANACIM <span>Agence Nationale de la Météorologie</span></div>', unsafe_allow_html=True)
+    with col9:
+        st.markdown('<div class="badge-box">ISRA <span>Institut Sénégalais de Recherches Agricoles</span></div>', unsafe_allow_html=True)
+    with col10:
+        st.markdown('<div class="badge-box">ANCAR <span>Agence Nationale de Conseil Agricole et Rural</span></div>', unsafe_allow_html=True)
+
+    # Ligne d'institutions 2
+    col11, col12, col13, col14 = st.columns(4)
+    with col11:
+        st.markdown('<div class="badge-box">DGPRE <span>Direction de la Gestion des Ressources en Eau</span></div>', unsafe_allow_html=True)
+    with col12:
+        st.markdown('<div class="inst-badge badge-box">SAED <span>Société d\'Aménagement des Terres du Delta</span></div>', unsafe_allow_html=True)
+    with col13:
+        st.markdown('<div class="inst-badge badge-box">SODAGRI <span>Société de Développement Agricole</span></div>', unsafe_allow_html=True)
+    with col14:
+        st.markdown('<div class="inst-badge badge-box">SENUM SA <span>Sénégal Numérique (Hébergement & Données)</span></div>', unsafe_allow_html=True)
+
+    # --- PIED DE PAGE ---
     st.write("") 
-    st.success("🌱 Ensemble, valorisons notre sol et notre eau grâce à l'innovation !")
-
+    st.success("YAM en synergie avec les institutions publiques pour une agriculture résiliente, durable et souveraine.")
 # =========================================================================
 elif selected == "📊 Tableau de Bord":
 
     import pandas as pd
+    import streamlit as st
+    import io
+    
+    # Imports requis pour l'impression professionnelle en PDF
+    from reportlab.lib.pagesizes import letter, landscape
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib import colors
 
     # 1. STYLE CSS VISUEL AVANCÉ (ALIGNÉ SUR LE CORE PREMIUM)
     st.markdown("""
@@ -496,7 +341,7 @@ elif selected == "📊 Tableau de Bord":
     
     .inst-badge-db {
         background: rgba(255, 255, 255, 0.12);
-        padding: 3px 10px;
+        padding: 4px 12px;
         border-radius: 20px;
         font-size: 11px;
         font-weight: 500;
@@ -513,6 +358,30 @@ elif selected == "📊 Tableau de Bord":
         border-left: 5px solid #e2b13c;
         padding-left: 10px;
     }
+    .eco-card {
+        background: #ffffff;
+        padding: 20px;
+        border-radius: 10px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+        border-top: 4px solid #0b3c1a;
+        text-align: center;
+    }
+    .eco-val {
+        font-size: 24px;
+        font-weight: 800;
+        color: #0b3c1a;
+        margin-top: 5px;
+    }
+    .ai-box {
+        background-color: #f0fdf4;
+        border-left: 5px solid #16a34a;
+        padding: 15px;
+        border-radius: 6px;
+        margin-top: 10px;
+        font-size: 14px;
+        color: #1e293b;
+        line-height: 1.5;
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -520,8 +389,8 @@ elif selected == "📊 Tableau de Bord":
     st.markdown("""
     <div class="dashboard-hero">
         <h2>🇸🇳 Observatoire National Intégré de la Souveraineté Alimentaire et des Produits du Sénégal</h2>
-        <p>Cartographie globale multisectorielle des performances agricoles, halieutiques, horticoles et animales des terroirs.</p>
-        <span class="inst-badge-db">Référentiel Stratégique : Ministère (MASAE) • ISRA • ENSA • ANSD • ANACIM • INP • SAED • ANCAR (Campagne 2026)</span>
+        <p>Analyse macro-économique et d'impact budgétaire trans-sectoriel des terroirs et bassins de production.</p>
+        <span class="inst-badge-db">Référentiel Stratégique : Ministères (MASAE • MEPA • MSAS) • SEMUM • SONACOS • SADAGRI • ISRA • SAED • ANCAR (Campagne 2026)</span>
     </div>
     """, unsafe_allow_html=True)
 
@@ -541,7 +410,7 @@ elif selected == "📊 Tableau de Bord":
             ],
             "Source d'Eau Principale": [
                 "Nappe Phréatique", "Forages profonds / Niayes", "Nappe Maestrichtienne", "Fleuve Sénégal / Canal", "Puits de surface / Pluvial",
-                "Rivières / Pluvial sédimentaire", "Forages / Nappe profonde", "Cours d'eau Gambie / Pluvial", "Pluvial / Fleuve Casamance", "Fleuve Sénégal (Pompil)",
+                "Rivières / Pluvial sédimentaire", "Forages / Nappe professionnelle", "Cours d'eau Gambie / Pluvial", "Pluvial / Fleuve Casamance", "Fleuve Sénégal (Pompil)",
                 "Pluvial / Estuaires", "Pluvial strict", "Ruisseaux de montagne", "Fleuve Casamance / Pluvial"
             ],
             "Indice de Salinité des Sols (%)": [
@@ -574,51 +443,60 @@ elif selected == "📊 Tableau de Bord":
                 5100, 3200, 8900, 9500, 11200,
                 5400, 16800, 1200, 4900
             ],
-            "Superficies Aménagées Irriguées (Ha)": [
-                120, 2500, 800, 145000, 1200,
-                3500, 450, 1800, 4200, 65000,
-                900, 350, 150, 2800
-            ],
             "Taux d'Encadrement Technique ANCAR (%)": [
                 5.0, 34.2, 28.0, 78.5, 42.1,
                 51.0, 22.4, 19.5, 31.0, 64.0,
                 35.8, 48.0, 12.5, 38.2
             ],
             
-            # =========================================================================
-            # CARTOGRAPHIE COMPLÈTE DE TOUS LES PRODUITS DU SÉNÉGAL (ISRA • ENSA • MINISTÈRE)
-            # =========================================================================
-            # 1. FILIÈRE CÉRÉALES (Riz, Mil, Maïs, Sorgho)
+            # --- AGENCES & INFRASTRUCTURES ---
+            "Collecte Arachide SONACOS [Tonnes]": [
+                0, 28000, 52000, 1000, 195000,
+                0, 18000, 35000, 42000, 0,
+                65000, 210000, 0, 12000
+            ],
+            "Capacité Stockage/Transit SEMUM [Tonnes]": [
+                120000, 35000, 15000, 45000, 60000,
+                15000, 10000, 5000, 5000, 8000,
+                8000, 12000, 2000, 6000
+            ],
+            "Superficies Aménagées SADAGRI (Ha)": [
+                0, 1200, 800, 45000, 2500,
+                1800, 500, 4000, 3200, 12000,
+                900, 1500, 500, 2200
+            ],
+            "Taux Couverture Vaccinale Cheptel MEPA (%)": [
+                75.0, 62.5, 88.0, 82.1, 71.4,
+                55.0, 92.4, 79.8, 85.0, 89.5,
+                68.0, 74.5, 48.0, 59.2
+            ],
+            "Non-Conformité Sanitaire Aliments MSAS (%)": [
+                1.2, 3.4, 5.1, 2.5, 4.8,
+                6.2, 3.1, 2.8, 4.2, 3.9,
+                5.5, 4.1, 1.8, 3.5
+            ],
+            
+            # --- FILIÈRES DE PRODUCTION ORIGINALES ---
             "Céréales (Riz, Mil, Maïs) [Tonnes]": [
                 500, 45000, 85000, 650000, 320000,
                 110000, 35000, 180000, 210000, 290000,
                 95000, 410000, 48000, 125000
             ],
-            # 2. FILIÈRE OLÉAGINEUX & INDUSTRIELS (Arachide, Coton, Sésame)
-            "Industriels (Arachide, Coton) [Tonnes]": [
-                0, 52000, 120000, 12000, 380000,
-                8000, 45000, 95000, 115000, 5000,
-                140000, 490000, 15000, 64000
-            ],
-            # 3. FILIÈRE MARAÎCHAGE (Oignon, Pomme de terre, Tomate industrielle)
             "Maraîchage (Oignon, Tomate) [Tonnes]": [
                 85000, 340000, 45000, 480000, 35000,
                 22000, 110000, 15000, 18000, 95000,
                 42000, 25000, 8000, 31000
             ],
-            # 4. FILIÈRE FRUITS & EXPORTATION ENSA (Mangue, Citron, Banane, Cajou)
             "Horticulture (Mangue, Cajou) [Tonnes]": [
                 5000, 180000, 2000, 5000, 8000,
                 145000, 4000, 28000, 42000, 1500,
                 12000, 3000, 9000, 98000
             ],
-            # 5. FILIÈRE HALIEUTIQUE (Pêche Maritime, Aquaculture - Suivi Ministère/ISRA)
             "Produits Halieutiques & Pêche [Tonnes]": [
                 115000, 95000, 0, 45000, 0,
                 68000, 12000, 0, 0, 1500,
                 55000, 0, 0, 8000
             ],
-            # 6. FILIÈRE ÉLEVAGE & PRODUCTIONS ANIMALES (Lait en Litres, Viande/Aviculture en T)
             "Élevage & Lait [Mille Litres]": [
                 120, 1400, 2800, 1900, 1500,
                 650, 4200, 3100, 3900, 1800,
@@ -632,142 +510,260 @@ elif selected == "📊 Tableau de Bord":
         }
         return pd.DataFrame(data)
 
-    df_agro = charger_donnees_tous_produits_senegal()
+    df_base = charger_donnees_tous_produits_senegal()
 
-    # 4. PANNEAU DE CONTRÔLE ET FILTRAGE DYNAMIQUE
-    st.markdown("<div class='db-section-title'>🎛️ Profilage Global et Choix Systémiques des Filières</div>", unsafe_allow_html=True)
+    # =========================================================================
+    # 4. MODULE DE CONFIGURATION DU MODÈLE ET DES SCÉNARIOS PROSPECTIFS
+    # =========================================================================
+    st.markdown("<div class='db-section-title'>⚙️ Module Pilote : Simulation de Scénarios Macro-Souverains</div>", unsafe_allow_html=True)
     with st.container(border=True):
-        col_sel, col_slide1, col_slide2 = st.columns([2, 2, 2])
+        col_reg, col_scen = st.columns([3, 3])
         
-        with col_sel:
-            liste_regions = ["Tout le Sénégal"] + list(df_agro["Région"].unique())
-            region_choisie = st.selectbox("Sélectionnez la zone à auditer :", options=liste_regions, key="sb_region_choisie")
+        with col_reg:
+            liste_regions = ["Tout le Sénégal"] + list(df_base["Région"].unique())
+            region_choisie = st.selectbox("Sélectionnez le territoire d'analyse :", options=liste_regions, key="sb_region_choisie")
         
-        with col_slide1:
-            max_salinite = st.slider("Seuil maximal de salinité (%) [Alerte INP] :", 0.0, 60.0, 60.0, step=5.0)
+        with col_scen:
+            scenario = st.selectbox(
+                "Choisir un scénario de projection (Horizon 2026) :",
+                options=[
+                    "📈 Statu Quo / Campagne Standard", 
+                    "🚨 Crise Climatique (Sécheresse & Stress Logistique)", 
+                    "🚀 Plan d'Investissement Massif Stratégique"
+                ]
+            )
+
+        # Application du filtre régional initial
+        df_filtre = df_base.copy()
+        if region_choisie != "Tout le Sénégal":
+            df_filtre = df_filtre[df_filtre["Région"] == region_choisie]
+
+        # Paramètres de simulation micro/macro
+        coef_production = 1.0
+        coef_logistique = 1.0
+        coef_subvention = 1.0
+
+        if "Crise Climatique" in scenario:
+            coef_production = 0.75  # -25% de volumes produits
+            coef_logistique = 1.30  # +30% de surcoût sur le stockage/transit
+            st.error("⚠️ **Alerte Conjoncturelle** : Risque de baisse de la rentabilité globale et envolée des coûts logistiques.")
+        elif "Plan d'Investissement" in scenario:
+            coef_production = 1.25  # +25% de rendement matière
+            coef_subvention = 0.80  # Optimisation de 20% de l'efficacité de l'intrant
+            st.success("✨ **Optimisation Structurelle** : Augmentation de la valeur ajoutée agricole par hectare aménagé.")
+
+    # =========================================================================
+    # 5. NOUVELLE FONCTIONNALITÉ SYSTÉMIQUE : VALORISATION ET AUDIT ÉCONOMIQUE
+    # =========================================================================
+    st.markdown(f"<div class='db-section-title'>💰 Analyse d'Impact Budgétaire et d'Efficience Économique : <b>{region_choisie}</b></div>", unsafe_allow_html=True)
+    
+    # Calcul des variables macro-économiques consolidées
+    total_pib_agri = df_filtre["PIB Agricole Estimé (Milliards FCFA)"].sum()
+    total_intrants_t = df_filtre["Intrants Subventionnés Distribués (Tonnes)"].sum()
+    total_cereales_t = df_filtre["Céréales (Riz, Mil, Maïs) [Tonnes]"].sum() * coef_production
+    total_arachide_t = df_filtre["Collecte Arachide SONACOS [Tonnes]"].sum() * coef_production
+    total_stockage_t = df_filtre["Capacité Stockage/Transit SEMUM [Tonnes]"].sum()
+
+    # Formules économiques dérivées
+    # 1. Valeur Marchande Estimée (Prix moyens pondérés simulés)
+    valeur_marchande_milliards = ((total_cereales_t * 250) + (total_arachide_t * 300)) / 1_000_000_000
+    
+    # 2. Coût d'opportunité de stockage SEMUM (Hypothèse 15 000 FCFA / T mobilisée corrigée par la logistique)
+    cout_logistique_milliards = (total_stockage_t * 15000 * coef_logistique) / 1_000_000_000
+    
+    # 3. Efficience de la subvention : Tonnes produites par Tonne d'intrants investie
+    efficience_intrant = (total_cereales_t + total_arachide_t) / total_intrants_t if total_intrants_t > 0 else 0
+
+    ecocol1, ecocol2, ecocol3 = st.columns(3)
+    
+    with ecocol1:
+        st.markdown(f"""
+        <div class="eco-card">
+            <div style="font-size:13px; color:#64748b; font-weight:600;">📦 VALEUR MARCHANDE ESTIMÉE</div>
+            <div class="eco-val">{valeur_marchande_milliards:.2f} Mrds FCFA</div>
+            <div style="font-size:11px; color:#16a34a; margin-top:5px;">Filières Céréales & Arachide</div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+    with ecocol2:
+        st.markdown(f"""
+        <div class="eco-card">
+            <div style="font-size:13px; color:#64748b; font-weight:600;">🏢 COÛT LOGISTIQUE SEMUM</div>
+            <div class="eco-val">{cout_logistique_milliards:.2f} Mrds FCFA</div>
+            <div style="font-size:11px; color:#64748b; margin-top:5px;">Charges de transit & conservation</div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+    with ecocol3:
+        st.markdown(f"""
+        <div class="eco-card">
+            <div style="font-size:13px; color:#64748b; font-weight:600;">📊 EFFICIENCE DE L'INTRANT</div>
+            <div class="eco-val">{efficience_intrant:.1f} T / T</div>
+            <div style="font-size:11px; color:#e2b13c; margin-top:5px;">Rendement par tonne de subvention</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    # =========================================================================
+    # 6. ALERTES & RECOMMANDATIONS SECTORIELLES DIRECTIVES
+    # =========================================================================
+    st.markdown("<div class='db-section-title'>📢 Bulletins d'Intervention Institutionnels Coordinés</div>", unsafe_allow_html=True)
+    
+    col_l, col_r = st.columns(2)
+    with col_l:
+        st.subheader("🥩 Santé Animale & Aménagement (MEPA • SADAGRI)")
+        zones_faibles_mepa = df_filtre[df_filtre["Taux Couverture Vaccinale Cheptel MEPA (%)"] < 70.0]
+        if not zones_faibles_mepa.empty:
+            for idx, row in zones_faibles_mepa.iterrows():
+                st.warning(f"🚨 **{row['Région']}** : Alerte couverture vaccinale basse ({row['Taux Couverture Vaccinale Cheptel MEPA (%)']:.1f}%). Déploiement MEPA ordonné.")
+        
+        zones_sadagri = df_filtre[df_filtre["Superficies Aménagées SADAGRI (Ha)"] > 4000]
+        if not zones_sadagri.empty:
+            for idx, row in zones_sadagri.iterrows():
+                st.success(f"🚜 **{row['Région']}** : Zone à forte capacité d'aménagement ({row['Superficies Aménagées SADAGRI (Ha)']} Ha).")
             
-        with col_slide2:
-            min_encadrement = st.slider("Taux d'encadrement minimum [Objectif ANCAR] (%) :", 0.0, 80.0, 0.0, step=5.0)
+    with col_r:
+        st.subheader("🛒 Logistique & Hygiène (SONACOS • SEMUM • MSAS)")
+        zones_risques_msas = df_filtre[df_filtre["Non-Conformité Sanitaire Aliments MSAS (%)"] > 4.5]
+        if not zones_risques_msas.empty:
+            for idx, row in zones_risques_msas.iterrows():
+                st.error(f"⚠️ **{row['Région']}** : Risque sanitaire critique ({row['Non-Conformité Sanitaire Aliments MSAS (%)']:.2f}% de non-conformité).")
 
-        # Application des filtres
-        df_filtre = df_agro if region_choisie == "Tout le Sénégal" else df_agro[df_agro["Région"] == region_choisie]
-        df_filtre = df_filtre[
-            (df_filtre["Indice de Salinité des Sols (%)"] <= max_salinite) & 
-            (df_filtre["Taux d'Encadrement Technique ANCAR (%)"] >= min_encadrement)
-        ]
-        est_filtre_total = (region_choisie == "Tout le Sénégal")
-
-    # 5. BLOC INDICATEURS NATIONAUX TOUS PRODUITS CONSULIDÉS (MINISTÈRE / ISRA)
-    st.markdown(f"<div class='db-section-title'>🔑 Table des Tableaux de Bord Physiques du Sénégal : <b>{region_choisie}</b></div>", unsafe_allow_html=True)
+    # =========================================================================
+    # 7. MATRICE CONSOLIDÉE ET ANALYSE AVEC INTÉLLIGENCE ARTIFICIELLE
+    # =========================================================================
+    st.markdown("<div class='db-section-title'>🏆 Matrice Globale Économique et Territoriale des Agences</div>", unsafe_allow_html=True)
     
-    col1, col2, col3, col4, col5, col6 = st.columns(6)
-    
-    with col1:
-        v1 = df_filtre["Céréales (Riz, Mil, Maïs) [Tonnes]"].sum()
-        st.metric(label="🌾 Céréales", value=f"{v1:,} T".replace(",", " "))
-    with col2:
-        v2 = df_filtre["Industriels (Arachide, Coton) [Tonnes]"].sum()
-        st.metric(label="🥜 Industriels/Arachide", value=f"{v2:,} T".replace(",", " "))
-    with col3:
-        v3 = df_filtre["Maraîchage (Oignon, Tomate) [Tonnes]"].sum()
-        st.metric(label="🍅 Maraîchage", value=f"{v3:,} T".replace(",", " "))
-    with col4:
-        v4 = df_filtre["Horticulture (Mangue, Cajou) [Tonnes]"].sum()
-        st.metric(label="🥭 Fruits/ENSA", value=f"{v4:,} T".replace(",", " "))
-    with col5:
-        v5 = df_filtre["Produits Halieutiques & Pêche [Tonnes]"].sum()
-        st.metric(label="🐟 Pêche/Aquacole", value=f"{v5:,} T".replace(",", " "))
-    with col6:
-        v6 = df_filtre["Élevage & Lait [Mille Litres]"].sum()
-        st.metric(label="🥛 Lait", value=f"{v6:,} m³.L".replace(",", " "))
+    colonnes_matrice = [
+        "Région", 
+        "PIB Agricole Estimé (Milliards FCFA)",
+        "Intrants Subventionnés Distribués (Tonnes)",
+        "Collecte Arachide SONACOS [Tonnes]", 
+        "Superficies Aménagées SADAGRI (Ha)",
+        "Capacité Stockage/Transit SEMUM [Tonnes]",
+        "Taux Couverture Vaccinale Cheptel MEPA (%)",
+        "Non-Conformité Sanitaire Aliments MSAS (%)"
+    ]
 
-    # =========================================================================
-    # 6. DIRECTIVES RECHERCHE & DIAGNOSTIC DIRECT (ISRA • ENSA • MINISTÈRE)
-    # =========================================================================
-    st.markdown("<div class='db-section-title'>📢 Directives Scientifiques & Bulletins d'Alerte Multi-Produits</div>", unsafe_allow_html=True)
-    
-    if df_filtre.empty:
-        st.error("⚠️ Aucun territoire ne valide ce croisement de filtres agro-démographiques.")
-    else:
-        col_l, col_r = st.columns(2)
-        
-        with col_l:
-            st.subheader("🧬 Innovations Variétales & Aménagements (ISRA • SAED)")
-            # Analyse croisée Riziculture/Céréales
-            zones_riz = df_filtre[df_filtre["Céréales (Riz, Mil, Maïs) [Tonnes]"] > 200000]
-            if not zones_riz.empty:
-                for idx, row in zones_riz.iterrows():
-                    st.info(f"🌾 **{row['Région']}** : Zone à haute concentration céréalière. *Recommandation ISRA :* Déploiement des semences certifiées de riz (ex: Sahel) adaptées aux sols locaux.")
-            
-            # Analyse Pêche Maritime
-            zones_peche = df_filtre[df_filtre["Produits Halieutiques & Pêche [Tonnes]"] > 50000]
-            if not zones_peche.empty:
-                for idx, row in zones_peche.iterrows():
-                    st.warning(f"🐟 **{row['Région']}** : Pôle halieutique majeur ({row['Produits Halieutiques & Pêche [Tonnes]']} T). *Directive Ministère :* Intensifier la surveillance des quotas et soutenir l'aquaculture continentale.")
-                
-        with col_r:
-            st.subheader("🎓 Exportation, Améliorations & Risques Sols (ENSA • INP)")
-            # Alerte Salinité sur Maraîchage et Arboriculture (Filières phares ENSA - Zone Niayes/Sud)
-            zones_horti_salines = df_filtre[(df_filtre["Indice de Salinité des Sols (%)"] > 10.0) & ((df_filtre["Horticulture (Mangue, Cajou) [Tonnes]"] > 30000) | (df_filtre["Maraîchage (Oignon, Tomate) [Tonnes]"] > 100000))]
-            if not zones_horti_salines.empty:
-                for idx, row in zones_horti_salines.iterrows():
-                    st.error(f"🔥 **{row['Région']}** : Sols `{row['Type de Sol Dominant (INP)']}` affectés par le sel ({row['Indice de Salinité des Sols (%)']}%). *Alerte ENSA :* Risque d'effondrement des rendements d'exportation de mangues/oignons.")
-            else:
-                st.success("🟢 Stabilité physico-chimique conforme aux référentiels ENSA pour l'arboriculture.")
-
-    # =========================================================================
-    # 7. MATRICE SOUVERAINETÉ COMPLÈTE DE TOUTES LES PRODUCTIONS DU SÉNÉGAL
-    # =========================================================================
-    st.markdown("<div class='db-section-title'>🏆 Tableau de Bord Général des Productions de Souveraineté Territoriale (Ministère)</div>", unsafe_allow_html=True)
     with st.container(border=True):
-        st.write("📊 *Bilan global consolidé de l'ensemble des spéculations et matrices de production par région (Données Officielles Campagne Évolutive 2026) :*")
-        
         st.dataframe(
-            df_filtre[[
-                "Région", "Céréales (Riz, Mil, Maïs) [Tonnes]", "Industriels (Arachide, Coton) [Tonnes]",
-                "Maraîchage (Oignon, Tomate) [Tonnes]", "Horticulture (Mangue, Cajou) [Tonnes]", 
-                "Produits Halieutiques & Pêche [Tonnes]", "Élevage & Lait [Mille Litres]", "Productions Carnées & Volaille [Tonnes]"
-            ]],
+            df_filtre[colonnes_matrice],
             use_container_width=True,
             hide_index=True,
             column_config={
-                "Région": st.column_config.TextColumn("Région / Bassin"),
-                "Céréales (Riz, Mil, Maïs) [Tonnes]": st.column_config.NumberColumn("🌾 Céréales", format="%d T"),
-                "Industriels (Arachide, Coton) [Tonnes]": st.column_config.NumberColumn("🥜 Industriels", format="%d T"),
-                "Maraîchage (Oignon, Tomate) [Tonnes]": st.column_config.NumberColumn("🍅 Maraîchage", format="%d T"),
-                "Horticulture (Mangue, Cajou) [Tonnes]": st.column_config.NumberColumn("🥭 Fruits (ENSA)", format="%d T"),
-                "Produits Halieutiques & Pêche [Tonnes]": st.column_config.NumberColumn("🐟 Halieutique", format="%d T"),
-                "Élevage & Lait [Mille Litres]": st.column_config.ProgressColumn("🥛 Lait", format="%d kL", min_value=0, max_value=5000),
-                "Productions Carnées & Volaille [Tonnes]": st.column_config.NumberColumn("🥩 Viandes/Avic.", format="%d T")
+                "Région": st.column_config.TextColumn("Région"),
+                "PIB Agricole Estimé (Milliards FCFA)": st.column_config.NumberColumn("💰 PIB Agri (Mrds)", format="%d M"),
+                "Intrants Subventionnés Distribués (Tonnes)": st.column_config.NumberColumn("🌱 Intrants (T)", format="%d T"),
+                "Collecte Arachide SONACOS [Tonnes]": st.column_config.NumberColumn("🥜 SONACOS", format="%d T"),
+                "Superficies Aménagées SADAGRI (Ha)": st.column_config.NumberColumn("🚜 Aménagé (Ha)", format="%d Ha"),
+                "Capacité Stockage/Transit SEMUM [Tonnes]": st.column_config.NumberColumn("🏢 SEMUM", format="%d T"),
+                "Taux Couverture Vaccinale Cheptel MEPA (%)": st.column_config.ProgressColumn("💉 MEPA Vacc.", format="%.1f %%", min_value=0, max_value=100),
+                "Non-Conformité Sanitaire Aliments MSAS (%)": st.column_config.NumberColumn("⚠️ MSAS (%)", format="%.2f %%")
             }
         )
 
-    # 8. REGISTRE LOGISTIQUE ET FACTEURS ENVIRONNEMENTAUX CRITIQUES
-    st.markdown("<div class='db-section-title'>📋 Logistique Institutionnelle, Démographie et Variables Biophysiques</div>", unsafe_allow_html=True)
-    with st.container(border=True):
-        st.write("📈 *Suivi des ressources de base distribées sous le contrôle du Ministère et profilage environnemental :*")
+        # --- MODULE D'ANALYSE DYNAMIQUE PAR IA SOUVERAINE ---
+        st.write("🤖 **Analyse Stratégique Prédictive (IA Souveraine) :**")
         
-        st.dataframe(
-            df_filtre[[
-                "Région", "Population Totale (Habitants)", "Superficies Aménagées Irriguées (Ha)", 
-                "Intrants Subventionnés Distribués (Tonnes)", "Taux d'Encadrement Technique ANCAR (%)", 
-                "Indice de Salinité des Sols (%)", "Source d'Eau Principale", "Disponibilité Hydrique / ANACIM"
-            ]], 
-            use_container_width=True, 
-            hide_index=True,
-            column_config={
-                "Population Totale (Habitants)": st.column_config.NumberColumn("Démographie (ANSD)", format="%d hab."),
-                "Superficies Aménagées Irriguées (Ha)": st.column_config.NumberColumn("Aménagé (SAED)", format="%d Ha"),
-                "Intrants Subventionnés Distribués (Tonnes)": st.column_config.NumberColumn("Intrants (MASAE)", format="%d T"),
-                "Taux d'Encadrement Technique ANCAR (%)": st.column_config.NumberColumn("Suivi ANCAR", format="%.1f %%"),
-                "Indice de Salinité des Sols (%)": st.column_config.NumberColumn("Salinité (INP)", format="%.1f %%"),
-                "Disponibilité Hydrique / ANACIM": st.column_config.TextColumn("Vigilance ANACIM")
-            }
-        )
+        def generer_synthese_ia_economique(df):
+            if df.empty:
+                return "Indicateurs indisponibles."
+            
+            synth_texte = f"**[Note de Conjoncture Économique]** : L'analyse consolidée pour le périmètre **{region_choisie}** sous le modèle *{scenario}* "
+            synth_texte += f"révèle un PIB agricole cumulé de **{total_pib_agri:,} Milliards FCFA**. ".replace(",", " ")
+            synth_texte += f"L'indice d'efficience globale s'élève à **{efficience_intrant:.2f} tonnes produites** par tonne d'intrant distribué, soulignant l'impact direct des subventions étatiques. "
+            synth_texte += f"La valorisation financière marchande cible est estimée à **{valeur_marchande_milliards:.2f} Milliards FCFA** pour les filières stratégiques de souveraineté."
+            return synth_texte
+            
+        texte_ia = generer_synthese_ia_economique(df_filtre)
+        st.markdown(f"<div class='ai-box'>{texte_ia}</div>", unsafe_allow_html=True)
 
+    # =========================================================================
+    # 8. SYSTÈME D'IMPRESSION EN PDF (MIS À PY REPRENDRE LES AXES ÉCONOMIQUES)
+    # =========================================================================
+    st.markdown("<div class='db-section-title'>🖨️ Édition de Rapports Économiques Officiels (PDF)</div>", unsafe_allow_html=True)
+    
+    def compiler_rapport_pdf_eco(df, scenario_nom, analyse_texte):
+        buffer = io.BytesIO()
+        doc = SimpleDocTemplate(buffer, pagesize=landscape(letter), rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
+        story = []
+        styles = getSampleStyleSheet()
+        
+        title_style = ParagraphStyle(
+            'PdfTitle', parent=styles['Heading1'], fontName='Helvetica-Bold', fontSize=14, textColor=colors.HexColor('#0b3c1a'), alignment=1, spaceAfter=12
+        )
+        meta_style = ParagraphStyle(
+            'PdfMeta', parent=styles['Normal'], fontName='Helvetica-Oblique', fontSize=9, textColor=colors.gray, alignment=1, spaceAfter=20
+        )
+        h2_style = ParagraphStyle(
+            'PdfH2', parent=styles['Heading2'], fontName='Helvetica-Bold', fontSize=12, textColor=colors.HexColor('#e2b13c'), spaceBefore=15, spaceAfter=8
+        )
+        body_style = ParagraphStyle(
+            'PdfBody', parent=styles['Normal'], fontName='Helvetica', fontSize=10, leading=14, spaceAfter=10
+        )
+        
+        story.append(Paragraph("REPUBLIQUE DU SENEGAL - OBSERVATOIRE DE LA SOUVERAINETÉ ALIMENTAIRE", title_style))
+        story.append(Paragraph(f"Rapport d'Audit Macro-économique Budgétaire | Zone : {region_choisie} | Modèle : {scenario_nom}", meta_style))
+        
+        story.append(Paragraph("1. Indicateurs Territoriaux Multi-Agences Consolidés", h2_style))
+        
+        entetes_pdf = ["Région", "PIB (Mrds)", "Intrants (T)", "SONACOS (T)", "SADAGRI (Ha)", "SEMUM (T)", "MEPA Vacc.", "MSAS N-Conf"]
+        donnees_table = [entetes_pdf]
+        
+        for _, row in df[colonnes_matrice].iterrows():
+            donnees_table.append([
+                str(row[colonnes_matrice[0]]),
+                str(row[colonnes_matrice[1]]),
+                f"{row[colonnes_matrice[2]]:,}".replace(",", " "),
+                f"{row[colonnes_matrice[3]]:,}".replace(",", " "),
+                f"{row[colonnes_matrice[4]]:,}".replace(",", " "),
+                f"{row[colonnes_matrice[5]]:,}".replace(",", " "),
+                f"{row[colonnes_matrice[6]]:.1f}%",
+                f"{row[colonnes_matrice[7]]:.2f}%"
+            ])
+            
+        t = Table(donnees_table, hAlign='CENTER')
+        t.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#0b3c1a')),
+            ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
+            ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+            ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0,0), (-1,0), 8.5),
+            ('BOTTOMPADDING', (0,0), (-1,0), 5),
+            ('BACKGROUND', (0,1), (-1,-1), colors.HexColor('#f8fafc')),
+            ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#cbd5e1')),
+            ('FONTSIZE', (0,1), (-1,-1), 8),
+        ]))
+        story.append(t)
+        story.append(Spacer(1, 15))
+        
+        story.append(Paragraph("2. Synthèse et Recommandation Émise par l'Agent IA Souveraine", h2_style))
+        story.append(Paragraph(analyse_texte.replace("**", ""), body_style))
+        
+        doc.build(story)
+        buffer.seek(0)
+        return buffer
+
+    if not df_filtre.empty:
+        pdf_genere = compiler_rapport_pdf_eco(df_filtre, scenario, texte_ia)
+        st.download_button(
+            label=f"📥 Imprimer le Rapport Économique Officiel ({region_choisie}) en PDF",
+            data=pdf_genere,
+            file_name=f"Rapport_Impact_Economique_{region_choisie.replace(' ', '_')}_2026.pdf",
+            mime="application/pdf"
+        )
 # SECTION CONSULTATION / HUB D'INTELLIGENCE AGRICOLE BIOMÉTRIQUE DU SÉNÉGAL
-# =========================================================================
-if selected == "💼 Consultance" :
+elif selected == "💼 Consultance":
+    import random
+    import io
+    import pandas as pd
+    import streamlit as st
+    
+    # Imports requis pour l'impression professionnelle en PDF
+    from reportlab.lib.pagesizes import letter, landscape
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib import colors
+
     st.markdown("""
     <style>
     /* Empêche la coupure des nombres (...) et adapte la taille dans st.metric */
@@ -781,6 +777,16 @@ if selected == "💼 Consultance" :
     .feature-card { padding: 12px; border-radius: 8px; background-color: #f8fafc; border-left: 4px solid #14b8a6; margin-bottom: 10px; }
     .highlight-desc { background-color: #f1f5f9; padding: 12px; border-radius: 6px; border-left: 3px solid #3b82f6; margin-bottom: 15px; font-style: italic; }
     .agency-tag { background-color: #eff6ff; color: #1e40af; font-weight: bold; padding: 2px 6px; border-radius: 4px; font-size: 11px; }
+    .ai-box {
+        background-color: #eff6ff;
+        border-left: 5px solid #2563eb;
+        padding: 15px;
+        border-radius: 6px;
+        margin-top: 10px;
+        font-size: 14px;
+        color: #1e293b;
+        line-height: 1.5;
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -831,9 +837,10 @@ if selected == "💼 Consultance" :
             ("Pastèque Kaolack", "Maraîchage", "Pastèque zébrée à chair rouge très sucrée, cultivée en masse dans le bassin arachidier."),
             ("Pastèque Sugar Baby", "Maraîchage", "Petite pastèque foncée à cycle très court, idéale pour les fins d'hivernage."),
             ("Melon Charentais", "Maraîchage", "Melon parfumé destiné à l'exportation et aux marchés spécialisés."),
-            ("Haricot vert Teresa", "Maraîchage", "Haricot d'exportation sans fil, exigeant en main d'œuvre pour la récolte."),
-            *[(f"Maraîchage Spécifique Cultivar M{i}", "Maraîchage", "Variété maraîchère de précision certifiée par la Direction de l'Agriculture (MAER).") for i in range(1, 21)],
+            ("Haricot vert Teresa", "Maraîchage", "Haricot d'exportation sans fil, exigeant en main d'œuvre pour la récolte.")
+        ] + [(f"Maraîchage Spécifique Cultivar M{i}", "Maraîchage", "Variété maraîchère de précision certifiée par la Direction de l'Agriculture (MAER).") for i in range(1, 21)]
 
+        produits_senegal += [
             # --- CÉRÉALES (Souveraineté Alimentaire / SAED / SODAGRI) ---
             ("Riz Sahel 108", "Céréales", "Variété de riz de contre-saison par excellence dans la Vallée du Fleuve, cycle très court."),
             ("Riz Sahel 201", "Céréales", "Riz à haut rendement sous irrigation, bonne tolérance à la salinité modérée."),
@@ -857,9 +864,10 @@ if selected == "💼 Consultance" :
             ("Sorgho CE 151", "Céréales", "Variété très rustique adaptée au Nord et Centre-Nord du pays."),
             ("Sorgho CE 196", "Céréales", "Sorgho à paille haute, résistant aux attaques d'oiseaux granivores."),
             ("Fonio local Kolda", "Céréales", "Céréale ancestrale de résilience, cultivée sur les sols marginaux du Sud."),
-            ("Blé ISRA-Mbacké", "Céréales", "Essai réussi d'adaptation du blé tendre en hivernage court au Sénégal."),
-            *[(f"Céréale Cultivar Sélection C{i}", "Céréales", "Variété céréalière certifiée par la Division des Semences (DISEM / MAER).") for i in range(1, 18)],
+            ("Blé ISRA-Mbacké", "Céréales", "Essai réussi d'adaptation du blé tendre en hivernage court au Sénégal.")
+        ] + [(f"Céréale Cultivar Sélection C{i}", "Céréales", "Variété céréalière certifiée par la Division des Semences (DISEM / MAER).") for i in range(1, 17)]
 
+        produits_senegal += [
             # --- LÉGUMINEUSES & OLÉAGINEUX (Filière SONACOS / Bassin Arachidier) ---
             ("Arachide 55-437", "Légumineuses", "La variété d'arachide la plus cultivée au Sénégal, ultra-précoce (90 jours), résistante à la sécheresse."),
             ("Arachide Fleur 11", "Légumineuses", "Variété ISRA à graines roses, dormance moyenne, excellente en zone Centre-Sud."),
@@ -870,9 +878,10 @@ if selected == "💼 Consultance" :
             ("Niébé Mouride", "Légumineuses", "Variété à double usage (grain pour l'alimentation, fane riche pour le cheptel)."),
             ("Sésame 32-15", "Légumineuses", "Culture de diversification majeure, graines riches en huile pour l'exportation."),
             ("Sésame Blanc ISRA", "Légumineuses", "Variété pure sélectionnée pour sa résistance à la capsule noire."),
-            ("Soja ISRA-Ndiol", "Légumineuses", "Cultivar introduit pour l'autonomie en protéines de la filière avicole nationale."),
-            *[(f"Légumineuse Variété L{i}", "Légumineuses", "Oléagineux certifié par l'Institut National de Pédologie (INP).") for i in range(1, 21)],
+            ("Soja ISRA-Ndiol", "Légumineuses", "Cultivar introduit pour l'autonomie en protéines de la filière avicole nationale.")
+        ] + [(f"Légumineuse Variété L{i}", "Légumineuses", "Oléagineux certifié par l'Institut National de Pédologie (INP).") for i in range(1, 21)]
 
+        produits_senegal += [
             # --- ARBORICULTURE & FRUITS (Filière Exportation / DPV / Casamance) ---
             ("Mangue Kent", "Arboriculture", "Variété d'exportation leader au Sénégal. Chair ferme sans fibre, cultivée dans les Niayes et en Casamance."),
             ("Mangue Keitt", "Arboriculture", "Mangue tardive de gros calibre, prolonge la campagne d'exportation jusqu'en septembre."),
@@ -881,9 +890,10 @@ if selected == "💼 Consultance" :
             ("Citron Gallet", "Arboriculture", "Petit citron vert local, extrêmement juteux, produit toute l'année sous irrigation."),
             ("Banane Williams", "Arboriculture", "Banane douce cultivée intensivement dans les bananeraies de Tambacounda (SODAGRI)."),
             ("Papaye Solo", "Arboriculture", "Papaye de petit calibre très sucrée, forte rentabilité sous climat côtier."),
-            ("Madd de Casamance", "Arboriculture", "Fruit sauvage en cours de domestication par l'ISRA, forte valeur ajoutée en transformation."),
-            *[(f"Arboriculture Variété F{i}", "Arboriculture", "Arbre fruitier sélectionné pour la diversification arboricole nationale.") for i in range(1, 33)],
+            ("Madd de Casamance", "Arboriculture", "Fruit sauvage en cours de domestication par l'ISRA, forte valeur ajoutée en transformation.")
+        ] + [(f"Arboriculture Variété F{i}", "Arboriculture", "Arbre fruitier sélectionné pour la diversification arboricole nationale.") for i in range(1, 33)]
 
+        produits_senegal += [
             # --- TUBERCULES, AROMATIQUES & INDUSTRIELS ---
             ("Manioc S सुनीता", "Tubercules", "Variété de manioc à fort rendement et haute teneur en amidon, idéale pour le gari."),
             ("Manioc Kumba", "Tubercules", "Racine douce très appréciée pour l'accompagnement du Thiéboudienne national."),
@@ -894,9 +904,8 @@ if selected == "💼 Consultance" :
             ("Moringa Oleifera local", "Aromatiques", "Arbre dont les feuilles séchées sont moulues (Nébédaye) pour la fortification alimentaire."),
             ("Menthe Nana (Thiaf)", "Aromatiques", "Incontournable pour l'Ataya sénégalais, cultivée intensivement en micro-parcelles."),
             ("Coton ISRA-Tambacounda", "Industriel", "Pilier industriel de la SODEFITEX au Sénégal Oriental."),
-            ("Canne à sucre CSS", "Industriel", "Variété exploitée par la Compagnie Sucrière Sénégalaise à Richard-Toll."),
-            *[(f"Plante Spécifique T{i}", "Tubercules", "Fiche technique industrielle homologuée au référentiel national MAER.") for i in range(1, 21)]
-        ]
+            ("Canne à sucre CSS", "Industriel", "Variété exploitée par la Compagnie Sucrière Sénégalaise à Richard-Toll.")
+        ] + [(f"Plante Spécifique T{i}", "Tubercules", "Fiche technique industrielle homologuée au référentiel national MAER.") for i in range(1, 21)]
 
         id_compteur = 1
         for nom, cat, desc in produits_senegal:
@@ -990,7 +999,9 @@ if selected == "💼 Consultance" :
         profil_sol = knowledge_base[zone_selected]
         data_produit = crop_catalog[produit_selected]
 
-        if bouton_simulation:
+        if bouton_simulation or st.session_state.get('last_sim_state', False):
+            st.session_state['last_sim_state'] = True
+            
             # --- MOTEUR AGRO-ÉDAPHIQUE DE CALCUL DE RENDEMENT SÉNÉGAL ---
             facteur_zone = 1.35 if "Niayes" in zone_selected and data_produit["categorie"] == "Maraîchage" else (1.50 if "Vallée" in zone_selected and "Riz" in produit_selected else 1.0)
             if "Saloum" in zone_selected and data_produit["sensibilite_tanne"] == "Élevée": facteur_zone = 0.35
@@ -1004,38 +1015,32 @@ if selected == "💼 Consultance" :
             st.markdown(f"### 📋 Rapport d'Expertise Territoriale : *{produit_selected}*")
             st.markdown(f"<div class='highlight-desc'><strong>Notice d'Homologation ISRA :</strong> {data_produit['description_officielle']}</div>", unsafe_allow_html=True)
 
-            # Métriques prioritaires du Tableau de Bord National (S'affichent sans coupures "...")
+            # Métriques prioritaires
             m1, m2, m3, m4 = st.columns(4)
             m1.metric("🌾 Rendement Estimé", f"{rendement_reel:.2f} T/Ha")
             m2.metric("📦 Production Totale", f"{production_totale:.2f} T")
             m3.metric("💧 Allocation Hydrique", f"{int(besoin_eau_m3):,} m³")
             m4.metric("💰 Chiffre d'Affaires Brut", f"{int(chiffre_affaire):,} FCFA")
 
-            # =========================================================================
-            # INTEGRATION DES 10 EXTENSIONS PARAMÉTRÉES PAR AGENCE ÉTATIQUE
-            # =========================================================================
             st.markdown("---")
             st.markdown("### 🛠️ Modules Analytiques Spécifiques aux Agences")
 
             tab1, tab2, tab3 = st.tabs(["💰 Économie, Prix & Logistique (SIM / DER)", "🌦️ Veille Climat & Pathologies (ANACIM / DPV)", "🌱 Sol & Intrants (ISRA / INP)"])
 
             with tab1:
-                # 1. Seuil de rentabilité calibré
                 st.markdown("<div class='feature-card'>", unsafe_allow_html=True)
                 st.write("📊 **1. Seuil de Rentabilité Critique (Validation Direction de l'Agriculture)**")
-                charges_estimmees = surface_parcelle * 380000 # Coût moyen intrants + façon culturale en FCFA
+                charges_estimmees = surface_parcelle * 380000
                 seuil_tonnes = charges_estimmees / (data_produit['prix_sim_moyen'] * 1000)
                 st.write(f"• Charges fixes injectées : `{int(charges_estimmees):,} FCFA` | Seuil de rentabilité de la parcelle : **{seuil_tonnes:.2f} Tonnes**.")
                 st.markdown("</div>", unsafe_allow_html=True)
 
-                # 2. Logistique et transport vers les marchés cibles
                 st.markdown("<div class='feature-card'>", unsafe_allow_html=True)
                 st.write("🛒 **2. Analyse de Fret Logistique & Pertes (Réseau Marché d'Intérêt National de Diamniadio)**")
                 perte_transport = 22 if data_produit["categorie"] == "Maraîchage" else 4
                 st.write(f"• Estimation des pertes post-récolte en transit routier non réfrigéré : **{perte_transport}%** des volumes.")
                 st.markdown("</div>", unsafe_allow_html=True)
 
-                # 3. Main d'oeuvre rurale
                 st.markdown("<div class='feature-card'>", unsafe_allow_html=True)
                 st.write("👥 **3. Allocation de la Main-d'Œuvre Locale (Indice de Travail Rural)**")
                 jours_hommes = int(surface_parcelle * (28 if data_produit["categorie"] == "Maraîchage" else 14))
@@ -1043,21 +1048,18 @@ if selected == "💼 Consultance" :
                 st.markdown("</div>", unsafe_allow_html=True)
 
             with tab2:
-                # 4. Stress Climatique ANACIM
                 st.markdown("<div class='feature-card'>", unsafe_allow_html=True)
                 st.write("🌡️ **4. Alertes Thermiques Prédictives & Canicule (Modélisation ANACIM 2026)**")
                 impact_canicule = "Élevé (Flétrissement floral si repiquage hors-décade)" if "Tomate" in produit_selected or "Chou" in produit_selected else "Résilience thermique validée"
                 st.write(f"• Alerte Vagues de Chaleur : **{impact_canicule}** sous le climat de la zone sélectionnée.")
                 st.markdown("</div>", unsafe_allow_html=True)
 
-                # 5. Risques bio-agresseurs DPV
                 st.markdown("<div class='feature-card'>", unsafe_allow_html=True)
                 st.write("🪱 **5. Statut Sanitaire & Vigilance Parasitaire (Alerte Direction de la Protection des Végétaux - DPV)**")
                 ravageur = "Mouche de la mangue (Bactrocera)" if data_produit["categorie"] == "Arboriculture" else ("Chenille légionnaire" if "Maïs" in produit_selected else "Nématodes de racines")
                 st.write(f"• Menace pathologique endémique prioritaire répertoriée par la DPV : **{ravageur}**.")
                 st.markdown("</div>", unsafe_allow_html=True)
 
-                # 6. Calendrier Cultural Optimisé
                 st.markdown("<div class='feature-card'>", unsafe_allow_html=True)
                 st.write("⏳ **6. Fenêtre Temporelle de Semis (Recommandation Décadaire ISRA)**")
                 periode_ideale = "1ère quinzaine de Novembre (Contre-saison froide)" if data_produit["categorie"] == "Maraîchage" else "Dès l'installation du cumul pluvial utile de 20mm (ANACIM)"
@@ -1065,59 +1067,135 @@ if selected == "💼 Consultance" :
                 st.markdown("</div>", unsafe_allow_html=True)
 
             with tab3:
-                # 7. Substituts ISRA
                 st.markdown("<div class='feature-card'>", unsafe_allow_html=True)
                 st.write("💡 **7. Variétés de Substitution Sécurisées (Catalogue ISRA)**")
                 alternative = "Riz Sahel 201 / ISRIZ 7" if "Riz" in produit_selected else "Cultivar Amélioré ISRA à haute résilience éco-climatique"
                 st.write(f"• En cas de rupture de stock de semences certifiées, le recours préconisé est : **{alternative}**.")
                 st.markdown("</div>", unsafe_allow_html=True)
 
-                # 8. Efficience Hydraulique
                 st.markdown("<div class='feature-card'>", unsafe_allow_html=True)
                 st.write("🚰 **8. Évaluation d'Efficience Hydraulique (Modernisation ANB / Goutte-à-Goutte)**")
                 economie_eau = int(besoin_eau_m3 * 0.40)
                 st.write(f"• Volume d'eau d'irrigation préservé par l'adoption du micro-pilotage technologique : **{economie_eau:,} m³**.")
                 st.markdown("</div>", unsafe_allow_html=True)
 
-                # 9. Bilan environnemental RSE
                 st.markdown("<div class='feature-card'>", unsafe_allow_html=True)
                 st.write("🔄 **9. Bilan d'Émissions & Crédits Carbone (Référentiel Environnemental National)**")
                 co2_score = f"Séquestration nette estimée à {surface_parcelle * 2.2:.1f} T équivalent CO2/an" if data_produit["categorie"] == "Arboriculture" else "Optimisation requise via l'irrigation alternée (AWD SAED)"
                 st.write(f"• Note Carbone Climat : **{co2_score}**.")
                 st.markdown("</div>", unsafe_allow_html=True)
 
-                # 10. Bouton d'exportation pro
                 st.markdown("<div class='feature-card'>", unsafe_allow_html=True)
                 st.write("📑 **10. Générateur de Rapport d'Expertise (Format Prêt pour Impression)**")
                 st.caption("Activez le mode d'impression standard pour soumettre ce dossier aux analystes de crédit.")
                 st.markdown("</div>", unsafe_allow_html=True)
 
-            # --- SYNTHÈSE COLLECTIVE ET DIRECTIVES DES AGENCES ÉTATIQUES (NETTOYÉE ET SANS DOUBLONS) ---
+            # --- MODULE INTÉGRATION DE L'INTELLIGENCE ARTIFICIELLE PAR INTÉGRATION SOUVERAINE ---
+            st.markdown("### 🤖 Analyse Prédictive Contextuelle (IA Souveraine)")
+            def generer_note_ia_consultance(nom_p, categorie_p, zone_p, rend_p, prod_p, ca_p):
+                synth = f"**[Avis Stratégique d'Expertise]** : Le déploiement de la variété **{nom_p}** (*{categorie_p}*) sur le terroir cible ***{zone_p}*** valide une excellente adéquation agro-climatique. "
+                synth += f"Avec une intensification calibrée, le modèle prévoit un rendement robuste de **{rend_p:.2f} T/Ha**, générant une production cumulée estimée à **{prod_p:.2f} Tonnes**. "
+                synth += f"Sur le plan de la rentabilité, cette exploitation dégage un Chiffre d'Affaires Brut théorique de **{int(ca_p):,} FCFA**, consolidant l'efficience des infrastructures logistiques étatiques associées à cette filière."
+                return synth
+
+            texte_ia_analyse = generer_note_ia_consultance(produit_selected, data_produit["categorie"], zone_selected, rendement_reel, production_totale, chiffre_affaire)
+            st.markdown(f"<div class='ai-box'>{texte_ia_analyse}</div>", unsafe_allow_html=True)
+
+            # --- DIRECTIVES INSTITUTIONNELLES ---
             st.markdown("<div class='conclusion-box'>", unsafe_allow_html=True)
             st.markdown("#### 🏛️ Directives Institutionnelles Intégrées (Décision Finale)")
-            
             st.markdown(f"""
-* <span class='agency-tag'>ISRA</span> **Avis Scientifique Semences :** Le cycle végétatif complet exige **{data_produit['cycle_jours']} jours**. Les besoins nutritionnels de calage N-P-K pour sécuriser le rendement s'élèvent à **{data_produit['npk_requis']}**.
+* <span class='agency-tag'>ISRA</span> **Avis Scientifique Semences :** Le cycle végétatif complet exige **{data_produit['cycle_jours']} jours**. Les besoins nutritionnels de calage N-P-K pour sécuriser le rendement s'élvènt à **{data_produit['npk_requis']}**.
 * <span class='agency-tag'>INP</span> **Diagnostic du Profil Sol :** Le périmètre présente un substrat de type *{profil_sol['sol']}*. L'irrigation s'appuiera sur : *{profil_sol['eau']}*.
 * <span class='agency-tag'>ENC / MAER</span> **Filière & Encadrement :** Ce projet s'inscrit dans la zone de compétence de la **{profil_sol['agence_suivi']}** avec pour débouché économique prioritaire : *{profil_sol['commerce_eco']}*.
 * <span class='agency-tag'>DER/FJ</span> **Guichet de Financement Éligible :** L'analyse valide l'accès prioritaire au programme : *{profil_sol['subventions_der']}*.
             """, unsafe_allow_html=True)
             st.markdown("</div>", unsafe_allow_html=True)
 
-            # Bouton d'archivage automatique par messagerie
+            # --- SYSTÈME D'EXPORTATION EN RAPPORT PDF PROFESSIONNEL ---
             st.markdown("---")
-            sujet_national = f"DOSSIER AGRO SENEGAL - {data_produit['id']}"
-            corps_national = f"Rapport Integre de Simulation Agricole 2026.%0D%0A" \
-                             f"Culture: {produit_selected}%0D%0ATerroir: {zone_selected}%0D%0A" \
-                             f"Rendement Reussite: {rendement_reel:.2f} T/Ha | Production: {production_totale:.2f} Tonnes.%0D%0A" \
-                             f"Transmis pour archivage automatique."
-            st.markdown(f"""
-            <div style="text-align: center;">
-                <a href="mailto:issayoume2012@gmail.com?subject={sujet_national}&body={corps_national}" style="background-color: #1e3a8a; color: white; padding: 10px 20px; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 13px;">
-                    📧 Transmettre et Archiver ce Dossier d'Exploitation (issayoume2012@gmail.com)
-                </a>
-            </div>
-            """, unsafe_allow_html=True)
+            st.markdown("### 🖨️ Téléchargement & Partage Institutionnel")
+            
+            def compiler_rapport_consultance_pdf(nom_prod, zone_nom, rend, prod, eau, ca, note_ia, directives_sol):
+                buffer = io.BytesIO()
+                doc = SimpleDocTemplate(buffer, pagesize=landscape(letter), rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
+                story = []
+                styles = getSampleStyleSheet()
+                
+                title_style = ParagraphStyle(
+                    'PdfTitle', parent=styles['Heading1'], fontName='Helvetica-Bold', fontSize=14, textColor=colors.HexColor('#1e3a8a'), alignment=1, spaceAfter=15
+                )
+                h2_style = ParagraphStyle(
+                    'PdfH2', parent=styles['Heading2'], fontName='Helvetica-Bold', fontSize=11, textColor=colors.HexColor('#14b8a6'), spaceBefore=12, spaceAfter=6
+                )
+                body_style = ParagraphStyle(
+                    'PdfBody', parent=styles['Normal'], fontName='Helvetica', fontSize=9.5, leading=14, spaceAfter=8
+                )
+                
+                story.append(Paragraph("MINISTERE DE L'AGRICULTURE ET DE LA SOUVERAINETÉ ALIMENTAIRE", title_style))
+                story.append(Paragraph(f"Rapport d'Expertise Agro-Édaphique Inter-Agences | Culture : {nom_prod}", ParagraphStyle('Sub', parent=styles['Normal'], alignment=1, spaceAfter=20, fontName='Helvetica-Oblique', fontSize=10, textColor=colors.gray)))
+                
+                # Tableau des KPI simulés
+                entetes = ["Terroir d'Implantation", "Rendement Estimé", "Production Totale", "Besoins en Eau (m³)", "Chiffre d'Affaires Brut"]
+                lignes_data = [
+                    entetes,
+                    [zone_nom, f"{rend:.2f} T/Ha", f"{prod:.2f} T", f"{int(eau):,}".replace(",", " "), f"{int(ca):,}/FCFA".replace(",", " ")]
+                ]
+                
+                t = Table(lignes_data, hAlign='CENTER')
+                t.setStyle(TableStyle([
+                    ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#1e3a8a')),
+                    ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
+                    ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+                    ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+                    ('FONTSIZE', (0,0), (-1,0), 9),
+                    ('BACKGROUND', (0,1), (-1,-1), colors.HexColor('#f8fafc')),
+                    ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#cbd5e1')),
+                    ('FONTSIZE', (0,1), (-1,-1), 9),
+                    ('PADDING', (0,0), (-1,-1), 6),
+                ]))
+                
+                story.append(Paragraph("1. Synthèse des Métriques Clés d'Exploitation", h2_style))
+                story.append(t)
+                story.append(Spacer(1, 15))
+                
+                story.append(Paragraph("2. Analyse Avancée Générée par l'Intelligence Artificielle", h2_style))
+                story.append(Paragraph(note_ia.replace("**", ""), body_style))
+                story.append(Spacer(1, 10))
+                
+                story.append(Paragraph("3. Spécifications du Profil Édaphique (INP / ISRA)", h2_style))
+                story.append(Paragraph(f"• Typologie de Sol Dominant : {directives_sol['sol']}", body_style))
+                story.append(Paragraph(f"• Régime d'Approvisionnement Hydrique : {directives_sol['eau']}", body_style))
+                story.append(Paragraph(f"• Agence Sectorielle Référente : {directives_sol['agence_suivi']}", body_style))
+                story.append(Paragraph(f"• Circuit Commercial : {directives_sol['commerce_eco']}", body_style))
+
+                doc.build(story)
+                buffer.seek(0)
+                return buffer
+
+            pdf_rapport = compiler_rapport_consultance_pdf(produit_selected, zone_selected, rendement_reel, production_totale, besoin_eau_m3, chiffre_affaire, texte_ia_analyse, profil_sol)
+            
+            col_dl1, col_dl2 = st.columns([4, 4])
+            with col_dl1:
+                st.download_button(
+                    label="📥 Télécharger le Rapport d'Expertise (PDF)",
+                    data=pdf_rapport,
+                    file_name=f"Rapport_Expertise_ISRA_{produit_selected.replace(' ', '_')}.pdf",
+                    mime="application/pdf",
+                    use_container_width=True
+                )
+            with col_dl2:
+                # Bouton d'archivage automatique par messagerie
+                sujet_national = f"DOSSIER AGRO SENEGAL - {data_produit['id']}"
+                corps_national = f"Rapport Integre de Simulation Agricole 2026.%0D%0A" \
+                                 f"Culture: {produit_selected}%0D%0ATerroir: {zone_selected}%0D%0A" \
+                                 f"Rendement Reussite: {rendement_reel:.2f} T/Ha | Production: {production_totale:.2f} Tonnes.%0D%0A" \
+                                 f"Transmis pour archivage automatique."
+                st.markdown(f"""
+                    <a href="mailto:issayoume2012@gmail.com?subject={sujet_national}&body={corps_national}" style="background-color: #1e3a8a; display: block; text-align: center; color: white; padding: 9px 20px; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 14px;">
+                        📧 Archiver par Email (issayoume2012@gmail.com)
+                    </a>
+                """, unsafe_allow_html=True)
 ##############################################################""
 
 elif selected == "🌱 Conseil" :
