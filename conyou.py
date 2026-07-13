@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+import plotly.express as px
 import random
 from datetime import datetime
 
@@ -472,15 +473,11 @@ if selected == "🏠 Accueil":
 
     st.write("") 
     st.success("🌱 Ensemble, valorisons notre sol et notre eau grâce à l'innovation !")
-# =========================================================================
-# SECTION TABLEAU DE BORD - MACRO-OBSERVATOIRE RÉGIONAL DE PRÉCISION
-# =========================================================================
-# SECTION TABLEAU DE BORD - MACRO-OBSERVATOIRE RÉGIONAL DE PRÉCISION
+
 # =========================================================================
 elif selected == "📊 Tableau de Bord":
 
     import pandas as pd
-    import plotly.express as px
 
     # 1. STYLE CSS VISUEL AVANCÉ (ALIGNÉ SUR LE CORE PREMIUM)
     st.markdown("""
@@ -520,18 +517,18 @@ elif selected == "📊 Tableau de Bord":
     </style>
     """, unsafe_allow_html=True)
 
-    # 2. EN-TÊTE INSTITUTIONNEL
+    # 2. EN-TÊTE INSTITUTIONNEL GLOBAL
     st.markdown("""
     <div class="dashboard-hero">
-        <h2>🇸🇳 Macro-Observatoire Agro-Édaphique et Hydrique de Précision</h2>
-        <p>Suivi des matrices de souveraineté alimentaire, du potentiel des sols (INP) et de la vulnérabilité hydrologique des terroirs en temps réel.</p>
-        <span class="inst-badge-db">Référentiel Synoptique : ANSD • MAER • ISRA • INP • ANACIM (Campagne Évolutive 2026)</span>
+        <h2>🇸🇳 Observatoire National Intégré de la Souveraineté Alimentaire et des Produits du Sénégal</h2>
+        <p>Cartographie globale multisectorielle des performances agricoles, halieutiques, horticoles et animales des terroirs.</p>
+        <span class="inst-badge-db">Référentiel Stratégique : Ministère (MASAE) • ISRA • ENSA • ANSD • ANACIM • INP • SAED • ANCAR (Campagne 2026)</span>
     </div>
     """, unsafe_allow_html=True)
 
-    # 3. BASE DE DONNÉES STRUCTURÉE ORIENTÉE SOUVERAINETÉ, SOLS ET HYDROLOGIE
+    # 3. BASE DE DONNÉES INTEGRALE TOUS PRODUITS DU SÉNÉGAL
     @st.cache_data
-    def charger_donnees_agro_edaphiques():
+    def charger_donnees_tous_produits_senegal():
         data = {
             "Région": [
                 "Dakar", "Thiès", "Diourbel", "Saint-Louis", "Kaolack", 
@@ -548,16 +545,6 @@ elif selected == "📊 Tableau de Bord":
                 "Rivières / Pluvial sédimentaire", "Forages / Nappe profonde", "Cours d'eau Gambie / Pluvial", "Pluvial / Fleuve Casamance", "Fleuve Sénégal (Pompil)",
                 "Pluvial / Estuaires", "Pluvial strict", "Ruisseaux de montagne", "Fleuve Casamance / Pluvial"
             ],
-            "Production Céréalière (Tonnes)": [
-                500, 45000, 85000, 650000, 320000,
-                110000, 35000, 180000, 210000, 290000,
-                95000, 410000, 48000, 125000
-            ],
-            "Rendement Moyen Estimé (T/Ha)": [
-                1.2, 2.5, 1.8, 6.2, 2.1,
-                2.8, 1.4, 1.9, 2.4, 5.5,
-                1.6, 2.3, 1.3, 2.6
-            ],
             "Indice de Salinité des Sols (%)": [
                 5.2, 12.5, 8.1, 24.6, 18.2,
                 42.1, 4.5, 2.1, 3.4, 19.5,
@@ -572,167 +559,213 @@ elif selected == "📊 Tableau de Bord":
                 5, 42, 28, 195, 110,
                 55, 30, 75, 88, 120,
                 38, 145, 18, 62
+            ],
+            "Population Totale (Habitants)": [
+                4000000, 2200000, 1900000, 1100000, 1200000,
+                700000, 1100000, 950000, 900000, 800000,
+                900000, 850000, 200000, 600000
+            ],
+            "Taux d'Emploi Agricole (%)": [
+                2.1, 38.5, 52.0, 64.2, 72.1,
+                58.0, 45.0, 78.4, 81.2, 69.5,
+                66.0, 83.5, 74.0, 79.1
+            ],
+            "Intrants Subventionnés Distribués (Tonnes)": [
+                50, 4100, 6200, 18500, 14200,
+                5100, 3200, 8900, 9500, 11200,
+                5400, 16800, 1200, 4900
+            ],
+            "Superficies Aménagées Irriguées (Ha)": [
+                120, 2500, 800, 145000, 1200,
+                3500, 450, 1800, 4200, 65000,
+                900, 350, 150, 2800
+            ],
+            "Taux d'Encadrement Technique ANCAR (%)": [
+                5.0, 34.2, 28.0, 78.5, 42.1,
+                51.0, 22.4, 19.5, 31.0, 64.0,
+                35.8, 48.0, 12.5, 38.2
+            ],
+            
+            # =========================================================================
+            # CARTOGRAPHIE COMPLÈTE DE TOUS LES PRODUITS DU SÉNÉGAL (ISRA • ENSA • MINISTÈRE)
+            # =========================================================================
+            # 1. FILIÈRE CÉRÉALES (Riz, Mil, Maïs, Sorgho)
+            "Céréales (Riz, Mil, Maïs) [Tonnes]": [
+                500, 45000, 85000, 650000, 320000,
+                110000, 35000, 180000, 210000, 290000,
+                95000, 410000, 48000, 125000
+            ],
+            # 2. FILIÈRE OLÉAGINEUX & INDUSTRIELS (Arachide, Coton, Sésame)
+            "Industriels (Arachide, Coton) [Tonnes]": [
+                0, 52000, 120000, 12000, 380000,
+                8000, 45000, 95000, 115000, 5000,
+                140000, 490000, 15000, 64000
+            ],
+            # 3. FILIÈRE MARAÎCHAGE (Oignon, Pomme de terre, Tomate industrielle)
+            "Maraîchage (Oignon, Tomate) [Tonnes]": [
+                85000, 340000, 45000, 480000, 35000,
+                22000, 110000, 15000, 18000, 95000,
+                42000, 25000, 8000, 31000
+            ],
+            # 4. FILIÈRE FRUITS & EXPORTATION ENSA (Mangue, Citron, Banane, Cajou)
+            "Horticulture (Mangue, Cajou) [Tonnes]": [
+                5000, 180000, 2000, 5000, 8000,
+                145000, 4000, 28000, 42000, 1500,
+                12000, 3000, 9000, 98000
+            ],
+            # 5. FILIÈRE HALIEUTIQUE (Pêche Maritime, Aquaculture - Suivi Ministère/ISRA)
+            "Produits Halieutiques & Pêche [Tonnes]": [
+                115000, 95000, 0, 45000, 0,
+                68000, 12000, 0, 0, 1500,
+                55000, 0, 0, 8000
+            ],
+            # 6. FILIÈRE ÉLEVAGE & PRODUCTIONS ANIMALES (Lait en Litres, Viande/Aviculture en T)
+            "Élevage & Lait [Mille Litres]": [
+                120, 1400, 2800, 1900, 1500,
+                650, 4200, 3100, 3900, 1800,
+                1600, 2100, 450, 850
+            ],
+            "Productions Carnées & Volaille [Tonnes]": [
+                45000, 18000, 14000, 9500, 11000,
+                4800, 16500, 12000, 15500, 7500,
+                8200, 10500, 3200, 5100
             ]
         }
         return pd.DataFrame(data)
 
-    df_agro = charger_donnees_agro_edaphiques()
+    df_agro = charger_donnees_tous_produits_senegal()
 
     # 4. PANNEAU DE CONTRÔLE ET FILTRAGE DYNAMIQUE
-    st.markdown("<div class='db-section-title'>🎛️ Profilage Territorial et Choix du Bassin</div>", unsafe_allow_html=True)
+    st.markdown("<div class='db-section-title'>🎛️ Profilage Global et Choix Systémiques des Filières</div>", unsafe_allow_html=True)
     with st.container(border=True):
-        liste_regions = ["Tout le Sénégal"] + list(df_agro["Région"].unique())
-        region_choisie = st.selectbox("Sélectionnez la zone agricole ou administrative à auditer :", options=liste_regions, key="sb_region_choisie")
+        col_sel, col_slide1, col_slide2 = st.columns([2, 2, 2])
+        
+        with col_sel:
+            liste_regions = ["Tout le Sénégal"] + list(df_agro["Région"].unique())
+            region_choisie = st.selectbox("Sélectionnez la zone à auditer :", options=liste_regions, key="sb_region_choisie")
+        
+        with col_slide1:
+            max_salinite = st.slider("Seuil maximal de salinité (%) [Alerte INP] :", 0.0, 60.0, 60.0, step=5.0)
+            
+        with col_slide2:
+            min_encadrement = st.slider("Taux d'encadrement minimum [Objectif ANCAR] (%) :", 0.0, 80.0, 0.0, step=5.0)
 
-        if region_choisie == "Tout le Sénégal":
-            df_filtre = df_agro
-            est_filtre_total = True
-        else:
-            df_filtre = df_agro[df_agro["Région"] == region_choisie]
-            est_filtre_total = False
+        # Application des filtres
+        df_filtre = df_agro if region_choisie == "Tout le Sénégal" else df_agro[df_agro["Région"] == region_choisie]
+        df_filtre = df_filtre[
+            (df_filtre["Indice de Salinité des Sols (%)"] <= max_salinite) & 
+            (df_filtre["Taux d'Encadrement Technique ANCAR (%)"] >= min_encadrement)
+        ]
+        est_filtre_total = (region_choisie == "Tout le Sénégal")
 
-    # 5. BLOC INDICATEURS BIOPHYSIQUES ET AGRONOMIQUES INTERCONNECTÉS
-    st.markdown(f"<div class='db-section-title'>🔑 Métriques Consolidées : <b>{region_choisie}</b></div>", unsafe_allow_html=True)
+    # 5. BLOC INDICATEURS NATIONAUX TOUS PRODUITS CONSULIDÉS (MINISTÈRE / ISRA)
+    st.markdown(f"<div class='db-section-title'>🔑 Table des Tableaux de Bord Physiques du Sénégal : <b>{region_choisie}</b></div>", unsafe_allow_html=True)
     
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3, col4, col5, col6 = st.columns(6)
     
     with col1:
-        prod_totale = df_filtre["Production Céréalière (Tonnes)"].sum()
-        with st.container(key=f"db_agri_prod_{prod_totale}_{region_choisie}"):
-            st.metric(
-                label="🌾 Production Globale", 
-                value=f"{prod_totale:,} T".replace(",", " "),
-                delta="Objectif MAER 2026" if est_filtre_total else "Volume Local"
-            )
-        
+        v1 = df_filtre["Céréales (Riz, Mil, Maïs) [Tonnes]"].sum()
+        st.metric(label="🌾 Céréales", value=f"{v1:,} T".replace(",", " "))
     with col2:
-        rendement_moyen = df_filtre["Rendement Moyen Estimé (T/Ha)"].mean()
-        with st.container(key=f"db_agri_rend_{rendement_moyen}_{region_choisie}"):
-            st.metric(
-                label="🚜 Rendement Moyen", 
-                value=f"{rendement_moyen:.2f} T/Ha",
-                delta="Optimisé ISRA"
-            )
-        
+        v2 = df_filtre["Industriels (Arachide, Coton) [Tonnes]"].sum()
+        st.metric(label="🥜 Industriels/Arachide", value=f"{v2:,} T".replace(",", " "))
     with col3:
-        salinite_moyenne = df_filtre["Indice de Salinité des Sols (%)"].mean()
-        with st.container(key=f"db_agri_sal_{salinite_moyenne}_{region_choisie}"):
-            st.metric(
-                label="🌊 Taux de Salinité Moyen", 
-                value=f"{salinite_moyenne:.1f} %",
-                delta="Risque Sol (INP)",
-                delta_color="inverse"
-            )
-
+        v3 = df_filtre["Maraîchage (Oignon, Tomate) [Tonnes]"].sum()
+        st.metric(label="🍅 Maraîchage", value=f"{v3:,} T".replace(",", " "))
     with col4:
-        pib_agri_total = df_filtre["PIB Agricole Estimé (Milliards FCFA)"].sum()
-        with st.container(key=f"db_agri_pib_{pib_agri_total}_{region_choisie}"):
-            st.metric(
-                label="💰 Valeur Économique",
-                value=f"{pib_agri_total:,} Mds F".replace(",", " "),
-                delta=f"{((pib_agri_total / df_agro['PIB Agricole Estimé (Milliards FCFA)'].sum()) * 100):.1f}% du total" if not est_filtre_total else "Secteur Primaire"
-            )
+        v4 = df_filtre["Horticulture (Mangue, Cajou) [Tonnes]"].sum()
+        st.metric(label="🥭 Fruits/ENSA", value=f"{v4:,} T".replace(",", " "))
+    with col5:
+        v5 = df_filtre["Produits Halieutiques & Pêche [Tonnes]"].sum()
+        st.metric(label="🐟 Pêche/Aquacole", value=f"{v5:,} T".replace(",", " "))
+    with col6:
+        v6 = df_filtre["Élevage & Lait [Mille Litres]"].sum()
+        st.metric(label="🥛 Lait", value=f"{v6:,} m³.L".replace(",", " "))
 
     # =========================================================================
-    # ANALYSE DE POSITIONNEMENT HYDRO-ÉDAPHIQUE (MATRICE LÉGÈRE PLOTLY)
+    # 6. DIRECTIVES RECHERCHE & DIAGNOSTIC DIRECT (ISRA • ENSA • MINISTÈRE)
     # =========================================================================
-    st.markdown("<div class='db-section-title'>📊 Matrice Éco-Hydrologique et Profil des Sols</div>", unsafe_allow_html=True)
-    with st.container(border=True):
-        st.write("📈 *Analyse bidimensionnelle : Corrélation entre le Taux de Salinité (Axe X), le Volume de Récolte (Axe Y) et la Ressource en Eau (Couleur).*")
-        
-        fig_agri_matrix = px.scatter(
-            df_filtre,
-            x="Indice de Salinité des Sols (%)",
-            y="Production Céréalière (Tonnes)",
-            size="Rendement Moyen Estimé (T/Ha)",
-            color="Source d'Eau Principale",
-            hover_name="Type de Sol Dominant (INP)",
-            size_max=35,
-            title="Cartographie Analytique : Impact du Sel et du Système d'Eau sur la Production",
-            labels={
-                "Indice de Salinité des Sols (%)": "Salinité du Complexe Chimique (%)",
-                "Production Céréalière (Tonnes)": "Volumes Récoltés (Tonnes)"
-            },
-            template="plotly_white"
-        )
-        fig_agri_matrix.update_layout(title_font_size=13, margin=dict(l=20, r=20, t=40, b=20))
-        st.plotly_chart(fig_agri_matrix, use_container_width=True)
-
-    # 6. GRAPHIQUES ET COMPARAISONS SECTORIELLES
-    st.markdown("<div class='db-section-title'>📉 Synthèse Comparative des Profils Agro-Climatiques</div>", unsafe_allow_html=True)
-
-    if est_filtre_total:
-        col_gauche, col_droite = st.columns(2)
-
-        with col_gauche:
-            fig_prod_bar = px.bar(
-                df_agro.sort_values("Production Céréalière (Tonnes)", ascending=True),
-                x="Production Céréalière (Tonnes)",
-                y="Région",
-                orientation="h",
-                title="Classement de la Contribution Céréalière Nationale (Tonnes)",
-                color="Production Céréalière (Tonnes)",
-                color_continuous_scale="emrld"
-            )
-            fig_prod_bar.update_layout(showlegend=False, title_font_size=13, margin=dict(l=20, r=20, t=40, b=20))
-            st.plotly_chart(fig_prod_bar, use_container_width=True)
-
-        with col_droite:
-            fig_hydrique_pie = px.pie(
-                df_agro,
-                values="PIB Agricole Estimé (Milliards FCFA)",
-                names="Disponibilité Hydrique / ANACIM",
-                title="Répartition de la Richesse Agricole selon la Vulnérabilité Hydrique",
-                hole=0.4,
-                color_discrete_sequence=px.colors.sequential.YlGnBu
-            )
-            fig_hydrique_pie.update_layout(title_font_size=13, margin=dict(l=20, r=20, t=40, b=20))
-            st.plotly_chart(fig_hydrique_pie, use_container_width=True)
-            
+    st.markdown("<div class='db-section-title'>📢 Directives Scientifiques & Bulletins d'Alerte Multi-Produits</div>", unsafe_allow_html=True)
+    
+    if df_filtre.empty:
+        st.error("⚠️ Aucun territoire ne valide ce croisement de filtres agro-démographiques.")
     else:
-        # Affichage analytique ciblé pour une seule région isolée
-        with st.container(border=True):
-            sol_local = df_filtre["Type de Sol Dominant (INP)"].values[0]
-            eau_locale = df_filtre["Source d'Eau Principale"].values[0]
-            status_hydrique = df_filtre["Disponibilité Hydrique / ANACIM"].values[0]
-            salinite_locale = df_filtre["Indice de Salinité des Sols (%)"].values[0]
+        col_l, col_r = st.columns(2)
+        
+        with col_l:
+            st.subheader("🧬 Innovations Variétales & Aménagements (ISRA • SAED)")
+            # Analyse croisée Riziculture/Céréales
+            zones_riz = df_filtre[df_filtre["Céréales (Riz, Mil, Maïs) [Tonnes]"] > 200000]
+            if not zones_riz.empty:
+                for idx, row in zones_riz.iterrows():
+                    st.info(f"🌾 **{row['Région']}** : Zone à haute concentration céréalière. *Recommandation ISRA :* Déploiement des semences certifiées de riz (ex: Sahel) adaptées aux sols locaux.")
             
-            st.info(f"🔎 **Fiche Agro-Édaphique Orientée — Région de {region_choisie}**")
-            
-            # Diagnostic automatique selon les contraintes édaphiques réelles
-            if salinite_locale > 20.0:
-                st.error(f"🚨 **Alerte Dégradation INP :** Niveau de salinité élevé ({salinite_locale}%). Risque d'alcalinisation structurelle. Privilégier des variétés tolérantes (ex: Sahel 108) et des techniques de lessivage.")
-            elif status_hydrique in ["Critique", "Précaire"]:
-                st.warning(f"⚠️ **Alerte Hydrologique ANACIM :** Ressources en eau sous régime `{status_hydrique}`. Planifier des systèmes de goutte-à-goutte ou de récupération des eaux pluviales.")
-            else:
-                st.success(f"🟢 **Diagnostic Conforme :** Équilibre hydrique et édaphique favorable au développement multi-filières.")
+            # Analyse Pêche Maritime
+            zones_peche = df_filtre[df_filtre["Produits Halieutiques & Pêche [Tonnes]"] > 50000]
+            if not zones_peche.empty:
+                for idx, row in zones_peche.iterrows():
+                    st.warning(f"🐟 **{row['Région']}** : Pôle halieutique majeur ({row['Produits Halieutiques & Pêche [Tonnes]']} T). *Directive Ministère :* Intensifier la surveillance des quotas et soutenir l'aquaculture continentale.")
                 
-            st.markdown(f"""
-            * **Typologie des Sols (Cartographie INP) :** `{sol_local}`
-            * **Système d'Approvisionnement Hydrique :** `{eau_locale}`
-            * **Statut de Vigilance Climatique (ANACIM) :** **{status_hydrique}**
-            * **Performance de l'Écosystème :** Rendement de **{df_filtre["Rendement Moyen Estimé (T/Ha)"].values[0]} T/Ha** avec une valorisation de **{df_filtre["PIB Agricole Estimé (Milliards FCFA)"].values[0]} Millions/Milliards de FCFA**.
-            """)
+        with col_r:
+            st.subheader("🎓 Exportation, Améliorations & Risques Sols (ENSA • INP)")
+            # Alerte Salinité sur Maraîchage et Arboriculture (Filières phares ENSA - Zone Niayes/Sud)
+            zones_horti_salines = df_filtre[(df_filtre["Indice de Salinité des Sols (%)"] > 10.0) & ((df_filtre["Horticulture (Mangue, Cajou) [Tonnes]"] > 30000) | (df_filtre["Maraîchage (Oignon, Tomate) [Tonnes]"] > 100000))]
+            if not zones_horti_salines.empty:
+                for idx, row in zones_horti_salines.iterrows():
+                    st.error(f"🔥 **{row['Région']}** : Sols `{row['Type de Sol Dominant (INP)']}` affectés par le sel ({row['Indice de Salinité des Sols (%)']}%). *Alerte ENSA :* Risque d'effondrement des rendements d'exportation de mangues/oignons.")
+            else:
+                st.success("🟢 Stabilité physico-chimique conforme aux référentiels ENSA pour l'arboriculture.")
 
-    # 7. REGISTRE MATRICIEL PROPRE ET CORRIGÉ (SANS ERREUR DE SUFFIXE)
-    st.markdown("<div class='db-section-title'>📋 Registre Matriciel Édaphique & Hydrologique National</div>", unsafe_allow_html=True)
+    # =========================================================================
+    # 7. MATRICE SOUVERAINETÉ COMPLÈTE DE TOUTES LES PRODUCTIONS DU SÉNÉGAL
+    # =========================================================================
+    st.markdown("<div class='db-section-title'>🏆 Tableau de Bord Général des Productions de Souveraineté Territoriale (Ministère)</div>", unsafe_allow_html=True)
     with st.container(border=True):
-        st.write("📈 *Extrait de données brutes filtrées, configuré selon les spécifications Streamlit Core :*")
+        st.write("📊 *Bilan global consolidé de l'ensemble des spéculations et matrices de production par région (Données Officielles Campagne Évolutive 2026) :*")
         
         st.dataframe(
-            df_filtre, 
+            df_filtre[[
+                "Région", "Céréales (Riz, Mil, Maïs) [Tonnes]", "Industriels (Arachide, Coton) [Tonnes]",
+                "Maraîchage (Oignon, Tomate) [Tonnes]", "Horticulture (Mangue, Cajou) [Tonnes]", 
+                "Produits Halieutiques & Pêche [Tonnes]", "Élevage & Lait [Mille Litres]", "Productions Carnées & Volaille [Tonnes]"
+            ]],
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "Région": st.column_config.TextColumn("Région / Bassin"),
+                "Céréales (Riz, Mil, Maïs) [Tonnes]": st.column_config.NumberColumn("🌾 Céréales", format="%d T"),
+                "Industriels (Arachide, Coton) [Tonnes]": st.column_config.NumberColumn("🥜 Industriels", format="%d T"),
+                "Maraîchage (Oignon, Tomate) [Tonnes]": st.column_config.NumberColumn("🍅 Maraîchage", format="%d T"),
+                "Horticulture (Mangue, Cajou) [Tonnes]": st.column_config.NumberColumn("🥭 Fruits (ENSA)", format="%d T"),
+                "Produits Halieutiques & Pêche [Tonnes]": st.column_config.NumberColumn("🐟 Halieutique", format="%d T"),
+                "Élevage & Lait [Mille Litres]": st.column_config.ProgressColumn("🥛 Lait", format="%d kL", min_value=0, max_value=5000),
+                "Productions Carnées & Volaille [Tonnes]": st.column_config.NumberColumn("🥩 Viandes/Avic.", format="%d T")
+            }
+        )
+
+    # 8. REGISTRE LOGISTIQUE ET FACTEURS ENVIRONNEMENTAUX CRITIQUES
+    st.markdown("<div class='db-section-title'>📋 Logistique Institutionnelle, Démographie et Variables Biophysiques</div>", unsafe_allow_html=True)
+    with st.container(border=True):
+        st.write("📈 *Suivi des ressources de base distribées sous le contrôle du Ministère et profilage environnemental :*")
+        
+        st.dataframe(
+            df_filtre[[
+                "Région", "Population Totale (Habitants)", "Superficies Aménagées Irriguées (Ha)", 
+                "Intrants Subventionnés Distribués (Tonnes)", "Taux d'Encadrement Technique ANCAR (%)", 
+                "Indice de Salinité des Sols (%)", "Source d'Eau Principale", "Disponibilité Hydrique / ANACIM"
+            ]], 
             use_container_width=True, 
             hide_index=True,
             column_config={
-                "Production Céréalière (Tonnes)": st.column_config.NumberColumn(format="%d T"),
-                "Rendement Moyen Estimé (T/Ha)": st.column_config.NumberColumn(format="%.2f T/Ha"),
-                "Indice de Salinité des Sols (%)": st.column_config.NumberColumn(format="%.1f %%"),
-                "PIB Agricole Estimé (Milliards FCFA)": st.column_config.NumberColumn(format="%d Mds FCFA")
+                "Population Totale (Habitants)": st.column_config.NumberColumn("Démographie (ANSD)", format="%d hab."),
+                "Superficies Aménagées Irriguées (Ha)": st.column_config.NumberColumn("Aménagé (SAED)", format="%d Ha"),
+                "Intrants Subventionnés Distribués (Tonnes)": st.column_config.NumberColumn("Intrants (MASAE)", format="%d T"),
+                "Taux d'Encadrement Technique ANCAR (%)": st.column_config.NumberColumn("Suivi ANCAR", format="%.1f %%"),
+                "Indice de Salinité des Sols (%)": st.column_config.NumberColumn("Salinité (INP)", format="%.1f %%"),
+                "Disponibilité Hydrique / ANACIM": st.column_config.TextColumn("Vigilance ANACIM")
             }
         )
-#======================================================================
 
-# =========================================================================
 # SECTION CONSULTATION / HUB D'INTELLIGENCE AGRICOLE BIOMÉTRIQUE DU SÉNÉGAL
 # =========================================================================
 if selected == "💼 Consultance" :
