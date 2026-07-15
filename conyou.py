@@ -759,8 +759,8 @@ RECOMMANDATIONS STRATÉGIQUES YOUAGRONOME :
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             key="btn_telecharger_rapport_youagronome_complet"
         )
-########################################################################"
-elif selected == "💼 Consultance":
+################################################################################################################################################################"""
+if selected == "💼 Consultance":
     import random
     import io
     import pandas as pd
@@ -1046,6 +1046,48 @@ elif selected == "💼 Consultance":
     crop_catalog = load_exact_200_crops()
     knowledge_base = load_agency_knowledge_base()
     dpv_pest_db = load_dpv_pest_database()
+    # Correspondance des Communes sénégalaises par Zone Agro-Écologique
+    communes_senegal = {
+        "Zone des Niayes (Bande côtière)": {
+            "Cayar": "Zone des Niayes (Bande Côtière / Dakar-Thiès-Saint Louis)",
+            "Mboro": "Zone des Niayes (Bande Côtière / Dakar-Thiès-Saint Louis)",
+            "Sangalkam": "Zone des Niayes (Bande Côtière / Dakar-Thiès-Saint Louis)",
+            "Diogo": "Zone des Niayes (Bande Côtière / Dakar-Thiès-Saint Louis)",
+            "Notto Gouye Diama": "Zone des Niayes (Bande Côtière / Dakar-Thiès-Saint Louis)",
+            "Fas Boye": "Zone des Niayes (Bande Côtière / Dakar-Thiès-Saint Louis)"
+        },
+        "Vallée du Fleuve Sénégal (Nord)": {
+            "Ross Béthio": "Vallée du Fleuve Sénégal (Zone d'Action SAED / Nord)",
+            "Richard-Toll": "Vallée du Fleuve Sénégal (Zone d'Action SAED / Nord)",
+            "Dagana": "Vallée du Fleuve Sénégal (Zone d'Action SAED / Nord)",
+            "Podor": "Vallée du Fleuve Sénégal (Zone d'Action SAED / Nord)",
+            "Ndioum": "Vallée du Fleuve Sénégal (Zone d'Action SAED / Nord)",
+            "Matam": "Vallée du Fleuve Sénégal (Zone d'Action SAED / Nord)"
+        },
+        "Bassin Arachidier (Centre)": {
+            "Kaffrine": "Bassin Arachidier (Zone Kaolack-Diourbel-Fatick-Kaffrine)",
+            "Nioro du Rip": "Bassin Arachidier (Zone Kaolack-Diourbel-Fatick-Kaffrine)",
+            "Diourbel": "Bassin Arachidier (Zone Kaolack-Diourbel-Fatick-Kaffrine)",
+            "Gossas": "Bassin Arachidier (Zone Kaolack-Diourbel-Fatick-Kaffrine)",
+            "Guinguinéo": "Bassin Arachidier (Zone Kaolack-Diourbel-Fatick-Kaffrine)",
+            "Mbacké": "Bassin Arachidier (Zone Kaolack-Diourbel-Fatick-Kaffrine)"
+        },
+        "Bassin du Sine Saloum (Estuaire)": {
+            "Foundiougne": "Bassin du Sine Saloum (Zone Estuaire / Fatick-Foundiougne)",
+            "Fatick": "Bassin du Sine Saloum (Zone Estuaire / Fatick-Foundiougne)",
+            "Passy": "Bassin du Sine Saloum (Zone Estuaire / Fatick-Foundiougne)",
+            "Sokone": "Bassin du Sine Saloum (Zone Estuaire / Fatick-Foundiougne)",
+            "Fimela": "Bassin du Sine Saloum (Zone Estuaire / Fatick-Foundiougne)"
+        },
+        "Casamance (Sud)": {
+            "Ziguinchor": "Région Naturelle de la Casamance (Zone d'Action SODAGRI / Sud)",
+            "Bignona": "Région Naturelle de la Casamance (Zone d'Action SODAGRI / Sud)",
+            "Kolda": "Région Naturelle de la Casamance (Zone d'Action SODAGRI / Sud)",
+            "Oussouye": "Région Naturelle de la Casamance (Zone d'Action SODAGRI / Sud)",
+            "Sédhiou": "Région Naturelle de la Casamance (Zone d'Action SODAGRI / Sud)",
+            "Goudomp": "Région Naturelle de la Casamance (Zone d'Action SODAGRI / Sud)"
+        }
+    }
 
     # Initialisation de la variable de session pour éviter les rechargements de page indésirables
     if 'sim_active' not in st.session_state:
@@ -1059,10 +1101,27 @@ elif selected == "💼 Consultance":
             st.write("⚙️ **Données Fondatrices de la Startup / Jeune Entreprise**")
             col_s1, col_s2 = st.columns(2)
             with col_s1:
-                zone_selected = st.selectbox("🗺️ Sélectionner le Terroir d'Exploitation (Données INP / ANACIM) :", options=list(knowledge_base.keys()), key="hz_select")
-            with col_s2:
-                produit_selected = st.selectbox(f"🌱 Sélectionner la Variété Validée par l'ISRA ({len(crop_catalog)} produits homologués) :", options=list(crop_catalog.keys()), key="hp_select")
+                # Étape A : Sélection de la grande zone agro-écologique
+                grande_zone = st.selectbox(
+                    "🗺️ Filtrer par Zone Agro-Écologique :", 
+                    options=list(communes_senegal.keys()), 
+                    key="hz_grande_zone"
+                )
+                # Étape B : Sélection de la commune (dynamique selon la zone choisie)
+                commune_selected = st.selectbox(
+                    "📍 Sélectionner la Commune d'Études :", 
+                    options=list(communes_senegal[grande_zone].keys()), 
+                    key="hz_commune"
+                )
+                # Étape C : Traduction automatique pour votre moteur de calcul existant
+                zone_selected = communes_senegal[grande_zone][commune_selected]
                 
+            with col_s2:
+                produit_selected = st.selectbox(
+                    f"🌱 Sélectionner la Variété Validée par l'ISRA ({len(crop_catalog)} produits homologués) :", 
+                    options=list(crop_catalog.keys()), 
+                    key="hp_select"
+                )
             col_s3, col_s4 = st.columns(2)
             with col_s3:
                 surface_parcelle = st.number_input("📐 Superficie Totale à exploiter (Hectares) :", min_value=0.1, max_value=5000.0, value=2.0, step=0.5)
@@ -1296,6 +1355,7 @@ elif selected == "💼 Consultance":
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True
             )
+
 ##############################################################""
 
 elif selected == "🌱 Conseil":
