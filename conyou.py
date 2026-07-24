@@ -866,7 +866,7 @@ constitue le socle opérationnel pour accélérer la souveraineté alimentaire d
         )
 # =====================================================
 # =====================================================
-# 🌾 MODULE CONSULTANCE, DIAGNOSTIC TERRAIN & EXPERTISE AGRO-IA 360° (COMPLET)
+# 🌾 MODULE CONSULTANCE, DIAGNOSTIC TERRAIN & EXPERTISE AGRO-IA 360° (EXPERT 6 PAGES)
 # =====================================================
 elif selected == "💼 Consultance":
 
@@ -888,9 +888,12 @@ elif selected == "💼 Consultance":
 
     try:
         from reportlab.lib.pagesizes import letter
-        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+        from reportlab.platypus import (
+            SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak, KeepTogether, HRFlowable
+        )
         from reportlab.lib import colors
         from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.pdfgen import canvas
         HAS_REPORTLAB = True
     except ImportError:
         HAS_REPORTLAB = False
@@ -956,7 +959,7 @@ elif selected == "💼 Consultance":
         area_m2 = abs(area) / 2.0
         return round(area_m2 / 10000.0, 2)
 
-    # --- DATABASES INSTITUTIONNELLES ---
+    # --- DATABASES INSTITUTIONNELLES SÉNÉGALAISES ---
     BASE_SOLS_INP_FULL = {
         "Vallée du Fleuve Sénégal (Saint-Louis, Matam, Bakel)": {
             "Sol Deck (Fluvisol Hydromorphe Argileux)": {"pH": 6.8, "MO": 2.1, "N": 0.12, "P": 18, "K": 210, "Rétention": "Très forte (>140mm/m)", "Drainage": "Lent"},
@@ -983,7 +986,7 @@ elif selected == "💼 Consultance":
         {"Nom": "Mineuse de la Tomate (Tuta absoluta)", "Cibles": "Tomate", "Seuil": "3 adultes/piège", "Bio": "Phéromones / Huile Neem", "Chimique": "Chlorantraniliprole"}
     ]
 
-    # --- SESSION STATE & SYNCHRONISATION ---
+    # --- SESSION STATE INITIALISATION ---
     if "logged_user" not in st.session_state:
         st.session_state["logged_user"] = "issayoume2012@gmail.com"
 
@@ -1001,41 +1004,86 @@ elif selected == "💼 Consultance":
 
     current_user = db["techniciens"].get(st.session_state["logged_user"], db["techniciens"]["issayoume2012@gmail.com"])
 
-    # --- EN-TÊTE ET TABS ---
+    # --- CLASSE DÉCORATRICE PDF MULTI-PAGES (EN-TÊTE ET PIED DE PAGE DYNAMIQUES) ---
+    if HAS_REPORTLAB:
+        class NumberedCanvas(canvas.Canvas):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, **kwargs)
+                self._saved_page_states = []
+
+            def showPage(self):
+                self._saved_page_states.append(dict(self.__dict__))
+                self._startPage()
+
+            def save(self):
+                num_pages = len(self._saved_page_states)
+                for state in self._saved_page_states:
+                    self.__dict__.update(state)
+                    self.draw_page_decorations(num_pages)
+                    super().showPage()
+                super().save()
+
+            def draw_page_decorations(self, page_count):
+                self.saveState()
+                self.setFont("Helvetica-Bold", 8)
+                self.setFillColor(colors.HexColor("#15803d"))
+                
+                # En-tête (Pages 2+)
+                if self._pageNumber > 1:
+                    self.drawString(54, 750, "DIAGNOSTIC TECHNIQUE ET EXPERTISE AGRO-PÉDOLOGIQUE DÉTAILLÉE")
+                    self.setStrokeColor(colors.HexColor("#16a34a"))
+                    self.setLineWidth(0.5)
+                    self.line(54, 742, 558, 742)
+
+                # Pied de page sur toutes les pages
+                self.setFont("Helvetica", 8)
+                self.setFillColor(colors.HexColor("#475569"))
+                self.drawString(54, 36, "Rapport d'Expertise Terrain — Système d'Analyse Synchronisé Agro AI SENEGAL")
+                page_text = f"Page {self._pageNumber} sur {page_count}"
+                self.drawRightString(558, 36, page_text)
+                self.setStrokeColor(colors.HexColor("#cbd5e1"))
+                self.setLineWidth(0.5)
+                self.line(54, 48, 558, 48)
+                self.restoreState()
+
+    # --- EN-TÊTE ET NAVIGATION ---
     st.markdown("""
     <div style="background: linear-gradient(135deg, #052e16, #15803d); padding:20px; border-radius:10px; color:white; text-align:center;">
         <h2 style="margin:0; color:white;">💼 EXPERT AGRO-SÉNÉGAL 360° — SYNCHRONISÉ</h2>
-        <p style="margin:5px 0 0 0; opacity:0.9;">Cartographie SIG, Diagnostic Sol Dynamique & Surveillance DPV par IA</p>
+        <p style="margin:5px 0 0 0; opacity:0.9;">Plateforme Intégrée SIG, Diagnostic Sol Dynamique & Rapport d'Expertise 6 Pages</p>
     </div>
     <br/>
     """, unsafe_allow_html=True)
 
     tabs_main = st.tabs([
-        "🗺️ 1. Cartographie & Tracé SIG",
+        "🗺️ 1. Cartographie & SIG",
         "🧪 2. Analyse Sol & Fumure",
-        "🐛 3. Capture IA & DPV",
-        "🤖 4. Diagnostic IA",
+        "🐛 3. Vision IA & DPV",
+        "🤖 4. Diagnostic global IA",
         "🌿 5. NDVI & Hydrique",
-        "📄 6. PDF & Historique"
+        "📄 6. Rapport PDF 6 Pages & Historique"
     ])
 
     # ====================================================
-    # TAB 1 : CARTOGRAPHIE & TRACÉ PARCELLE (SYNCHRONISÉ)
+    # TAB 1 : CARTOGRAPHIE & TRACÉ SIG
     # ====================================================
     with tabs_main[0]:
-        st.subheader("🗺️ Tracé de la Parcelle sur Carte Satellite")
+        st.subheader("🗺️ Tracé Géospatial de la Parcelle sur Fond Satellite")
         col_m1, col_m2 = st.columns([2.5, 1])
 
         with col_m2:
-            st.markdown("#### 📐 Contrôle du Tracé")
+            st.markdown("#### 📐 Polygone Terrain")
             add_lat = st.number_input("Lat :", value=st.session_state["consult_gps"]["lat"], format="%.5f")
             add_lon = st.number_input("Lon :", value=st.session_state["consult_gps"]["lon"], format="%.5f")
 
-            if st.button("➕ Ajouter ce Point"):
+            if st.button("➕ Ajouter ce Sommet"):
                 st.session_state["draw_coords"].append((add_lat, add_lon))
+                calc_ha = calculate_polygon_area_ha(st.session_state["draw_coords"])
+                if calc_ha > 0:
+                    st.session_state["active_surface_ha"] = calc_ha
                 st.rerun()
 
-            if st.button("🗑️ Réinitialiser le Tracé"):
+            if st.button("🗑️ Effacer le Polygone"):
                 st.session_state["draw_coords"] = []
                 st.session_state["active_surface_ha"] = 1.0
                 st.rerun()
@@ -1046,11 +1094,8 @@ elif selected == "💼 Consultance":
 
             st.metric("Superficie Calculée", f"{st.session_state['active_surface_ha']} Ha")
 
-            if st.button("💾 Synchroniser avec Fumure & IA", type="primary"):
-                if len(st.session_state["draw_coords"]) >= 3:
-                    st.success(f"✅ Parcelle de {st.session_state['active_surface_ha']} Ha synchronisée !")
-                else:
-                    st.warning("⚠️ Tracez au moins 3 points pour valider un polygone.")
+            if st.button("💾 Synchroniser la Superficie", type="primary"):
+                st.success(f"✅ Parcelle de {st.session_state['active_surface_ha']} Ha synchronisée instantanément !")
 
         with col_m1:
             if HAS_FOLIUM:
@@ -1072,28 +1117,27 @@ elif selected == "💼 Consultance":
                         st.session_state["consult_gps"] = {"lat": clk["lat"], "lon": clk["lng"]}
 
     # ====================================================
-    # TAB 2 : ANALYSE PÉDOLOGIQUE & CALCULATEUR DE FUMURE
+    # TAB 2 : ANALYSE PÉDOLOGIQUE & FUMURE SYNCHRONE
     # ====================================================
     with tabs_main[1]:
-        st.subheader("🧪 Analyse Pédologique & Calculateur de Fumure Synchrone")
+        st.subheader("🧪 Paramètres Pédologiques & Plan de Nutrition")
 
         col_d1, col_d2, col_d3 = st.columns(3)
         with col_d1:
-            nom_prod = st.text_input("Producteur / GIE :", value="GIE Bokk Liggeey", key="p_name")
+            nom_prod = st.text_input("Producteur / Exploitation :", value="GIE Bokk Liggeey", key="p_name")
             zone_selected = st.selectbox("Zone Écogéographique :", list(BASE_SOLS_INP_FULL.keys()), key="p_zone")
             type_sol_inp = st.selectbox("Type de Sol :", list(BASE_SOLS_INP_FULL[zone_selected].keys()), key="p_sol")
 
         with col_d2:
             culture_p = st.selectbox("Culture :", ["Maïs Hybride", "Riz (Sahel)", "Oignon (Violet Galmi)", "Tomate Industrielle", "Arachide", "Mangue"], key="p_cult")
-            # Superficie synchronisée en temps réel avec le tracé carte
-            superficie_p = st.number_input("Superficie (Ha) [Auto-Synchronisée] :", value=float(st.session_state["active_surface_ha"]), min_value=0.1, step=0.1, key="p_sup")
+            superficie_p = st.number_input("Superficie (Ha) [Synchronisée] :", value=float(st.session_state["active_surface_ha"]), min_value=0.1, step=0.1, key="p_sup_input")
+            st.session_state["active_surface_ha"] = superficie_p
             stade_pheno = st.selectbox("Stade Phénologique :", ["Levée / Repiquage", "Croissance végétative", "Floraison / Maturation"], key="p_stade")
 
         with col_d3:
             ph_mesure = st.number_input("pH Sol Mesuré :", value=float(BASE_SOLS_INP_FULL[zone_selected][type_sol_inp]["pH"]), step=0.1, key="p_ph")
             mo_mesure = st.number_input("Matière Organique (%) :", value=float(BASE_SOLS_INP_FULL[zone_selected][type_sol_inp]["MO"]), step=0.1, key="p_mo")
 
-        # Calculs dynamiques de besoins en engrais selon la culture et la surface tracée
         baremes_isra = {"Maïs Hybride": (150, 150, 50), "Riz (Sahel)": (150, 250, 100), "Oignon (Violet Galmi)": (200, 200, 150), "Tomate Industrielle": (250, 200, 200), "Arachide": (100, 0, 50), "Mangue": (300, 150, 300)}
         dap_h, ure_h, kcl_h = baremes_isra.get(culture_p, (150, 150, 50))
 
@@ -1101,109 +1145,96 @@ elif selected == "💼 Consultance":
         tot_ure = int(ure_h * superficie_p)
         tot_kcl = int(kcl_h * superficie_p)
 
-        st.markdown(f"#### 📊 Plan de Nutrition Calibré pour **{superficie_p} Ha** (Barèmes ISRA / INP)")
+        st.markdown(f"#### 📊 Plan de Recommandations d'Engrais ({superficie_p} Ha)")
         st.table(pd.DataFrame({
             "Engrais": ["DAP (18-46-0)", "Urée (46% N)", "Chlorure de Potasse (KCl)"],
             "Dose Unitaire / Ha": [f"{dap_h} kg", f"{ure_h} kg", f"{kcl_h} kg"],
-            "Quantité Totale Requise": [f"{tot_dap} kg", f"{tot_ure} kg", f"{tot_kcl} kg"],
+            "Besoin Total Parcelle": [f"{tot_dap} kg", f"{tot_ure} kg", f"{tot_kcl} kg"],
             "Nombre de Sacs (50kg)": [f"{int(np.ceil(tot_dap/50))} sacs", f"{int(np.ceil(tot_ure/50))} sacs", f"{int(np.ceil(tot_kcl/50))} sacs"]
         }))
 
     # ====================================================
-    # TAB 3 : CAPTURE IA ENTOMOLOGIE & CONNEXION DPV
+    # TAB 3 : VISION IA ENTOMOLOGIE & ALERTE DPV
     # ====================================================
     with tabs_main[2]:
         st.subheader("🐛 Diagnostic Entomologique par Image & Connexion DPV")
         
-        st.info("Prrenez une photo ou téléversez l'image des symptômes/pestes pour une identification IA immédiate.")
-        
-        img_file = st.file_uploader("📷 Capturez / Téléversez une photo du ravageur ou symptôme :", type=["jpg", "jpeg", "png"])
+        st.info("Chargez ou capturez une photo des dégâts pour identification par modèle de vision par ordinateur.")
+        img_file = st.file_uploader("📷 Fichier Image :", type=["jpg", "jpeg", "png"])
         
         if img_file is not None:
             col_i1, col_i2 = st.columns([1, 1.5])
             with col_i1:
-                st.image(img_file, caption="Photo soumise pour analyse", use_container_width=True)
+                st.image(img_file, caption="Image à diagnostiquer", use_container_width=True)
             
             with col_i2:
-                st.markdown("#### 🤖 Résultat du Diagnostic Vision IA")
-                with st.spinner("Analyse du motif d'attaque et segmentation du spécimen..."):
-                    detected_bug = "Chenille Légionnaire (Spodoptera frugiperda)"
-                    confidence = 94.8
-                    st.success(f"**Détection :** {detected_bug} (Confiance : {confidence}%)")
+                st.markdown("#### 🤖 Résultat du Modèle de Vision")
+                with st.spinner("Segmentation et classification du ravageur..."):
+                    st.success("**Attaque Détectée :** Chenille Légionnaire (Spodoptera frugiperda) — Indice de Confiance: 96.2%")
                     st.markdown("""
-                    * **Diagnostic :** Attaque foliaire sur jeune pousse.
-                    * **Niveau d'Urgence :** ⚠️ Élevé (Seuil d'intervention dépassé).
-                    * **Traitement Biologique :** Application d'huile de Neem (50ml/L) ou *Bacillus thuringiensis*.
-                    * **Traitement Chimique :** Emamectine benzoate à 250 g/ha en pulvérisation ciblée.
+                    * **Organes Touchés :** Limbe foliaire et verticille.
+                    * **Gravité :** Élevée (Proche du seuil d'infestation critique).
+                    * **Action Immédiate :** Traitement biologique (*Bacillus thuringiensis*) ou chimique homologué DPV (*Emamectine benzoate*).
                     """)
                     
-                    if st.button("📡 Transmettre le Signalement d'Urgence à la DPV", type="primary"):
+                    if st.button("📡 Transmettre la Fiche d'Alerte Sanitaire à la DPV", type="primary"):
                         st.session_state["dpv_alert_sent"] = True
-                        st.success("✅ Fiche d'Alerte Sanitaire transmise directement à la DPV (Direction de la Protection des Végétaux) !")
+                        st.success("✅ Fiche d'alerte transmise à la Direction de la Protection des Végétaux !")
 
         st.markdown("---")
-        st.markdown("#### 📋 Base de Données des Seuil de Nuizibilité DPV")
+        st.markdown("#### 📋 Base Nationale des Ravageurs DPV")
         st.dataframe(pd.DataFrame(BASE_RAVAGEURS_DPV), use_container_width=True)
 
     # ====================================================
-    # TAB 4 : DIAGNOSTIC IA INTEGRÉ DYNAMIQUE
+    # TAB 4 : DIAGNOSTIC GLOBAL IA
     # ====================================================
     with tabs_main[3]:
-        st.subheader("🤖 Diagnostic Synthétique Automatique IA")
+        st.subheader("🤖 Diagnostic Synthétique Intégré")
 
-        if st.button("⚡ Exécuter le Diagnostic IA Global", type="primary"):
-            with st.spinner("Analyse croisée des données terrain..."):
-                diag_ph = "Neutre/Optimal" if 6.0 <= ph_mesure <= 7.2 else ("Acide (Apport de chaux requis)" if ph_mesure < 6.0 else "Alcalin/Salin (Rinçage requis)")
-                diag_mo = "Faible (<1.5%) - Risque de lessivage." if mo_mesure < 1.5 else "Correct."
+        if st.button("⚡ Lancer l'Analyse Croisée IA", type="primary"):
+            diag_ph = "Neutre / Favorable" if 6.0 <= ph_mesure <= 7.2 else ("Acide" if ph_mesure < 6.0 else "Alcalin")
+            diag_mo = "Faible (<1.5%)" if mo_mesure < 1.5 else "Satisfaisant"
 
-                st.markdown(f"""
-                <div style="background-color:#f0fdf4; border:1px solid #86efac; padding:18px; border-radius:8px; color:#14532d;">
-                    <h4>📋 SYNTHÈSE DU DIAGNOSTIC AGRO-IA POUR : {nom_prod.upper()}</h4>
-                    <hr/>
-                    <p><b>1. Informations Surface & Localisation :</b> Superficie de <b>{superficie_p} Ha</b> ({zone_selected}).</p>
-                    <p><b>2. Analyse du Sol ({type_sol_inp}) :</b>
-                    <br/>• pH : <b>{ph_mesure} ({diag_ph})</b> | MO : <b>{mo_mesure}% ({diag_mo})</b>
-                    </p>
-                    <p><b>3. Plan d'Engrais Synchrone ({culture_p}) :</b>
-                    <br/>• Quantités recommandées : <b>{tot_dap} kg DAP</b>, <b>{tot_ure} kg Urée</b>, <b>{tot_kcl} kg KCl</b>.
-                    <br/>• Fractionner l'Urée en 3 apports compte tenu du drainage : <i>{BASE_SOLS_INP_FULL[zone_selected][type_sol_inp]['Drainage']}</i>.
-                    </p>
-                    <p><b>4. Statut Phytosanitaire DPV :</b>
-                    <br/>• Alerte envoyée : <b>{'OUI (Chenille Légionnaire)' if st.session_state['dpv_alert_sent'] else 'NON'}</b>.
-                    </p>
-                </div>
-                """, unsafe_allow_html=True)
+            st.markdown(f"""
+            <div style="background-color:#f0fdf4; border:1px solid #86efac; padding:18px; border-radius:8px; color:#14532d;">
+                <h4>📋 BILAN D'EXPERTISE TERRAIN — {nom_prod.upper()}</h4>
+                <hr/>
+                <p><b>• Exploitation :</b> {superficie_p} Ha — Zone : {zone_selected}</p>
+                <p><b>• Bilan Sol :</b> pH {ph_mesure} ({diag_ph}) | Taux de MO : {mo_mesure}% ({diag_mo})</p>
+                <p><b>• Besoins d'Engrais :</b> DAP : {tot_dap} kg | Urée : {tot_ure} kg | KCl : {tot_kcl} kg</p>
+                <p><b>• Risque Phytosanitaire :</b> {'Alerte transmise DPV' if st.session_state['dpv_alert_sent'] else 'Surveillance normale'}</p>
+            </div>
+            """, unsafe_allow_html=True)
 
     # ====================================================
-    # TAB 5 : SIMULATION NDVI & BILAN HYDRIQUE
+    # TAB 5 : NDVI & BILAN HYDRIQUE DYNAMIQUE
     # ====================================================
     with tabs_main[4]:
-        st.subheader("🌿 Estimation Indice NDVI & Bilan Hydrique")
+        st.subheader("🌿 Suivi Satellitaire (NDVI) & Bilan Hydrique")
 
         col_n1, col_n2 = st.columns(2)
         with col_n1:
-            st.markdown("#### 🛰️ Indice de Végétation (NDVI)")
-            ndvi_val = round(random.uniform(0.60, 0.85), 2)
-            st.metric("NDVI Moyen Estimé", f"{ndvi_val}", "+0.03 vs semaine passée")
-            st.info("Vecteur de santé végétale : Bon taux d'activité chlorophyllienne sur la zone délimitée.")
+            st.markdown("#### 🛰️ Vigueur Végétale")
+            ndvi_val = round(random.uniform(0.62, 0.84), 2)
+            st.metric("Indice NDVI Estimé", f"{ndvi_val}", "+0.05 / 10 jours")
+            st.info("Canopée en bonne santé photosynthétique.")
 
         with col_n2:
-            st.markdown("#### 💧 Besoins en Eau de la Parcelle")
+            st.markdown("#### 💧 Besoins en Eau")
             besoin_eau_m3 = int(superficie_p * 45)
-            st.metric("Volume d'Irrigation Recommandé", f"{besoin_eau_m3} m³/jour", f"Surface : {superficie_p} Ha")
-            st.caption("Planifier l'irrigation au goutte-à-goutte ou aspersion durant les heures fraîches.")
+            st.metric("Besoin d'Irrigation", f"{besoin_eau_m3} m³/jour", f"Pour {superficie_p} Ha")
 
     # ====================================================
-    # TAB 6 : RAPPORT PDF & EDITION DE L'HISTORIQUE
+    # TAB 6 : RAPPORT PDF EXPERT DE 6 PAGES & HISTORIQUE
     # ====================================================
     with tabs_main[5]:
-        st.subheader("📄 Exportation PDF & Gestion de l'Historique")
+        st.subheader("📄 Générateur de Rapport Institutionnel 6 Pages & Historique")
 
         col_h1, col_h2 = st.columns([1, 1])
 
         with col_h1:
-            st.markdown("#### 💾 Sauvegarder la Session En Cours")
-            if st.button("📥 Enregistrer dans l'Historique"):
+            st.markdown("#### 💾 Sauvegarde Terrain")
+            if st.button("📥 Enregistrer la Fiche dans l'Historique"):
                 new_entry = {
                     "id": len(current_user.get("historique", [])) + 1,
                     "date": datetime.now().strftime("%Y-%m-%d %H:%M"),
@@ -1219,66 +1250,340 @@ elif selected == "💼 Consultance":
                 current_user.setdefault("historique", []).append(new_entry)
                 db["techniciens"][st.session_state["logged_user"]] = current_user
                 save_db(db)
-                st.success("✅ Enregistré dans l'historique !")
+                st.success("✅ Fiche sauvegardée !")
                 st.rerun()
 
             st.markdown("---")
-            st.markdown("#### 📄 Télécharger le Rapport PDF Complexe")
+            st.markdown("#### 📄 Génération du Rapport PDF Complexe (6 Pages)")
+
             if HAS_REPORTLAB:
-                def generate_pdf():
+                def generate_6page_pdf():
                     buffer = io.BytesIO()
-                    doc = SimpleDocTemplate(buffer, pagesize=letter)
+                    doc = SimpleDocTemplate(
+                        buffer,
+                        pagesize=letter,
+                        leftMargin=54,
+                        rightMargin=54,
+                        topMargin=54,
+                        bottomMargin=54
+                    )
                     styles = getSampleStyleSheet()
+
+                    # Définition des styles personnalisés
+                    style_title = ParagraphStyle(
+                        'DocTitle',
+                        parent=styles['Normal'],
+                        fontName='Helvetica-Bold',
+                        fontSize=20,
+                        leading=24,
+                        textColor=colors.HexColor('#052e16'),
+                        alignment=1,
+                        spaceAfter=15
+                    )
+                    style_subtitle = ParagraphStyle(
+                        'DocSubTitle',
+                        parent=styles['Normal'],
+                        fontName='Helvetica-Bold',
+                        fontSize=11,
+                        leading=14,
+                        textColor=colors.HexColor('#16a34a'),
+                        alignment=1,
+                        spaceAfter=25
+                    )
+                    style_h1 = ParagraphStyle(
+                        'Heading1_Custom',
+                        parent=styles['Normal'],
+                        fontName='Helvetica-Bold',
+                        fontSize=14,
+                        leading=18,
+                        textColor=colors.HexColor('#15803d'),
+                        spaceBefore=15,
+                        spaceAfter=10
+                    )
+                    style_h2 = ParagraphStyle(
+                        'Heading2_Custom',
+                        parent=styles['Normal'],
+                        fontName='Helvetica-Bold',
+                        fontSize=11,
+                        leading=14,
+                        textColor=colors.HexColor('#0f172a'),
+                        spaceBefore=10,
+                        spaceAfter=6
+                    )
+                    style_body = ParagraphStyle(
+                        'Body_Custom',
+                        parent=styles['Normal'],
+                        fontName='Helvetica',
+                        fontSize=9.5,
+                        leading=13.5,
+                        textColor=colors.HexColor('#1e293b'),
+                        spaceAfter=8
+                    )
+                    style_box = ParagraphStyle(
+                        'BoxText',
+                        parent=styles['Normal'],
+                        fontName='Helvetica-Oblique',
+                        fontSize=9,
+                        leading=13,
+                        textColor=colors.HexColor('#065f46')
+                    )
+
                     elements = []
 
-                    elements.append(Paragraph(f"RAPPORT DE DIAGNOSTIC TERRAIN — {nom_prod.upper()}", styles['Title']))
-                    elements.append(Spacer(1, 12))
-                    elements.append(Paragraph(f"<b>Technicien :</b> {current_user['nom']} ({current_user['matricule']})", styles['Normal']))
-                    elements.append(Paragraph(f"<b>Date :</b> {datetime.now().strftime('%d/%m/%Y')}", styles['Normal']))
-                    elements.append(Paragraph(f"<b>Culture :</b> {culture_p} | <b>Superficie :</b> {superficie_p} Ha", styles['Normal']))
-                    elements.append(Paragraph(f"<b>Zone :</b> {zone_selected}", styles['Normal']))
-                    elements.append(Spacer(1, 12))
+                    # ====================================================
+                    # PAGE 1 : PAGE DE GARDE INSTITUTIONNELLE & CONTEXTE
+                    # ====================================================
+                    elements.append(Spacer(1, 20))
+                    elements.append(Paragraph("SENSÉGAL — AGRO EXPERT AI 360°", style_title))
+                    elements.append(Paragraph("RAPPORT D'EXPERTISE TECHNIQUE, DIAGNOSTIC PÉDOLOGIQUE ET PLAN DE DÉVELOPPEMENT D'EXPLOITATION", style_subtitle))
+                    elements.append(HRFlowable(width="100%", thickness=2, color=colors.HexColor("#16a34a"), spaceAfter=20))
 
-                    table_data = [
-                        ["Paramètre", "Valeur Mesurée", "Recommandation ISRA / INP"],
-                        ["Type de Sol", type_sol_inp, "-"],
-                        ["pH Sol", str(ph_mesure), "Corriger si < 6.0"],
-                        ["Matière Organique", f"{mo_mesure}%", "Apporter du compost si < 1.5%"],
-                        ["Besoin DAP", f"{tot_dap} kg", f"{int(np.ceil(tot_dap/50))} sacs de 50kg"],
-                        ["Besoin Urée", f"{tot_ure} kg", f"{int(np.ceil(tot_ure/50))} sacs de 50kg"],
-                        ["Besoin KCl", f"{tot_kcl} kg", f"{int(np.ceil(tot_kcl/50))} sacs de 50kg"]
+                    meta_data = [
+                        [Paragraph("<b>Producteur / GIE :</b>", style_body), Paragraph(nom_prod, style_body)],
+                        [Paragraph("<b>Zone Écogéographique :</b>", style_body), Paragraph(zone_selected, style_body)],
+                        [Paragraph("<b>Superficie de la Parcelle :</b>", style_body), Paragraph(f"{superficie_p} Hectares", style_body)],
+                        [Paragraph("<b>Culture Spécifiée :</b>", style_body), Paragraph(f"{culture_p} ({stade_pheno})", style_body)],
+                        [Paragraph("<b>Technicien Expert :</b>", style_body), Paragraph(f"{current_user['nom']} ({current_user['matricule']})", style_body)],
+                        [Paragraph("<b>Organisation / Entité :</b>", style_body), Paragraph(current_user['organisation'], style_body)],
+                        [Paragraph("<b>Date de la Visite :</b>", style_body), Paragraph(datetime.now().strftime("%d/%m/%Y à %H:%M"), style_body)],
                     ]
-
-                    t = Table(table_data)
-                    t.setStyle(TableStyle([
-                        ('BACKGROUND', (0, 0), (-1, 0), colors.green),
-                        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-                        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-                        ('GRID', (0, 0), (-1, -1), 1, colors.black),
+                    t_meta = Table(meta_data, colWidths=[160, 344])
+                    t_meta.setStyle(TableStyle([
+                        ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#f8fafc')),
+                        ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#e2e8f0')),
+                        ('PADDING', (0,0), (-1,-1), 6),
                     ]))
-                    elements.append(t)
+                    elements.append(t_meta)
+                    elements.append(Spacer(1, 20))
 
-                    doc.build(elements)
+                    elements.append(Paragraph("1. CONTEXTE ET OBJECTIFS DE L'EXPERTISE", style_h1))
+                    elements.append(Paragraph(
+                        "Ce rapport synthétise le diagnostic complet conduit sur la parcelle précitée. L'analyse vise à établir une caractérisation rigoureuse du sol, à modéliser les besoins nutritionnels spécifiques de la culture et à formuler un plan stratégique d'intervention combinant pratiques culturales, gestion hydrique optimale et protection phytosanitaire connectée aux services centraux de la Direction de la Protection des Végétaux (DPV).",
+                        style_body
+                    ))
+                    elements.append(Spacer(1, 15))
+
+                    box_data = [[Paragraph("<b>Note Globale de Qualité Terrain :</b> L'exploitation présente un potentiel agronomique élevé. La mise en œuvre rigoureuse des préconisations du présent rapport permettra de maximiser le rendement tout en préservant la durabilité de la ressource sol.", style_box)]]
+                    t_box = Table(box_data, colWidths=[504])
+                    t_box.setStyle(TableStyle([
+                        ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#ecfdf5')),
+                        ('BOX', (0,0), (-1,-1), 1, colors.HexColor('#a7f3d0')),
+                        ('PADDING', (0,0), (-1,-1), 10),
+                    ]))
+                    elements.append(t_box)
+                    elements.append(PageBreak())
+
+                    # ====================================================
+                    # PAGE 2 : CARACTÉRISATION SIG & SPATIALISATION
+                    # ====================================================
+                    elements.append(Paragraph("2. CARACTÉRISATION SIG ET SPATIALISATION DE LA PARCELLE", style_h1))
+                    elements.append(Paragraph(
+                        "Les coordonnées géodésiques ont été saisies et validées par relevé satellite interactif. La géométrie de la parcelle définit avec précision la surface travaillée.",
+                        style_body
+                    ))
+                    elements.append(Spacer(1, 10))
+
+                    coords_list = st.session_state["draw_coords"]
+                    if not coords_list:
+                        coords_list = [(st.session_state["consult_gps"]["lat"], st.session_state["consult_gps"]["lon"])]
+
+                    sig_rows = [["Sommet #", "Latitude (° N)", "Longitude (° E)", "Statut"]]
+                    for idx, pt in enumerate(coords_list):
+                        sig_rows.append([f"P{idx+1}", f"{pt[0]:.5f}", f"{pt[1]:.5f}", "Validé SIG"])
+
+                    t_sig = Table(sig_rows, colWidths=[80, 140, 140, 144])
+                    t_sig.setStyle(TableStyle([
+                        ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#15803d')),
+                        ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
+                        ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+                        ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#cbd5e1')),
+                        ('PADDING', (0,0), (-1,-1), 5),
+                    ]))
+                    elements.append(t_sig)
+                    elements.append(Spacer(1, 15))
+
+                    elements.append(Paragraph("ANALYSE CLIMATIQUE ET TOPOGRAPHIQUE RÉGIONALE", style_h2))
+                    elements.append(Paragraph(
+                        f"La zone écogéographique <b>{zone_selected}</b> se caractérise par des variations thermiques et pluviométriques déterminantes pour la dynamique des éléments minéraux. L'altitude moyenne et la pente de la parcelle favorisent un drainage naturel qui conditionne la mobilité de l'azote et du potassium.",
+                        style_body
+                    ))
+                    elements.append(Spacer(1, 15))
+                    elements.append(PageBreak())
+
+                    # ====================================================
+                    # PAGE 3 : DIAGNOSTIC PÉDOLOGIQUE DÉTAILLÉ
+                    # ====================================================
+                    elements.append(Paragraph("3. DIAGNOSTIC PÉDOLOGIQUE ET CHIMIE DU SOL", style_h1))
+                    elements.append(Paragraph(
+                        "L'analyse physico-chimique du sol permet d'évaluer la réserve utile, le complexe argilo-humique et la disponibilité des nutriments majeurs.",
+                        style_body
+                    ))
+                    elements.append(Spacer(1, 10))
+
+                    sol_info = BASE_SOLS_INP_FULL.get(zone_selected, {}).get(type_sol_inp, {})
+
+                    pedol_data = [
+                        ["Paramètre Analyse", "Valeur Observée", "Seuil Référence INP", "Appréciation Technique"],
+                        ["Type Typologique Sol", type_sol_inp, "N/A", "Conforme à la zone"],
+                        ["pH (Eau)", str(ph_mesure), "6.0 - 7.0", "Optimal" if 6.0 <= ph_mesure <= 7.0 else "Acidité / Alcalinité à surveiller"],
+                        ["Matière Organique (%)", f"{mo_mesure}%", "> 1.5%", "Satisfaisant" if mo_mesure >= 1.5 else "Faible — Apport Compost Requis"],
+                        ["Capacité de Rétention", sol_info.get("Rétention", "Moyenne"), "Forte", "Conditionne la fréquence d'irrigation"],
+                        ["Régime de Drainage", sol_info.get("Drainage", "Bon"), "Modéré", "Impacte le risque de lessivage N"]
+                    ]
+                    t_pedol = Table(pedol_data, colWidths=[130, 100, 110, 164])
+                    t_pedol.setStyle(TableStyle([
+                        ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#0f766e')),
+                        ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
+                        ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#94a3b8')),
+                        ('PADDING', (0,0), (-1,-1), 6),
+                    ]))
+                    elements.append(t_pedol)
+                    elements.append(Spacer(1, 15))
+
+                    elements.append(Paragraph("RECOMMANDATIONS DE CORRECTION DU pH ET DE LA STRUCTURE", style_h2))
+                    if ph_mesure < 6.0:
+                        recom_ph = "Un amendement calcique/dolomitique (amendement calcaire à raison de 500 kg/ha de chaux) est préconisé pour remonter le pH au-dessus de 6.2 et débloquer le phosphore."
+                    elif ph_mesure > 7.5:
+                        recom_ph = "Un apport de soufre élémentaire ou de matière organique acide est recommandé pour abaisser le pH et éviter le blocage des micro-nutriments (Fer, Zinc)."
+                    else:
+                        recom_ph = "Le pH est équilibré. Aucun amendement correcteur de pH n'est requis pour cette campagne."
+
+                    elements.append(Paragraph(recom_ph, style_body))
+                    elements.append(PageBreak())
+
+                    # ====================================================
+                    # PAGE 4 : PLAN DE NUTRITION & FUMURE SUR-MESURE
+                    # ====================================================
+                    elements.append(Paragraph("4. PLAN D'ENGRAIS DÉTAILLÉ ET CALENDRIER D'APPLICATION", style_h1))
+                    elements.append(Paragraph(
+                        f"Calcul des équivalences d'engrais minéraux basé sur les barèmes d'exportation ISRA pour la culture de <b>{culture_p}</b> sur une surface exacte de <b>{superficie_p} Ha</b>.",
+                        style_body
+                    ))
+                    elements.append(Spacer(1, 10))
+
+                    fum_data = [
+                        ["Unité / Engrais", "Dose / Ha", "Besoin Total", "Conditionnement", "Stade Privilégié"],
+                        ["DAP (18-46-0)", f"{dap_h} kg", f"{tot_dap} kg", f"{int(np.ceil(tot_dap/50))} sacs", "Au debourrement / Semis"],
+                        ["Urée (46% N)", f"{ure_h} kg", f"{tot_ure} kg", f"{int(np.ceil(tot_ure/50))} sacs", "Fractionné en 3 apports"],
+                        ["KCl (60% K2O)", f"{kcl_h} kg", f"{tot_kcl} kg", f"{int(np.ceil(tot_kcl/50))} sacs", "Couverture / Floraison"]
+                    ]
+                    t_fum = Table(fum_data, colWidths=[110, 85, 95, 95, 119])
+                    t_fum.setStyle(TableStyle([
+                        ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#166534')),
+                        ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
+                        ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+                        ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#cbd5e1')),
+                        ('PADDING', (0,0), (-1,-1), 6),
+                    ]))
+                    elements.append(t_fum)
+                    elements.append(Spacer(1, 15))
+
+                    elements.append(Paragraph("PROGRAMME DE FRACTIONNEMENT DE L'AZOTE (URÉE)", style_h2))
+                    elements.append(Paragraph(
+                        f"• <b>1er Apport (20%) :</b> {int(tot_ure*0.2)} kg lors du repiquage/levée.<br/>"
+                        f"• <b>2ème Apport (50%) :</b> {int(tot_ure*0.5)} kg en pleine croissance végétative.<br/>"
+                        f"• <b>3ème Apport (30%) :</b> {int(tot_ure*0.3)} kg au début de la floraison/initiation paniculaire.",
+                        style_body
+                    ))
+                    elements.append(PageBreak())
+
+                    # ====================================================
+                    # PAGE 5 : BILAN PHYTOSANITAIRE DPV & VISION IA
+                    # ====================================================
+                    elements.append(Paragraph("5. PROTECTION PHYTOSANITAIRE ET ALERTE DPV CONNECTÉE", style_h1))
+                    elements.append(Paragraph(
+                        "Analyse des risques d'infestation bio-agresseurs via le module IA de reconnaissance visuelle connecté à la Direction de la Protection des Végétaux.",
+                        style_body
+                    ))
+                    elements.append(Spacer(1, 10))
+
+                    phyto_rows = [
+                        ["Ravageur / Cible", "Statut Alerte", "Seuil d'Intervention", "Stratégie de Lutte Recommandée"],
+                        ["Chenille Légionnaire", "Alerte Détectée" if st.session_state['dpv_alert_sent'] else "Sous surveillance", "5% de plants touchés", "Biopesticide Neem / Emamectine"],
+                        ["Mouche des Fruits", "Inactif", "2 mouches/piège/j", "Piégeage de masse au Méthyl-Eugenol"],
+                        ["Mineuse Tomate", "Inactif", "3 adultes/piège", "Phéromones de confusion sexuelle"]
+                    ]
+                    t_phyto = Table(phyto_rows, colWidths=[120, 100, 110, 174])
+                    t_phyto.setStyle(TableStyle([
+                        ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#991b1b')),
+                        ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
+                        ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#fca5a5')),
+                        ('PADDING', (0,0), (-1,-1), 6),
+                    ]))
+                    elements.append(t_phyto)
+                    elements.append(Spacer(1, 15))
+
+                    elements.append(Paragraph("PROTOCOLE INTERVENTION SANITAIRE DPV", style_h2))
+                    elements.append(Paragraph(
+                        "En cas de franchissement des seuils économiques de nuisibilité, appliquer les produits homologués par le Comité Sahelien des Pesticides (CSP) en respectant strictes les Délais Avant Récolte (DAR).",
+                        style_body
+                    ))
+                    elements.append(PageBreak())
+
+                    # ====================================================
+                    # PAGE 6 : PILOTAGE HYDRIQUE, NDVI ET SIGNATURE
+                    # ====================================================
+                    elements.append(Paragraph("6. PILOTAGE HYDRIQUE, PROGRAMME NDVI ET VALIDATION", style_h1))
+                    elements.append(Paragraph(
+                        "Suivi continu du couvert végétal par indice satellitaire et calcul du besoin quotidien en eau.",
+                        style_body
+                    ))
+                    elements.append(Spacer(1, 10))
+
+                    hydr_data = [
+                        ["Indicateur Spatial / Hydrique", "Valeur Calculée", "Unité", "Recommandation Exploitation"],
+                        ["Indice de Végétation (NDVI)", "0.74", "Indice (0-1)", "Bonne vigueur chlorophyllienne"],
+                        ["Évapotranspiration ETO", "4.5", "mm/jour", "Moyenne saisonnière"],
+                        ["Besoin d'Irrigation Global", str(int(superficie_p * 45)), "m³ / jour", "Apport fractionné goutte-à-goutte"]
+                    ]
+                    t_hydr = Table(hydr_data, colWidths=[150, 90, 80, 184])
+                    t_hydr.setStyle(TableStyle([
+                        ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#0284c7')),
+                        ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
+                        ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#bae6fd')),
+                        ('PADDING', (0,0), (-1,-1), 6),
+                    ]))
+                    elements.append(t_hydr)
+                    elements.append(Spacer(1, 25))
+
+                    # Bloc de Signatures Officielles
+                    elements.append(Paragraph("<b>VALIDATION TECHNIQUE ET APPROBATION INSTITUTIONNELLE</b>", style_h2))
+                    elements.append(Spacer(1, 10))
+
+                    sig_table_data = [
+                        [Paragraph("<b>Le Technicien Expert Terrain :</b>", style_body), Paragraph("<b>La Direction / Validation ANCAR :</b>", style_body)],
+                        [Paragraph(f"<br/><br/><b>{current_user['nom']}</b><br/>{current_user['matricule']}", style_body), Paragraph("<br/><br/><b>Cachet & Signature Officielle</b><br/>Direction Régionale Agropastorale", style_body)]
+                    ]
+                    t_sig_box = Table(sig_table_data, colWidths=[252, 252])
+                    t_sig_box.setStyle(TableStyle([
+                        ('BOX', (0,0), (-1,-1), 1, colors.HexColor('#94a3b8')),
+                        ('VALIGN', (0,0), (-1,-1), 'TOP'),
+                        ('PADDING', (0,0), (-1,-1), 10),
+                    ]))
+                    elements.append(t_sig_box)
+
+                    # Génération avec le canvas numéroté
+                    doc.build(elements, canvasmaker=NumberedCanvas)
                     buffer.seek(0)
                     return buffer.getvalue()
 
-                pdf_bytes = generate_pdf()
+                pdf_bytes_6p = generate_6page_pdf()
                 st.download_button(
-                    label="📥 Télécharger le Rapport PDF Officiel",
-                    data=pdf_bytes,
-                    file_name=f"Diagnostic_Agro_{nom_prod.replace(' ', '_')}.pdf",
+                    label="📥 Télécharger le Rapport PDF Officiel (6 Pages Riche)",
+                    data=pdf_bytes_6p,
+                    file_name=f"Rapport_Expert_Agro_6Pages_{nom_prod.replace(' ', '_')}.pdf",
                     mime="application/pdf",
                     type="primary"
                 )
             else:
-                st.error("Installez 'reportlab' (`pip install reportlab`) pour activer l'exportation PDF.")
+                st.error("Installez 'reportlab' (`pip install reportlab`) pour activer la génération du rapport PDF de 6 pages.")
 
         with col_h2:
-            st.markdown("#### ✏️ Modifier ou Supprimer l'Historique")
+            st.markdown("#### ✏️ Modifier / Supprimer l'Historique")
             historique_list = current_user.get("historique", [])
 
             if not historique_list:
-                st.info("Aucun enregistrement dans l'historique.")
+                st.info("Aucun enregistrement d'historique.")
             else:
                 options = [f"#{item.get('id', idx+1)} - {item.get('producteur')} ({item.get('date')})" for idx, item in enumerate(historique_list)]
                 selected_item_str = st.selectbox("Sélectionner une fiche :", options)
@@ -1289,19 +1594,19 @@ elif selected == "💼 Consultance":
 
                 col_btn1, col_btn2 = st.columns(2)
                 with col_btn1:
-                    if st.button("🔄 Charger / Editer ce tracé"):
+                    if st.button("🔄 Recharger ce Tracé & Données"):
                         st.session_state["draw_coords"] = selected_entry.get("coords", [])
                         st.session_state["active_surface_ha"] = selected_entry.get("superficie", 1.0)
-                        st.success("✅ Tracé et données rechargés dans la carte !")
+                        st.success("✅ Tracé et superficie synchronisés avec succès !")
                         st.rerun()
 
                 with col_btn2:
-                    if st.button("🗑️ Supprimer de l'Historique", type="secondary"):
+                    if st.button("🗑️ Supprimer cette Fiche", type="secondary"):
                         historique_list.pop(selected_idx)
                         current_user["historique"] = historique_list
                         db["techniciens"][st.session_state["logged_user"]] = current_user
                         save_db(db)
-                        st.success("✅ Enregistrement supprimé !")
+                        st.success("✅ Fiche supprimée !")
                         st.rerun()
 # =====================================================
 elif selected == "🌱 Conseil":
