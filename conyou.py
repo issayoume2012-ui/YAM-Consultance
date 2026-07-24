@@ -909,18 +909,27 @@ elif selected == "💼 Consultance":
     </div>
     """, unsafe_allow_html=True)
 
-    # Initialisation de la mémoire de session
+   # INITIALISATION SÉCURISÉE DU SESSION_STATE
+    # ----------------------------------------------------
     if "consult_data" not in st.session_state:
-        st.session_state["consult_data"] = {
-            "nom_projet": "Agro-Performance Sénégal",
-            "commune": "Podor",
-            "gps": "16.6538, -14.9581",
-            "domaine": "🌾 Agriculture & Agrobusiness",
-            "filiere": "Riz Irrigué",
-            "budget": 25000000,
-            "langue": "Wolof",
-            "description": "Aménagement de 10 ha pour riziculture intensive avec pompage solaire."
-        }
+        st.session_state["consult_data"] = {}
+
+    # Valeurs par défaut sécurisées
+    defaults = {
+        "nom_projet": "Agro-Performance Sénégal",
+        "commune": "Podor",
+        "gps": "16.6538, -14.9581",
+        "domaine": "🌾 Agriculture & Agrobusiness",
+        "filiere": "Riz Irrigué",
+        "budget": 25000000,
+        "langue": "Wolof",
+        "description": "Aménagement de 10 ha pour riziculture intensive avec pompage solaire."
+    }
+
+    # S'assure que chaque clé existe dans le dictionnaire
+    for key, value in defaults.items():
+        if key not in st.session_state["consult_data"]:
+            st.session_state["consult_data"][key] = value
 
     # ----------------------------------------------------
     # UNIFICATION DES 6 MODULES DE DÉCISION DISRUPTIFS
@@ -942,9 +951,11 @@ elif selected == "💼 Consultance":
         
         col_l1, col_l2 = st.columns([1, 2])
         with col_l1:
-            langue_choisie = st.selectbox("🗣️ Langue d'interaction IA :", [
-                "Français", "Wolof", "Pulaar", "Sérère", "Diola", "Mandingue"
-            ])
+            langue_choisie = st.selectbox(
+                "🗣️ Langue d'interaction IA :", 
+                ["Français", "Wolof", "Pulaar", "Sérère", "Diola", "Mandingue"],
+                index=["Français", "Wolof", "Pulaar", "Sérère", "Diola", "Mandingue"].index(st.session_state["consult_data"].get("langue", "Wolof"))
+            )
             st.session_state["consult_data"]["langue"] = langue_choisie
             
             st.markdown("""
@@ -953,20 +964,33 @@ elif selected == "💼 Consultance":
                 Écoutez le résumé d'orientation dans votre langue locale.</small>
             </div>
             """, unsafe_allow_html=True)
-            # Simulation audio locale
             st.audio("https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3")
 
         with col_l2:
             with st.form(key="form_depot_ia"):
-                nom_p = st.text_input("Nom du Projet / Exploitation :", value=st.session_state["consult_data"]["nom_projet"])
+                # Utilisation de .get() pour éviter tout KeyError futur
+                nom_p = st.text_input(
+                    "Nom du Projet / Exploitation :", 
+                    value=st.session_state["consult_data"].get("nom_projet", "Agro-Performance Sénégal")
+                )
                 domaine_p = st.selectbox("Domaine d'activité :", [
                     "🌾 Agriculture & Agrobusiness", "🐄 Élevage & Production Animale", 
                     "🐟 Pêche & Aquaculture", "🚀 Entrepreneuriat Rural", "📱 AgriTech"
                 ])
-                desc_p = st.text_area("Description du problème ou de l'opportunité :", value=st.session_state["consult_data"]["description"], height=100)
+                desc_p = st.text_area(
+                    "Description du problème ou de l'opportunité :", 
+                    value=st.session_state["consult_data"].get("description", ""), 
+                    height=100
+                )
                 docs = st.file_uploader("Joindre documents (PDF, Excel, Images de terrain) :", accept_multiple_files=True)
                 
                 btn_valider_depot = st.form_submit_button("🚀 Valider & Mettre à jour l'Analyse IA")
+
+            if btn_valider_depot:
+                st.session_state["consult_data"]["nom_projet"] = nom_p
+                st.session_state["consult_data"]["domaine"] = domaine_p
+                st.session_state["consult_data"]["description"] = desc_p
+                st.success("✅ Données synchronisées. L'ensemble des modules IA a réévalué votre dossier.")
 
             if btn_valider_depot:
                 st.session_state["consult_data"]["nom_projet"] = nom_p
