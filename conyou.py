@@ -1531,7 +1531,19 @@ elif selected == "💼 Consultance":
             histo = current_user.get("historique", [])
             if histo:
                 df_histo = pd.DataFrame(histo)
-                st.dataframe(df_histo[["id", "date", "producteur", "culture", "superficie", "zone"]], use_container_width=True)
+                # ✅ Version corrigée et sécurisée :
+cols_souhaitees = ["id", "date", "producteur", "culture", "superficie", "zone"]
+
+if not df_histo.empty:
+    # On ne garde que les colonnes qui existent vraiment dans df_histo
+    cols_existantes = [col for col in cols_souhaitees if col in df_histo.columns]
+    
+    if cols_existantes:
+        st.dataframe(df_histo[cols_existantes], use_container_width=True)
+    else:
+        st.warning("Aucune des colonnes attendues n'a été trouvée dans le tableau.")
+else:
+    st.info("Aucune donnée historique à afficher.")
             else:
                 st.info("Aucun enregistrement dans l'historique pour le moment.")
 # =====================================================
