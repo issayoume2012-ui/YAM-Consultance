@@ -873,6 +873,7 @@ elif selected == "💼 Consultance":
     # --- IMPORTS ET VÉRIFICATIONS SÉCURISÉES ---
     import io
     import json
+    import os
     import random
     from datetime import datetime, timedelta
     import pandas as pd
@@ -895,7 +896,42 @@ elif selected == "💼 Consultance":
     except ImportError:
         HAS_REPORTLAB = False
 
-    # --- STYLES CSS SUR-MESURE (DASHBOARD INDUSTRIEL ET SÉCURISÉ) ---
+    # --- GESTION DE LA BASE DE DONNÉES LOCALE (JSON) ---
+    DB_FILE = "techniciens_db.json"
+
+    def load_db():
+        default_db = {
+            "whitelist": ["issayoume2012@gmail.com"],
+            "techniciens": {
+                "issayoume2012@gmail.com": {
+                    "nom": "Issa Youme",
+                    "pin": "2026",
+                    "matricule": "TSA-ADMIN-01",
+                    "role": "Administrateur Principal",
+                    "zone": "Bassin Arachidier / Diourbel",
+                    "is_admin": True,
+                    "historique": []
+                }
+            }
+        }
+        if os.path.exists(DB_FILE):
+            try:
+                with open(DB_FILE, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception:
+                return default_db
+        else:
+            with open(DB_FILE, "w", encoding="utf-8") as f:
+                json.dump(default_db, f, indent=4, ensure_ascii=False)
+            return default_db
+
+    def save_db(db_data):
+        with open(DB_FILE, "w", encoding="utf-8") as f:
+            json.dump(db_data, f, indent=4, ensure_ascii=False)
+
+    db = load_db()
+
+    # --- STYLES CSS SUR-MESURE ---
     st.markdown("""
     <style>
     .tech-header-360 {
@@ -944,6 +980,15 @@ elif selected == "💼 Consultance":
         padding: 18px;
         border-radius: 10px;
     }
+    .auth-box {
+        max-width: 450px;
+        margin: 0 auto;
+        padding: 25px;
+        background-color: #ffffff;
+        border-radius: 10px;
+        border: 1px solid #cbd5e1;
+        box-shadow: 0 4px 10px rgba(0,0,0,0.05);
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -956,20 +1001,7 @@ elif selected == "💼 Consultance":
     </div>
     """, unsafe_allow_html=True)
 
-    # --- INITIALISATION SESSION STATE (MÉMOIRE NATIONALE & PARCELLE) ---
-    if "consult_gps" not in st.session_state:
-        st.session_state["consult_gps"] = {"lat": 14.7910, "lon": -16.0700} # Diourbel par défaut
-
-    if "auth_tech" not in st.session_state:
-        st.session_state["auth_tech"] = {
-            "nom": "Ousmane Diallo",
-            "matricule": "TSA-2026-SN-88",
-            "role": "Technicien Supérieur Agronome - Principal",
-            "zone": "Bassin Arachidier / Diourbel",
-            "parcelles_count": 14
-        }
-
-    # --- DATABASES EXPANDED (SÉNÉGAL INSTITUTIONAL DATA) ---
+    # --- DATABASES INSTITUTIONNELLES SÉNÉGALAISES ---
     BASE_SOLS_INP_FULL = {
         "Vallée du Fleuve Sénégal (Saint-Louis, Matam, Bakel)": {
             "Sol Deck (Fluvisol Hydromorphe Argileux)": {"pH": 6.8, "MO": 2.1, "N": 0.12, "P": 18, "K": 210, "Rétention": "Très forte (>140mm/m)", "Drainage": "Lent"},
@@ -1017,6 +1049,97 @@ elif selected == "💼 Consultance":
         "Mangue Kent (Export)": {"prix_kg": 650, "tendance": "+18%", "marche": "Frais Air Dakar"}
     }
 
+    # --- SYSTÈME D'AUTHENTIFICATION & SESSIONS ---
+    if "logged_user" not in st.session_state:
+        st.session_state["logged_user"] = None
+
+    if "consult_gps" not in st.session_state:
+        st.session_state["consult_gps"] = {"lat": 14.7910, "lon": -16.0700}
+
+    # GESTION DU BLOCAGE PAR CODE PIN ET CONNEXION
+    if st.session_state["logged_user"] is None:
+        st.markdown("<h3 style='text-align:center;'>🔒 Espace Sécurisé Techniciens & Administrateur</h3>", unsafe_allow_html=True)
+        
+        mode_auth = st.radio("Sélecteur d'accès :", ["Connexion Technicien (Code PIN)", "Première Inscription (Activation PIN)", "Accès Admin Général"], horizontal=True)
+        
+        if mode_auth == "Connexion Technicien (Code PIN)":
+            with st.form("form_login"):
+                email_input = st.text_input("E-mail du technicien :").strip().lower()
+                pin_input = st.text_input("Code PIN à 4 chiffres :", type="password")
+                btn_login = st.form_submit_button("Se connecter")
+                
+                if btn_login:
+                    if email_input in db["techniciens"]:
+                        if db["techniciens"][email_input]["pin"] == pin_input:
+                            st.session_state["logged_user"] = email_input
+                            st.success(f"Bienvenue {db['techniciens'][email_input]['nom']} !")
+                            st.rerun()
+                        else:
+                            st.error("❌ Code PIN incorrect.")
+                    else:
+                        st.error("❌ Cet e-mail n'est pas enregistré ou n'est pas dans la liste blanche.")
+
+        elif mode_auth == "Première Inscription (Activation PIN)":
+            with st.form("form_register"):
+                email_reg = st.text_input("E-mail (doit être dans la liste blanche) :").strip().lower()
+                nom_reg = st.text_input("Nom & Prénom du Technicien :")
+                matricule_reg = st.text_input("Matricule (ex: TSA-2026-SN-12) :", value=f"TSA-2026-SN-{random.randint(10,99)}")
+                role_reg = st.text_input("Rôle / Spécialité :", value="Technicien Supérieur Agronome")
+                zone_reg = st.selectbox("Zone d'intervention :", list(BASE_SOLS_INP_FULL.keys()))
+                pin_reg = st.text_input("Définir un Code PIN à 4 chiffres :", type="password", max_chars=4)
+                btn_reg = st.form_submit_button("Activer mon compte")
+
+                if btn_reg:
+                    if email_reg not in db["whitelist"]:
+                        st.error("⛔ Cet e-mail n'est pas autorisé par l'administrateur. Demandez votre ajout à la liste blanche.")
+                    elif email_reg in db["techniciens"]:
+                        st.warning("⚠️ Compte déjà activé. Utilisez l'onglet Connexion.")
+                    elif len(pin_reg) != 4 or not pin_reg.isdigit():
+                        st.error("❌ Le code PIN doit contenir exactement 4 chiffres.")
+                    else:
+                        db["techniciens"][email_reg] = {
+                            "nom": nom_reg,
+                            "pin": pin_reg,
+                            "matricule": matricule_reg,
+                            "role": role_reg,
+                            "zone": zone_reg,
+                            "is_admin": False,
+                            "historique": []
+                        }
+                        save_db(db)
+                        st.success("✅ Compte activé avec succès ! Vous pouvez maintenant vous connecter.")
+
+        elif mode_auth == "Accès Admin Général":
+            with st.form("form_admin"):
+                admin_email = st.text_input("E-mail Administrateur :", value="issayoume2012@gmail.com")
+                admin_pass = st.text_input("Mot de passe Administrateur :", type="password")
+                btn_admin = st.form_submit_button("Connexion Admin")
+
+                if btn_admin:
+                    if admin_email.strip().lower() == "issayoume2012@gmail.com" and admin_pass == "issayoume2026":
+                        if admin_email not in db["techniciens"]:
+                            db["techniciens"][admin_email] = {
+                                "nom": "Issa Youme",
+                                "pin": "2026",
+                                "matricule": "TSA-ADMIN-01",
+                                "role": "Administrateur Principal",
+                                "zone": "Bassin Arachidier / Diourbel",
+                                "is_admin": True,
+                                "historique": []
+                            }
+                            save_db(db)
+                        st.session_state["logged_user"] = admin_email
+                        st.success("Connecté en tant qu'Administrateur Principal !")
+                        st.rerun()
+                    else:
+                        st.error("❌ Identifiants administrateur incorrects.")
+
+        st.stop()  # Empêche la suite de l'affichage tant qu'on n'est pas connecté.
+
+    # --- COMPTE CONNECTÉ ---
+    user_email = st.session_state["logged_user"]
+    current_user = db["techniciens"][user_email]
+
     # --- STRUCTURE DES ONGLETS NATIONAUX ---
     tabs_main = st.tabs([
         "📊 1. Dashboard Technicien",
@@ -1026,7 +1149,8 @@ elif selected == "💼 Consultance":
         "🤖 5. IA Agro Expert 360°",
         "🔮 6. Jumeau Numérique",
         "📈 7. Économie & Marchés",
-        "📄 8. Rapport PDF Pro"
+        "📄 8. Rapport PDF Pro",
+        "⚙️ 9. Gestion & Historique"
     ])
 
     # ====================================================
@@ -1035,29 +1159,27 @@ elif selected == "💼 Consultance":
     with tabs_main[0]:
         st.subheader("👨‍🌾 Espace Personnel & Supervision Zone")
         
-        # Profile Bar
         col_prof1, col_prof2, col_prof3 = st.columns([1.5, 1.5, 1])
         with col_prof1:
-            st.markdown(f"**Technicien :** {st.session_state['auth_tech']['nom']} (`{st.session_state['auth_tech']['matricule']}`)")
-            st.markdown(f"**Rôle :** {st.session_state['auth_tech']['role']}")
+            st.markdown(f"**Technicien :** {current_user['nom']} (`{current_user['matricule']}`)")
+            st.markdown(f"**Rôle :** {current_user['role']}")
         with col_prof2:
-            st.markdown(f"**Zone d'Intervention :** {st.session_state['auth_tech']['zone']}")
-            st.markdown(f"**Parcelles Suivies :** {st.session_state['auth_tech']['parcelles_count']} Exploitations activement enregistrées")
+            st.markdown(f"**Zone d'Intervention :** {current_user['zone']}")
+            st.markdown(f"**Historique :** {len(current_user['historique'])} Diagnostic(s) enregistré(s)")
         with col_prof3:
-            if st.button("⚙️ Editer Profil"):
-                st.toast("Mode édition profil activé", icon="🔒")
+            if st.button("🚪 Déconnexion"):
+                st.session_state["logged_user"] = None
+                st.rerun()
 
         st.markdown("---")
         
-        # Metrics Row
         m1, m2, m3, m4 = st.columns(4)
         m1.metric("Santé globale cultures", "84%", "+3% ce mois")
         m2.metric("Alerte DPV Active", "2 Zones", "Spodoptera frugiperda", delta_color="inverse")
         m3.metric("Réserve Utile Eau", "62 mm", "-12mm vs 2025")
-        m4.metric("Rendement Moyen Estime", "4.8 T/Ha", "Conforme objectifs ISRA")
+        m4.metric("Rendement Moyen Estimé", "4.8 T/Ha", "Conforme objectifs ISRA")
 
         st.markdown("### 🔔 Alertes Prioritaires Terrain (Temps Réel)")
-        
         st.markdown("""
         <div class="alert-card-danger">
             <b>🚨 ALERTE CRITIQUE DPV :</b> Risque élevé de Chenille Légionnaire (<i>Spodoptera frugiperda</i>) sur le bassin de Bambey / Diourbel. Inspection immédiate requise sur Maïs au stade 4-6 feuilles.
@@ -1092,7 +1214,6 @@ elif selected == "💼 Consultance":
         st.markdown("---")
         st.subheader("⚖️ Calculateur d'Engrais & Recommandations ISRA")
         
-        # Calculation logic
         baremes_isra = {
             "Riz": (150, 250, 100),
             "Oignon": (200, 200, 150),
@@ -1121,9 +1242,9 @@ elif selected == "💼 Consultance":
         with f_col2:
             st.markdown(f"""
             <div class="metric-card-agro">
-                <b>📌 Diagnostic Pédologique Instantané (INP) :</b><br>
-                • <b>Capacité de Rétention :</b> {BASE_SOLS_INP_FULL[zone_selected][type_sol_inp]['Rétention']}<br>
-                • <b>Drainage :</b> {BASE_SOLS_INP_FULL[zone_selected][type_sol_inp]['Drainage']}<br>
+                <b>📌 Diagnostic Pédologique Instantané (INP) :</b><br/>
+                • <b>Capacité de Rétention :</b> {BASE_SOLS_INP_FULL[zone_selected][type_sol_inp]['Rétention']}<br/>
+                • <b>Drainage :</b> {BASE_SOLS_INP_FULL[zone_selected][type_sol_inp]['Drainage']}<br/>
                 • <b>Avis Amendement :</b> {'Apport urgent de matière organique (Compost > 5T/ha) recommandé pour retenir les engrais.' if mo_mesure < 1.0 else 'Taux de matière organique satisfaisant.'}
             </div>
             """, unsafe_allow_html=True)
@@ -1144,7 +1265,6 @@ elif selected == "💼 Consultance":
                 m = folium.Map(location=[lat_curr, lon_curr], zoom_start=12, tiles="OpenStreetMap")
                 folium.TileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', attr='Esri', name='Satellite ArcGis').add_to(m)
                 
-                # Marker
                 folium.Marker(
                     [lat_curr, lon_curr],
                     popup=f"Parcelle: {nom_prod} - {culture_p}",
@@ -1199,7 +1319,7 @@ elif selected == "💼 Consultance":
     # ====================================================
     with tabs_main[4]:
         st.subheader("🤖 Assistant Expert IA Agro-Sénégal 360°")
-        st.write("Posez une question technique ou décrivez un symptôme observé sur le terrain. L'IA croise simultanément les bases INP, DPV, ISRA et ANACIM.")
+        st.write("Posez une question technique ou décrivez un symptôme observé sur le terrain.")
 
         prompt_user = st.text_area("Observations terrain / Question du technicien :", value="Jaunissement des feuilles basales sur le maïs à Diourbel, présence de petites chenilles et sol très sableux.")
 
@@ -1212,8 +1332,8 @@ elif selected == "💼 Consultance":
                     <p><b>1. ANALYSE DU SOL (INP) :</b> Sol Dior détecté dans la zone Bassin Arachidier (Diourbel). Sol à faible rétention d'eau et très filtrant. Le jaunissement des feuilles basales traduit un <b>lessivage rapide de l'Azote (N)</b> provoqué par les récentes pluies sur texture sableuse.</p>
                     <p><b>2. DIAGNOSTIC PHYTOPATHOLOGIQUE (DPV) :</b> Risque avéré de <b>Chenille Légionnaire d'Automne</b>. Seuil d'intervention DPV atteint si > 5% des plants sont touchés.</p>
                     <p><b>3. PLAN D'ACTION IMMÉDIAT :</b>
-                    <br>• Splitter la dose d'Urée : Apporter 50 kg/ha d'Urée immédiatement pour corriger la chlorose azotée.
-                    <br>• Appliquer un biopesticide type <i>Bacillus thuringiensis</i> ou un produit à base d'Emamectine benzoate en traitement localisé dans le cornet des plants de maïs.
+                    <br/>• Splitter la dose d'Urée : Apporter 50 kg/ha d'Urée immédiatement pour corriger la chlorose azotée.
+                    <br/>• Appliquer un biopesticide type <i>Bacillus thuringiensis</i> ou un produit à base d'Emamectine benzoate en traitement localisé dans le cornet des plants de maïs.
                     </p>
                     <p><b>4. NIVEAU DE CONFIANCE :</b> 95% (Validation croisée INP / DPV / ISRA).</p>
                 </div>
@@ -1224,8 +1344,7 @@ elif selected == "💼 Consultance":
     # ====================================================
     with tabs_main[5]:
         st.subheader("🔮 Jumeau Numérique de Parcelle — Simulation d'Hypothèses (What-If)")
-        st.write("Simulez des variations d'itinéraires techniques pour évaluer l'impact sur le rendement et le risque.")
-
+        
         with st.container():
             st.markdown('<div class="twin-box">', unsafe_allow_html=True)
             col_t1, col_t2, col_t3 = st.columns(3)
@@ -1238,12 +1357,10 @@ elif selected == "💼 Consultance":
                 var_engrais = st.slider("Variation Apport NPK (%) :", -30, +50, 0)
             with col_t3:
                 st.markdown("**Résultats de la Simulation IA :**")
-                
-                # Dynamic simulation calculation
                 base_yield = 5.0
                 yield_sim = base_yield * (1 + (var_engrais * 0.005) + (var_irrigation * 0.008) - (abs(var_semis) * 0.01))
                 
-                st.metric("Rendement Simulée", f"{yield_sim:.2f} T/Ha", f"{yield_sim - base_yield:+.2f} T/Ha vs Témoin")
+                st.metric("Rendement Simulé", f"{yield_sim:.2f} T/Ha", f"{yield_sim - base_yield:+.2f} T/Ha vs Témoin")
                 st.metric("Index de Risque Climatique", f"{max(10, 35 - var_irrigation // 2)}%", "Tolérable")
             
             st.markdown('</div>', unsafe_allow_html=True)
@@ -1252,21 +1369,19 @@ elif selected == "💼 Consultance":
     # TAB 7 : ÉCONOMIE AGRICOLE & MARCHÉS (ANDS / COMMERCE)
     # ====================================================
     with tabs_main[6]:
-        st.subheader("📈 Anayse Économique, Marge Brute & Tendances des Marchés")
+        st.subheader("📈 Analyse Économique, Marge Brute & Tendances des Marchés")
         
         ec1, ec2 = st.columns([1.5, 1])
         
         with ec1:
             st.markdown("#### 💰 Compte d'Exploitation Prévisionnel (Parcelle)")
-            
             cost_semence = st.number_input("Coût Semences (FCFA) :", value=45000)
             cost_engrais = st.number_input("Coût Engrais Totaux (FCFA) :", value=125000)
             cost_mo = st.number_input("Main-d'œuvre & Travail sol (FCFA) :", value=95000)
             cost_phyt = st.number_input("Produits Phytosanitaires (FCFA) :", value=35000)
             
             total_charges = cost_semence + cost_engrais + cost_mo + cost_phyt
-            
-            rendement_est = st.number_input("Rendement Estimé Totale (Kg) :", value=int(superficie_p * 4500))
+            rendement_est = st.number_input("Rendement Estimé Total (Kg) :", value=int(superficie_p * 4500))
             prix_vente_kg = st.number_input("Prix de Vente Estimé (FCFA/Kg) :", value=200)
             
             chiffre_affaire = rendement_est * prix_vente_kg
@@ -1274,10 +1389,10 @@ elif selected == "💼 Consultance":
             
             st.markdown(f"""
             <div class="metric-card-agro">
-                <b>📊 Bilan Financier Estimé :</b><br>
-                • <b>Total Charges :</b> {total_charges:,} FCFA<br>
-                • <b>Chiffre d'Affaires Brut :</b> {chiffre_affaire:,} FCFA<br>
-                • <b>Marge Brute Net :</b> <span style="color:#16a34a; font-weight:bold;">{marge_brute:,} FCFA</span><br>
+                <b>📊 Bilan Financier Estimé :</b><br/>
+                • <b>Total Charges :</b> {total_charges:,} FCFA<br/>
+                • <b>Chiffre d'Affaires Brut :</b> {chiffre_affaire:,} FCFA<br/>
+                • <b>Marge Brute Nette :</b> <span style="color:#16a34a; font-weight:bold;">{marge_brute:,} FCFA</span><br/>
                 • <b>Retour sur Investissement (ROI) :</b> {(marge_brute/total_charges)*100:.1f}%
             </div>
             """, unsafe_allow_html=True)
@@ -1288,11 +1403,11 @@ elif selected == "💼 Consultance":
             st.dataframe(df_prices, use_container_width=True)
 
     # ====================================================
-    # TAB 8 : GENERATION DU RAPPORT PDF OFFICIEL DE 6 PAGES
+    # TAB 8 : GENERATION DU RAPPORT PDF (AVEC CORRECTION <br/>)
     # ====================================================
     with tabs_main[7]:
         st.subheader("📄 Génération Automatique du Procès-Verbal & Rapport Technique PDF (6 Pages)")
-        st.write("Ce sous-système génère un document PDF complet conforme aux exigences des directions régionales du développement rural (DRDR).")
+        st.write("Ce sous-système génère un document PDF complet conforme aux exigences de la DRDR.")
 
         def generate_full_6page_pdf():
             buffer = io.BytesIO()
@@ -1307,12 +1422,11 @@ elif selected == "💼 Consultance":
             styles = getSampleStyleSheet()
             story = []
 
-            # Custom styles
             title_style = ParagraphStyle('T1', parent=styles['Heading1'], fontSize=15, alignment=1, textColor=colors.HexColor('#052e16'), leading=18)
             h2_style = ParagraphStyle('H2', parent=styles['Heading2'], fontSize=12, textColor=colors.HexColor('#15803d'), leading=15)
             body_style = ParagraphStyle('B1', parent=styles['Normal'], fontSize=9, leading=13)
 
-            # --- PAGE 1 : IDENTIFICATION EXPLOITATION ---
+            # PAGE 1
             story.append(Paragraph("<b>RÉPUBLIQUE DU SÉNÉGAL</b>", title_style))
             story.append(Paragraph("<b>MINISTÈRE DE L'AGRICULTURE, DE L'ÉQUIPEMENT RURAL ET DE LA SOUVERAINETÉ ALIMENTAIRE</b>", ParagraphStyle('SubTitle', parent=styles['Normal'], fontSize=8, alignment=1)))
             story.append(Spacer(1, 15))
@@ -1320,8 +1434,8 @@ elif selected == "💼 Consultance":
             story.append(Spacer(1, 20))
 
             p1_data = [
-                ["Région / Zone :", zone_selected, "Code Technicien :", st.session_state['auth_tech']['matricule']],
-                ["Producteur / GIE :", nom_prod, "Technicien Référent :", st.session_state['auth_tech']['nom']],
+                ["Région / Zone :", zone_selected, "Code Technicien :", current_user['matricule']],
+                ["Producteur / GIE :", nom_prod, "Technicien Référent :", current_user['nom']],
                 ["Culture Principale :", culture_p, "Superficie Parcelle :", f"{superficie_p} Ha"],
                 ["Coordonnées GPS :", f"{st.session_state['consult_gps']['lat']:.4f}, {st.session_state['consult_gps']['lon']:.4f}", "Date Diagnostic :", datetime.now().strftime("%d/%m/%Y")]
             ]
@@ -1338,24 +1452,24 @@ elif selected == "💼 Consultance":
             story.append(Paragraph(f"L'exploitation sous la gestion de {nom_prod} présente un état général nécessitant des ajustements sur la fertilisation azotée et une vigilance phytosanitaire sur le ravageur prioritaire DPV. Les caractéristiques du sol ({type_sol_inp}) exigent un suivi strict du fractionnement des engrais.", body_style))
             story.append(PageBreak())
 
-            # --- PAGE 2 : DIAGNOSTIC GÉNÉRAL (SOL, EAU, CLIMAT) ---
+            # PAGE 2 (CORRECTION DES <br> EN <br/> POUR ÉVITER LE CRASH REPORTLAB)
             story.append(Paragraph("<b>PAGE 2 : DIAGNOSTIC MULTI-CRITÈRES DÉTAILLÉ</b>", title_style))
             story.append(Spacer(1, 15))
             story.append(Paragraph("<b>1. Pédologie & Santé du Sol (Données INP) :</b>", h2_style))
-            story.append(Paragraph(f"• Type de sol : {type_sol_inp}<br>• pH mesuré : {ph_mesure}<br>• Matière Organique : {mo_mesure}%<br>• Azote Total N : {n_mesure}%", body_style))
+            story.append(Paragraph(f"• Type de sol : {type_sol_inp}<br/>• pH mesuré : {ph_mesure}<br/>• Matière Organique : {mo_mesure}%<br/>• Azote Total N : {n_mesure}%", body_style))
             story.append(Spacer(1, 15))
             story.append(Paragraph("<b>2. Ressources en Eau & Climat (ANACIM / DGPRE) :</b>", h2_style))
-            story.append(Paragraph("• Source d'irrigation : Nappe phréatique / Bas-fond<br>• Qualité de l'eau : Conductivité électrique normale (< 1.2 dS/m)<br>• Séquence météo : Risque de pause pluviométrique modérée sous 10 jours.", body_style))
+            story.append(Paragraph("• Source d'irrigation : Nappe phréatique / Bas-fond<br/>• Qualité de l'eau : Conductivité électrique normale (&lt; 1.2 dS/m)<br/>• Séquence météo : Risque de pause pluviométrique modérée sous 10 jours.", body_style))
             story.append(PageBreak())
 
-            # --- PAGE 3 : ANALYSE TECHNIQUE ET CAUSES ---
+            # PAGE 3
             story.append(Paragraph("<b>PAGE 3 : ANALYSE TECHNIQUE & IDENTIFICATION DES ANOMALIES</b>", title_style))
             story.append(Spacer(1, 15))
             story.append(Paragraph("<b>Problèmes Majeurs Identifiés :</b>", h2_style))
-            story.append(Paragraph("1. <b>Chlorose Foliaire Basale :</b> Causée par un lessivage rapide des nitrates sur sol à faible rétention.<br>2. <b>Attaque Répétée de Ravageurs :</b> Pression observée sur les cornets végétaux conforme aux alertes DPV de la zone.", body_style))
+            story.append(Paragraph("1. <b>Chlorose Foliaire Basale :</b> Causée par un lessivage rapide des nitrates sur sol à faible rétention.<br/>2. <b>Attaque Répétée de Ravageurs :</b> Pression observée sur les cornets végétaux conforme aux alertes DPV de la zone.", body_style))
             story.append(PageBreak())
 
-            # --- PAGE 4 : PLAN D'ACTION RECOMMANDE ---
+            # PAGE 4
             story.append(Paragraph("<b>PAGE 4 : ITINÉRAIRE TECHNIQUE ET RECOMMANDATIONS (ISRA/DPV)</b>", title_style))
             story.append(Spacer(1, 15))
             story.append(Paragraph("<b>Plan de Fertilisation Pratique :</b>", h2_style))
@@ -1376,24 +1490,24 @@ elif selected == "💼 Consultance":
             story.append(t_fert)
             story.append(PageBreak())
 
-            # --- PAGE 5 : PREVISIONS DE RENDEMENT & SCÉNARIOS ---
-            story.append(Paragraph("<b>PAGE 5 : MODELISATION PREDICTIVE DE RENDEMENT</b>", title_style))
+            # PAGE 5
+            story.append(Paragraph("<b>PAGE 5 : MODÉLISATION PRÉDICTIVE DE RENDEMENT</b>", title_style))
             story.append(Spacer(1, 15))
             story.append(Paragraph("<b>Scénarios de Production (Jumeau Numérique) :</b>", h2_style))
-            story.append(Paragraph(f"• <b>Scénario Optimal (Suivi strict) :</b> {superficie_p * 5.2:.1f} Tonnes<br>• <b>Scénario Tendance (Pratiques actuelles) :</b> {superficie_p * 4.1:.1f} Tonnes<br>• <b>Scénario Défavorable (Sans traitement DPV) :</b> {superficie_p * 2.5:.1f} Tonnes", body_style))
+            story.append(Paragraph(f"• <b>Scénario Optimal :</b> {superficie_p * 5.2:.1f} Tonnes<br/>• <b>Scénario Tendance :</b> {superficie_p * 4.1:.1f} Tonnes<br/>• <b>Scénario Défavorable :</b> {superficie_p * 2.5:.1f} Tonnes", body_style))
             story.append(PageBreak())
 
-            # --- PAGE 6 : BILAN ÉCONOMIQUE & SIGNATURES ---
+            # PAGE 6
             story.append(Paragraph("<b>PAGE 6 : RENTABILITÉ ÉCONOMIQUE & VALIDATION</b>", title_style))
             story.append(Spacer(1, 15))
             story.append(Paragraph(f"<b>Marge Brute Projetée :</b> {marge_brute:,} FCFA", h2_style))
             story.append(Spacer(1, 30))
-            story.append(Paragraph("<b>VALDATION ET SIGNATURES OFFICIELLES</b>", ParagraphStyle('H3', parent=styles['Heading3'], fontSize=10, alignment=1)))
+            story.append(Paragraph("<b>VALIDATION ET SIGNATURES OFFICIELLES</b>", ParagraphStyle('H3', parent=styles['Heading3'], fontSize=10, alignment=1)))
             story.append(Spacer(1, 40))
             
             sig_data = [
                 ["Le Technicien Supérieur Agronome :", "Le Producteur / Chef d'Exploitation :"],
-                [f"<b>{st.session_state['auth_tech']['nom']}</b>", f"<b>{nom_prod}</b>"],
+                [f"<b>{current_user['nom']}</b>", f"<b>{nom_prod}</b>"],
                 ["Signature : ______________________", "Signature : ______________________"]
             ]
             t_sig = Table(sig_data, colWidths=[270, 270])
@@ -1409,15 +1523,74 @@ elif selected == "💼 Consultance":
 
         if HAS_REPORTLAB:
             pdf_bytes = generate_full_6page_pdf()
-            st.download_button(
-                label="📥 Télécharger le PV Officiel & Rapport 6 Pages (PDF)",
-                data=pdf_bytes,
-                file_name=f"Rapport_AgroExpert_{nom_prod.replace(' ', '_')}.pdf",
-                mime="application/pdf",
-                use_container_width=True
-            )
+            
+            col_save1, col_save2 = st.columns(2)
+            with col_save1:
+                st.download_button(
+                    label="📥 Télécharger le PV Officiel & Rapport 6 Pages (PDF)",
+                    data=pdf_bytes,
+                    file_name=f"Rapport_AgroExpert_{nom_prod.replace(' ', '_')}.pdf",
+                    mime="application/pdf",
+                    use_container_width=True
+                )
+            with col_save2:
+                if st.button("💾 Enregistrer ce Diagnostic dans mon Historique"):
+                    nouveau_diag = {
+                        "date": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                        "producteur": nom_prod,
+                        "culture": culture_p,
+                        "superficie": superficie_p,
+                        "zone": zone_selected,
+                        "marge_est": marge_brute
+                    }
+                    db["techniciens"][user_email]["historique"].append(nouveau_diag)
+                    save_db(db)
+                    st.success("✅ Diagnostic enregistré dans votre historique sécurisé !")
         else:
             st.warning("Module ReportLab non installé. Exportation PDF désactivée.")
+
+    # ====================================================
+    # TAB 9 : GESTION DE COMPTE, HISTORIQUE ET ADMIN
+    # ====================================================
+    with tabs_main[8]:
+        st.subheader("⚙️ Mes Informations & Historique des Diagnostics")
+
+        # Visualisation de l'historique personnel
+        st.markdown("#### 📜 Mon Historique d'Interventions")
+        user_histo = current_user.get("historique", [])
+        if user_histo:
+            df_hist = pd.DataFrame(user_histo)
+            st.dataframe(df_hist, use_container_width=True)
+        else:
+            st.info("Aucun historique enregistré pour le moment. Réalisez un diagnostic dans l'onglet 8 pour le sauvegarder.")
+
+        st.markdown("---")
+        # Panneau spécial Administrateur Général (issayoume2012@gmail.com)
+        if current_user.get("is_admin", False):
+            st.subheader("🛠️ Panneau Administrateur Principal (Gestion Liste Blanche)")
+            
+            st.markdown("**Liste des E-mails Autorisés (Whitelist) :**")
+            st.write(db["whitelist"])
+
+            col_ad1, col_ad2 = st.columns(2)
+            with col_ad1:
+                new_email = st.text_input("Autoriser un nouvel e-mail :").strip().lower()
+                if st.button("➕ Ajouter à la Liste Blanche"):
+                    if new_email and new_email not in db["whitelist"]:
+                        db["whitelist"].append(new_email)
+                        save_db(db)
+                        st.success(f"E-mail {new_email} ajouté avec succès !")
+                        st.rerun()
+
+            with col_ad2:
+                remove_email = st.selectbox("Supprimer un e-mail autorisé :", [e for e in db["whitelist"] if e != "issayoume2012@gmail.com"])
+                if st.button("❌ Retirer l'accès"):
+                    db["whitelist"].remove(remove_email)
+                    if remove_email in db["techniciens"]:
+                        del db["techniciens"][remove_email]
+                    save_db(db)
+                    st.success(f"Accès révoqué pour {remove_email}.")
+                    st.rerun()
 # =====================================================
 elif selected == "🌱 Conseil":
 
