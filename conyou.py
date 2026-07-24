@@ -901,7 +901,7 @@ elif selected == "💼 Consultance":
     # --- BASE DE DONNÉES HISTORIQUE & LISTE BLANCHE ---
     DB_FILE = "techniciens_db.json"
 
-    # Liste blanche initiale par défaut (si le fichier JSON n'existe pas encore)
+    # Liste blanche initiale par défaut
     DEFAULT_WHITELIST = [
         {"email": "agent.ancar@gouv.sn", "nom": "Ousmane Diallo", "role": "Technicien", "zone": "Bassin Arachidier", "statut": "Actif"},
         {"email": "expert.dpv@gouv.sn", "nom": "Aminata Sow", "role": "Expert DPV", "zone": "Zone des Niayes", "statut": "Actif"},
@@ -941,7 +941,6 @@ elif selected == "💼 Consultance":
     
     user_email_input = st.sidebar.text_input("Adresse e-mail identifiée :", value="agent.ancar@gouv.sn", key="wh_email_input").strip().lower()
     
-    # Vérification de l'adresse e-mail dans la liste blanche
     authorized_users = {user["email"].lower(): user for user in db.get("whitelist", []) if user.get("statut") == "Actif"}
     
     if user_email_input in authorized_users:
@@ -956,7 +955,6 @@ elif selected == "💼 Consultance":
 
     if not is_authorized:
         st.warning("⚠️ **Accès restreint** : Veuillez vous identifier avec un e-mail présent dans la liste blanche autorisée.")
-        
         with st.expander("ℹ️ Demander une inscription sur la liste blanche"):
             st.info("Contactez l'administration de la plateforme Agro-IA Sénégal pour enregistrer vos identifiants.")
             st.code("Support : support.agro-ia@gouv.sn", language="text")
@@ -1407,201 +1405,184 @@ elif selected == "💼 Consultance":
                         ]
                         t_pedol = Table(pedol_data, colWidths=[130, 100, 110, 164])
                         t_pedol.setStyle(TableStyle([
-                            ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#0f766e')),
+                            ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#0f172a')),
                             ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
-                            ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#94a3b8')),
+                            ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#cbd5e1')),
                             ('PADDING', (0,0), (-1,-1), 6),
                         ]))
                         elements.append(t_pedol)
-                        elements.append(Spacer(1, 15))
+                        elements.append(Spacer(1, 20))
 
-                        elements.append(Paragraph("RECOMMANDATIONS DE CORRECTION DU pH ET DE LA STRUCTURE", style_h2))
-                        if ph_mesure < 6.0:
-                            recom_ph = "Un amendement calcique/dolomitique (amendement calcaire à raison de 500 kg/ha de chaux) est préconisé pour remonter le pH au-dessus de 6.2 et débloquer le phosphore."
-                        elif ph_mesure > 7.5:
-                            recom_ph = "Sol alcalin/calcaire. Prévoir un apport de matière organique compostée et l'utilisation d'engrais acidifiants (Sulfate d'Ammonium) pour améliorer la disponibilité en oligo-éléments."
-                        else:
-                            recom_ph = "Le pH se situe dans la plage optimale d'assimilation des nutriments majeurs (N, P, K). Aucun amendement correcteur n'est nécessaire immédiatement."
-
-                        elements.append(Paragraph(recom_ph, style_body))
+                        elements.append(Paragraph("INTERPRÉTATION DU COMPLEXE ARGILO-HUMIQUE", style_h2))
+                        elements.append(Paragraph(
+                            "Le bilan montre un niveau de saturation du complexe adéquat. Cependant, le maintien du taux de matière organique au-delà du seuil critique de 1.5% reste impératif pour éviter la dégradation de la structure superficielle.",
+                            style_body
+                        ))
                         elements.append(PageBreak())
 
-                        # PAGE 4 : PLAN DE NUTRITION ET PROGRAMME D'ENGRAIS
-                        elements.append(Paragraph("4. PROGRAMME DE FUMURE ET PLAN DE NUTRITION CIBLÉ", style_h1))
+                        # PAGE 4 : PLAN DE FUMURE ET PROGRAMME NUTRITIONNEL
+                        elements.append(Paragraph("4. PLAN DE FUMURE ET PROGRAMME NUTRITIONNEL OPTIMISÉ", style_h1))
                         elements.append(Paragraph(
-                            f"Programme de fertilisation calculé sur la base de la superficie totale mesurée ({superficie_p} Ha) et du stade phénologique <b>{stade_pheno}</b>.",
+                            f"Modélisation des besoins d'engrais calculée sur la base d'une superficie de <b>{superficie_p} Ha</b> pour la culture de <b>{culture_p}</b>.",
                             style_body
                         ))
                         elements.append(Spacer(1, 10))
 
-                        ferti_data = [
-                            ["Engrais / Formule", "Besoin Unitaire (kg/Ha)", "Besoin Total Parcelle", "Conditionnement (50kg)"],
+                        fert_data = [
+                            ["Engrais Recommandé", "Dose / Ha", "Quantité Totale", "Nombre de Sacs (50kg)"],
                             ["DAP (18-46-0)", f"{dap_h} kg", f"{tot_dap} kg", f"{int(np.ceil(tot_dap/50))} sacs"],
                             ["Urée (46% N)", f"{ure_h} kg", f"{tot_ure} kg", f"{int(np.ceil(tot_ure/50))} sacs"],
                             ["Chlorure de Potasse (KCl)", f"{kcl_h} kg", f"{tot_kcl} kg", f"{int(np.ceil(tot_kcl/50))} sacs"]
                         ]
-                        t_ferti = Table(ferti_data, colWidths=[140, 120, 120, 124])
-                        t_ferti.setStyle(TableStyle([
-                            ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#1e3a8a')),
+                        t_fert = Table(fert_data, colWidths=[150, 100, 120, 134])
+                        t_fert.setStyle(TableStyle([
+                            ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#15803d')),
                             ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
                             ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#cbd5e1')),
                             ('PADDING', (0,0), (-1,-1), 6),
                         ]))
-                        elements.append(t_ferti)
+                        elements.append(t_fert)
                         elements.append(Spacer(1, 15))
 
-                        elements.append(Paragraph("CALENDRIER D'APPLICATION FRACTIONNÉE", style_h2))
+                        elements.append(Paragraph("CALENDRIER DE FRACTIONNEMENT DE L'AZOTE", style_h2))
                         elements.append(Paragraph(
-                            "• <b>Fumure de Fond :</b> Appliquer la totalité du DAP et du KCl ainsi que 1/3 de l'Urée lors de la préparation du sol / semis.<br/>"
-                            "• <b>Premier Fractionnement Urée :</b> Appliquer 1/3 de l'Urée au stade de croissance végétative active.<br/>"
-                            "• <b>Second Fractionnement Urée :</b> Appliquer le solde (1/3) à l'inflorescence ou au début de la floraison.",
+                            "1. <b>Fondation (Semis/Repiquage) :</b> 100% du DAP + 20% de l'Urée.<br/>"
+                            "2. <b>Premier Fractionnement (Tallage/Croissance) :</b> 40% de l'Urée + 50% du KCl.<br/>"
+                            "3. <b>Second Fractionnement (Floraison/Maison) :</b> 40% de l'Urée + 50% du KCl.",
                             style_body
                         ))
                         elements.append(PageBreak())
 
-                        # PAGE 5 : BILAN HYDRIQUE, NDVI ET PROTECTION PHYTOSANITAIRE
-                        elements.append(Paragraph("5. SUIVI HYDRIQUE, SATELLITAIRE (NDVI) ET SANTÉ DES PLANTES", style_h1))
+                        # PAGE 5 : BILAN PHYTOSANITAIRE DPV ET SUIVI NDVI
+                        elements.append(Paragraph("5. DIAGNOSTIC PHYTOSANITAIRE DPV & ANALYSE NDVI", style_h1))
                         elements.append(Paragraph(
-                            "L'analyse par imagerie satellite et modèles prédictifs d'irrigation offre un pilotage de précision en temps réel.",
+                            "Synthese des détections entomologiques et de la vigueur végétale observée par télédétection.",
                             style_body
                         ))
                         elements.append(Spacer(1, 10))
 
-                        besoin_eau = int(superficie_p * 45)
-                        sat_data = [
-                            ["Indicateur Clé", "Valeur Calculée / Estimée", "Interprétation Agrométéo"],
-                            ["Indice de Vigueur NDVI", f"{ndvi_val}", "Végétation dense et activité photosynthétique élevée"],
-                            ["Besoin en Eau Quotidien", f"{besoin_eau} m³/jour", "Estimé selon l'Évapotranspiration potentielle de la zone"],
-                            ["Statut Sanitaire DPV", "Alerte Transmise" if st.session_state["dpv_alert_sent"] else "Surveillance Standard", "Réseau national d'avertissements agricoles"]
+                        phyto_status = "Alerte Transmise DPV" if st.session_state["dpv_alert_sent"] else "Surveillance Continue"
+                        phyto_data = [
+                            ["Indicateur Clé", "Valeur / État Mesuré", "Recommandation d'Expertise"],
+                            ["Vigueur Canopée (NDVI)", "0.72 (Bonne santé)", "Maintenir le niveau d'irrigation"],
+                            ["Besoins Hydriques Estimés", f"{int(superficie_p * 45)} m³/jour", "Apport fractionné goutte-à-goutte"],
+                            ["Statut Sanitaire DPV", phyto_status, "Mise en place de pièges à phéromones"]
                         ]
-                        t_sat = Table(sat_data, colWidths=[150, 140, 214])
-                        t_sat.setStyle(TableStyle([
-                            ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#0284c7')),
+                        t_phyto = Table(phyto_data, colWidths=[150, 150, 204])
+                        t_phyto.setStyle(TableStyle([
+                            ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#0f172a')),
                             ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
                             ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#cbd5e1')),
                             ('PADDING', (0,0), (-1,-1), 6),
                         ]))
-                        elements.append(t_sat)
+                        elements.append(t_phyto)
                         elements.append(Spacer(1, 15))
 
-                        elements.append(Paragraph("PROTOCOLE DE LUTTE PHYTOSANITAIRE INTÉGRÉE (LPI)", style_h2))
+                        elements.append(Paragraph("PROTOCOLE DE LUTTE INTÉGRÉE (IPM)", style_h2))
                         elements.append(Paragraph(
-                            "Privilégier les méthodes de lutte biologique (*Bacillus thuringiensis*, extraits de Neem) avant toute intervention chimique. En cas de dépassement du seuil économique de tolérance, utiliser des molécules homologuées par le CILSS / DPV à doses préconisées.",
+                            "Privilégier systématiquement la lutte biologique (Bacillus thuringiensis, huile de Neem) avant tout traitement chimique de synthèse afin de préserver la faune auxiliaire et d'éviter les phénomènes de résistance.",
                             style_body
                         ))
                         elements.append(PageBreak())
 
-                        # PAGE 6 : FEUILLE DE ROUTE STRATÉGIQUE & SIGNATURES
-                        elements.append(Paragraph("6. FEUILLE DE ROUTE ET VALIDATION DE L'EXPERTISE", style_h1))
+                        # PAGE 6 : PLAN D'ACTION STRATÉGIQUE & SIGNATURES INSTITUTIONNELLES
+                        elements.append(Paragraph("6. PLAN D'ACTION STRATÉGIQUE & SIGNATURES", style_h1))
                         elements.append(Paragraph(
-                            "Synthèse des actions prioritaires recommandées pour l'exploitant agricole sur le cycle en cours.",
+                            "Feuille de route opérationnelle pour le chef d'exploitation et les conseillers agricoles.",
                             style_body
                         ))
                         elements.append(Spacer(1, 10))
 
-                        actions_data = [
-                            ["Échéance", "Action Prioritaire", "Intervenant / Responsable"],
-                            ["J0 - J5", "Apport de compost et fumure de fond (DAP + KCl)", "Exploitant agricole"],
-                            ["J15 - J20", "Contrôle visuel des ravageurs & premier apport d'Urée", "Technicien terrain / Exploitant"],
-                            ["J35 - J40", "Inspection NDVI & Ajustement des apports d'irrigation", "Expert Agro-IA / Service conseil"]
+                        action_data = [
+                            ["Échéance", "Action Clé", "Responsable", "Priorité"],
+                            ["J+1", "Achat et contrôle de qualité des engrais (DAP/Urée/KCl)", "Producteur", "Haute"],
+                            ["J+3", "Application de la fumure de fond et correction pH si nécessaire", "Technicien", "Haute"],
+                            ["J+10", "Inspection entomologique de suivi de la canopée", "Expert DPV", "Moyenne"],
+                            ["J+30", "Deuxième fractionnement azoté et ajustement de la vanne d'eau", "Producteur", "Moyenne"]
                         ]
-                        t_act = Table(actions_data, colWidths=[90, 260, 154])
-                        t_act.setStyle(TableStyle([
-                            ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#334155')),
+                        t_action = Table(action_data, colWidths=[70, 240, 110, 84])
+                        t_action.setStyle(TableStyle([
+                            ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#15803d')),
                             ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
                             ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#cbd5e1')),
                             ('PADDING', (0,0), (-1,-1), 6),
                         ]))
-                        elements.append(t_act)
-                        elements.append(Spacer(1, 30))
+                        elements.append(t_action)
+                        elements.append(Spacer(1, 40))
 
-                        # Signatures
                         sig_data = [
-                            [Paragraph(f"<b>Agent Référent ({current_user['nom']}) :</b>", style_body), Paragraph("<b>Visa & Cachet Direction :</b>", style_body)],
-                            [Paragraph("<br/><br/><b>Expert Agronome Terrain</b>", style_body), Paragraph("<br/><br/><b>Direction Protection des Végétaux / ANCAR</b>", style_body)]
+                            [Paragraph("<b>L'Expert / Agent Référent :</b>", style_body), Paragraph("<b>Le Producteur / Représentant :</b>", style_body)],
+                            [Paragraph(f"{current_user['nom']}<br/><i>{current_user['role']}</i>", style_body), Paragraph(f"{nom_prod}<br/><i>Chef d'Exploitation</i>", style_body)],
+                            [Spacer(1, 30), Spacer(1, 30)],
+                            [Paragraph("Signature & Cachet :", style_body), Paragraph("Signature :", style_body)]
                         ]
-                        t_sig_block = Table(sig_data, colWidths=[250, 254])
+                        t_sig_block = Table(sig_data, colWidths=[252, 252])
                         t_sig_block.setStyle(TableStyle([
-                            ('BOX', (0,0), (-1,-1), 1, colors.HexColor('#cbd5e1')),
-                            ('PADDING', (0,0), (-1,-1), 10),
+                            ('BOX', (0,0), (-1,-1), 0.5, colors.HexColor('#94a3b8')),
+                            ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#f8fafc')),
+                            ('PADDING', (0,0), (-1,-1), 8),
                         ]))
-                        elements.append(KeepTogether(t_sig_block))
+                        elements.append(t_sig_block)
 
                         doc.build(elements, canvasmaker=NumberedCanvas)
                         buffer.seek(0)
                         return buffer
 
-                    pdf_data = generate_6page_pdf()
+                    pdf_bytes = generate_6page_pdf()
                     st.download_button(
-                        label="📄 Télécharger le Rapport d'Expertise Complet (6 Pages PDF)",
-                        data=pdf_data,
-                        file_name=f"Rapport_Expertise_Agro_{nom_prod.replace(' ', '_')}.pdf",
+                        label="📥 Télécharger le Rapport Expert Complet (PDF 6 Pages)",
+                        data=pdf_bytes,
+                        file_name=f"Rapport_Expertise_AGRO_{nom_prod.replace(' ', '_')}.pdf",
                         mime="application/pdf",
                         type="primary"
                     )
                 else:
-                    st.warning("⚠️ Module ReportLab non installé. Veuillez installer `reportlab` pour activer la génération du PDF.")
+                    st.error("❌ La bibliothèque ReportLab n'est pas installée sur le serveur.")
 
             with col_h2:
-                st.markdown("#### 📜 Historique des Interventions")
-                histo = db.get("historique", [])
-                if histo:
-                    df_histo = pd.DataFrame(histo)
-                    cols_souhaitees = ["id", "date", "agent", "producteur", "culture", "superficie", "zone"]
-                    cols_existantes = [col for col in cols_souhaitees if col in df_histo.columns]
-                    
-                    if cols_existantes:
-                        st.dataframe(df_histo[cols_existantes], use_container_width=True)
-                    else:
-                        st.dataframe(df_histo, use_container_width=True)
+                st.markdown("#### 📜 Historique des Diagnostics Terrain")
+                hist = db.get("historique", [])
+                if hist:
+                    st.dataframe(pd.DataFrame(hist), use_container_width=True)
                 else:
-                    st.info("Aucun enregistrement dans l'historique pour le moment.")
+                    st.info("Aucun diagnostic enregistré pour le moment.")
 
-        # TAB 7 : GESTION DE LA LISTE BLANCHE (ADMINISTRATION)
+        # TAB 7 : GESTION DE LA LISTE BLANCHE (ADMIN ONLY)
         with tabs_main[6]:
-            st.subheader("🔐 Administration de la Liste Blanche d'Accès")
-
-            st.markdown("#### 👥 Utilisateurs Autorisés")
-            df_whitelist = pd.DataFrame(db.get("whitelist", []))
-            st.dataframe(df_whitelist, use_container_width=True)
+            st.subheader("🔐 Administration de la Liste Blanche (Accès Restreint)")
 
             if is_admin:
-                st.markdown("---")
-                st.markdown("#### ➕ Ajouter un Nouvel Utilisateur")
-                with st.form("form_add_user"):
-                    col_u1, col_u2 = st.columns(2)
-                    with col_u1:
-                        new_email = st.text_input("Adresse E-mail :", placeholder="exemple@ancar.sn")
-                        new_nom = st.text_input("Nom & Prénom :", placeholder="Moussa Ndiaye")
-                    with col_u2:
-                        new_role = st.selectbox("Rôle :", ["Technicien", "Expert DPV", "Administrateur"])
-                        new_zone = st.selectbox("Zone Référente :", list(BASE_SOLS_INP_FULL.keys()) + ["Toutes zones"])
-                    
-                    btn_add_user = st.form_submit_button("✅ Enregistrer dans la Liste Blanche")
-                    
-                    if btn_add_user:
+                st.success("👑 **Accès Administrateur Déverrouillé**")
+
+                col_a1, col_a2 = st.columns([1.5, 1])
+
+                with col_a1:
+                    st.markdown("#### 📋 Utilisateurs Actuellement Autorisés")
+                    st.dataframe(pd.DataFrame(db.get("whitelist", [])), use_container_width=True)
+
+                with col_a2:
+                    st.markdown("#### ➕ Ajouter un Nouvel Agent")
+                    new_email = st.text_input("Adresse e-mail :", key="add_email").strip().lower()
+                    new_nom = st.text_input("Nom & Prénom :", key="add_nom")
+                    new_role = st.selectbox("Rôle :", ["Technicien", "Expert DPV", "Administrateur"], key="add_role")
+                    new_zone = st.selectbox("Zone Assignée :", list(BASE_SOLS_INP_FULL.keys()) + ["Toutes zones"], key="add_zone")
+
+                    if st.button("➕ Ajouter à la Liste Blanche", type="primary"):
                         if new_email and new_nom:
-                            clean_email = new_email.strip().lower()
-                            # Vérifier si l'utilisateur existe déjà
-                            existing_emails = [u["email"].lower() for u in db.get("whitelist", [])]
-                            if clean_email in existing_emails:
-                                st.error("⚠️ Cet utilisateur existe déjà dans la liste blanche.")
-                            else:
-                                new_u_entry = {
-                                    "email": clean_email,
-                                    "nom": new_nom.strip(),
-                                    "role": new_role,
-                                    "zone": new_zone,
-                                    "statut": "Actif"
-                                }
-                                db.setdefault("whitelist", []).append(new_u_entry)
-                                save_db(db)
-                                st.success(f"✅ L'utilisateur {new_nom} ({clean_email}) a été ajouté avec succès !")
-                                st.rerun()
+                            db.setdefault("whitelist", []).append({
+                                "email": new_email,
+                                "nom": new_nom,
+                                "role": new_role,
+                                "zone": new_zone,
+                                "statut": "Actif"
+                            })
+                            save_db(db)
+                            st.success(f"✅ {new_nom} ajouté avec succès !")
+                            st.rerun()
                         else:
-                            st.error("⚠️ Veuillez remplir au moins l'e-mail et le nom complet.")
+                            st.error("Veuillez remplir tous les champs.")
             else:
-                st.info("ℹ️ Seuls les profil **Administrateur** et **Expert DPV** ont les droits d'ajout de nouveaux comptes sur la liste blanche.")
+                st.error("🚫 **Accès Refusé** : Seuls les Administrateurs et Experts DPV peuvent gérer la liste blanche.")
 # =====================================================
 elif selected == "🌱 Conseil":
 
