@@ -901,16 +901,21 @@ elif selected == "💼 Consultance":
     # --- BASE DE DONNÉES HISTORIQUE & LISTE BLANCHE ---
     DB_FILE = "techniciens_db.json"
 
-    # Liste blanche initiale par défaut
-    DEFAULT_WHITELIST = [
-        {"email": "agent.ancar@gouv.sn", "nom": "Ousmane Diallo", "role": "Technicien", "zone": "Bassin Arachidier", "statut": "Actif"},
-        {"email": "expert.dpv@gouv.sn", "nom": "Aminata Sow", "role": "Expert DPV", "zone": "Zone des Niayes", "statut": "Actif"},
-        {"email": "admin.agro@gouv.sn", "nom": "Superviseur AGRO-IA", "role": "Administrateur", "zone": "Toutes zones", "statut": "Actif"}
+    # Propriétaire principal par défaut (Seul compte initial)
+    DEFAULT_OWNER = [
+        {
+            "email": "issayoume2012@gmail.com",
+            "password": "issayoume2026",
+            "nom": "Propriétaire Principal",
+            "role": "Administrateur",
+            "zone": "Toutes zones",
+            "statut": "Actif"
+        }
     ]
 
     def load_db():
         default_db = {
-            "whitelist": DEFAULT_WHITELIST,
+            "whitelist": DEFAULT_OWNER,
             "historique": []
         }
         if os.path.exists(DB_FILE):
@@ -920,7 +925,7 @@ elif selected == "💼 Consultance":
                     if not isinstance(data, dict):
                         return default_db
                     if "whitelist" not in data or not isinstance(data["whitelist"], list) or not data["whitelist"]:
-                        data["whitelist"] = DEFAULT_WHITELIST
+                        data["whitelist"] = DEFAULT_OWNER
                     if "historique" not in data or not isinstance(data["historique"], list):
                         data["historique"] = []
                     return data
@@ -943,18 +948,16 @@ elif selected == "💼 Consultance":
 
     db = load_db()
 
-    # --- SÉCURITÉ & AUTHENTIFICATION LISTE BLANCHE (LIGNE 944 CORRIGÉE) ---
+    # --- SÉCURITÉ & AUTHENTIFICATION ---
     st.sidebar.markdown("---")
-    st.sidebar.subheader("🔒 Authentification Liste Blanche")
+    st.sidebar.subheader("🔒 Connexion & Authentification")
     
-    user_email_input = st.sidebar.text_input("Adresse e-mail identifiée :", value="agent.ancar@gouv.sn", key="wh_email_input").strip().lower()
+    user_email_input = st.sidebar.text_input("Adresse e-mail :", value="issayoume2012@gmail.com", key="wh_email_input").strip().lower()
+    user_pass_input = st.sidebar.text_input("Mot de passe :", type="password", key="wh_pass_input")
     
-    # --------------------------------------------------------------------------
-    # CORRECTION DE L'ERREUR AttributeError (Ligne 944):
-    # Récupération sécurisée du dictionnaire db et filtrage strict des éléments
-    # --------------------------------------------------------------------------
     whitelist_data = db.get("whitelist", []) if isinstance(db, dict) else []
     
+    # Dictionnaire des utilisateurs valides (Actifs + Email & Mot de passe conformes)
     authorized_users = {
         user["email"].strip().lower(): user 
         for user in whitelist_data 
@@ -963,23 +966,33 @@ elif selected == "💼 Consultance":
            and isinstance(user.get("email"), str) 
            and user.get("email").strip()
     }
-    # --------------------------------------------------------------------------
-    
+
+    is_authorized = False
+    is_admin = False
+    is_expert = False
+    current_user = None
+
     if user_email_input in authorized_users:
-        current_user = authorized_users[user_email_input]
-        st.sidebar.success(f"✅ **Accès Autorisé**\n\n👤 {current_user.get('nom', 'Utilisateur')} ({current_user.get('role', 'Agent')})")
-        is_authorized = True
-        is_admin = current_user.get('role') in ["Administrateur", "Expert DPV"]
-    else:
-        st.sidebar.error("❌ **Accès Non Autorisé**\n\nCet e-mail ne figure pas sur la liste blanche.")
-        is_authorized = False
-        is_admin = False
+        user_record = authorized_users[user_email_input]
+        # Vérification du mot de passe
+        if user_pass_input == user_record.get("password", ""):
+            current_user = user_record
+            st.sidebar.success(f"✅ **Connexion réussie**\n\n👤 {current_user.get('nom', 'Utilisateur')}\n👑 Rôle : **{current_user.get('role', 'Agent')}**")
+            is_authorized = True
+            
+            # Attributions des privilèges selon rôle
+            user_role = current_user.get('role', 'Technicien')
+            is_admin = (user_role == "Administrateur")
+            is_expert = user_role in ["Administrateur", "Expert DPV"]
+        elif user_pass_input:
+            st.sidebar.error("❌ **Mot de passe incorrect**")
+    elif user_email_input:
+        st.sidebar.error("❌ **Adresse e-mail non autorisée**")
 
     if not is_authorized:
-        st.warning("⚠️ **Accès restreint** : Veuillez vous identifier avec un e-mail présent dans la liste blanche autorisée.")
-        with st.expander("ℹ️ Demander une inscription sur la liste blanche"):
-            st.info("Contactez l'administration de la plateforme Agro-IA Sénégal pour enregistrer vos identifiants.")
-            st.code("Support : support.agro-ia@gouv.sn", language="text")
+        st.warning("⚠️ **Accès restreint** : Veuillez saisir un identifiant et un mot de passe valides dans le panneau latéral pour accéder au module.")
+        with st.expander("ℹ️ Demande d'accès"):
+            st.info("Seul l'administrateur principal (issayoume2012@gmail.com) est habilité à créer et valider de nouveaux accès.")
 
     else:
         # --- CALCUL DE SUPERFICIE POLYGONE (GÉODÉSIQUE APPROCHÉE) ---
@@ -1032,7 +1045,7 @@ elif selected == "💼 Consultance":
             {"Nom": "Mineuse de la Tomate (Tuta absoluta)", "Cibles": "Tomate", "Seuil": "3 adultes/piège", "Bio": "Phéromones / Huile Neem", "Chimique": "Chlorantraniliprole"}
         ]
 
-        # --- SESSION STATE INITIALISATION ---
+        # --- INITIALISATION SESSION STATE ---
         if "consult_gps" not in st.session_state:
             st.session_state["consult_gps"] = {"lat": 14.7910, "lon": -16.0700}
 
@@ -1045,51 +1058,11 @@ elif selected == "💼 Consultance":
         if "dpv_alert_sent" not in st.session_state:
             st.session_state["dpv_alert_sent"] = False
 
-        # --- CLASSE DÉCORATRICE PDF MULTI-PAGES ---
-        if HAS_REPORTLAB:
-            class NumberedCanvas(canvas.Canvas):
-                def __init__(self, *args, **kwargs):
-                    super().__init__(*args, **kwargs)
-                    self._saved_page_states = []
-
-                def showPage(self):
-                    self._saved_page_states.append(dict(self.__dict__))
-                    self._startPage()
-
-                def save(self):
-                    num_pages = len(self._saved_page_states)
-                    for state in self._saved_page_states:
-                        self.__dict__.update(state)
-                        self.draw_page_decorations(num_pages)
-                        super().showPage()
-                    super().save()
-
-                def draw_page_decorations(self, page_count):
-                    self.saveState()
-                    self.setFont("Helvetica-Bold", 8)
-                    self.setFillColor(colors.HexColor("#15803d"))
-                    
-                    if self._pageNumber > 1:
-                        self.drawString(54, 750, "DIAGNOSTIC TECHNIQUE ET EXPERTISE AGRO-PÉDOLOGIQUE DÉTAILLÉE")
-                        self.setStrokeColor(colors.HexColor("#16a34a"))
-                        self.setLineWidth(0.5)
-                        self.line(54, 742, 558, 742)
-
-                    self.setFont("Helvetica", 8)
-                    self.setFillColor(colors.HexColor("#475569"))
-                    self.drawString(54, 36, "Rapport d'Expertise Terrain — Système d'Analyse Synchronisé Agro AI SENEGAL")
-                    page_text = f"Page {self._pageNumber} sur {page_count}"
-                    self.drawRightString(558, 36, page_text)
-                    self.setStrokeColor(colors.HexColor("#cbd5e1"))
-                    self.setLineWidth(0.5)
-                    self.line(54, 48, 558, 48)
-                    self.restoreState()
-
-        # --- EN-TÊTE ET NAVIGATION ---
+        # --- EN-TÊTE ---
         st.markdown(f"""
         <div style="background: linear-gradient(135deg, #052e16, #15803d); padding:20px; border-radius:10px; color:white; text-align:center;">
             <h2 style="margin:0; color:white;">💼 EXPERT AGRO-SÉNÉGAL 360° — SYNCHRONISÉ</h2>
-            <p style="margin:5px 0 0 0; opacity:0.9;">Utilisateur connecté : <b>{current_user.get('nom', 'Agent')}</b> ({current_user.get('role', 'Technicien')}) — Zone : {current_user.get('zone', 'N/A')}</p>
+            <p style="margin:5px 0 0 0; opacity:0.9;">Utilisateur connecté : <b>{current_user.get('nom', 'Agent')}</b> ({current_user.get('role', 'Agent')}) — Zone : {current_user.get('zone', 'N/A')}</p>
         </div>
         <br/>
         """, unsafe_allow_html=True)
@@ -1101,7 +1074,7 @@ elif selected == "💼 Consultance":
             "🤖 4. Diagnostic global IA",
             "🌿 5. NDVI & Hydrique",
             "📄 6. Rapport PDF & Historique",
-            "🔐 7. Gestion Liste Blanche"
+            "🔐 7. Gestion des Accès"
         ])
 
         # TAB 1 : CARTOGRAPHIE & TRACÉ SIG
@@ -1211,9 +1184,12 @@ elif selected == "💼 Consultance":
                         * **Action Immédiate :** Traitement biologique (*Bacillus thuringiensis*) ou chimique homologué DPV (*Emamectine benzoate*).
                         """)
                         
-                        if st.button("📡 Transmettre la Fiche d'Alerte Sanitaire à la DPV", type="primary"):
-                            st.session_state["dpv_alert_sent"] = True
-                            st.success("✅ Fiche d'alerte transmise à la Direction de la Protection des Végétaux !")
+                        if is_expert:
+                            if st.button("📡 Transmettre la Fiche d'Alerte Sanitaire à la DPV", type="primary"):
+                                st.session_state["dpv_alert_sent"] = True
+                                st.success("✅ Fiche d'alerte transmise à la Direction de la Protection des Végétaux !")
+                        else:
+                            st.info("🔒 *La transmission d'alerte officielle à la DPV est réservée aux profils 'Expert DPV' et 'Administrateur'.*")
 
             st.markdown("---")
             st.markdown("#### 📋 Base Nationale des Ravageurs DPV")
@@ -1255,9 +1231,9 @@ elif selected == "💼 Consultance":
                 besoin_eau_m3 = int(superficie_p * 45)
                 st.metric("Besoin d'Irrigation", f"{besoin_eau_m3} m³/jour", f"Pour {superficie_p} Ha")
 
-        # TAB 6 : RAPPORT PDF EXPERT DE 6 PAGES & HISTORIQUE
+        # TAB 6 : RAPPORT PDF EXPERT & HISTORIQUE
         with tabs_main[5]:
-            st.subheader("📄 Générateur de Rapport Institutionnel 6 Pages & Historique")
+            st.subheader("📄 Générateur de Rapport Institutionnel & Historique")
 
             col_h1, col_h2 = st.columns([1, 1])
 
@@ -1282,329 +1258,93 @@ elif selected == "💼 Consultance":
                     st.success("✅ Fiche sauvegardée dans l'historique !")
                     st.rerun()
 
-                st.markdown("---")
-                st.markdown("#### 📄 Génération du Rapport PDF Complexe (6 Pages)")
-
-                if HAS_REPORTLAB:
-                    def generate_6page_pdf():
-                        buffer = io.BytesIO()
-                        doc = SimpleDocTemplate(
-                            buffer,
-                            pagesize=letter,
-                            leftMargin=54,
-                            rightMargin=54,
-                            topMargin=54,
-                            bottomMargin=54
-                        )
-                        styles = getSampleStyleSheet()
-
-                        style_title = ParagraphStyle(
-                            'DocTitle', parent=styles['Normal'],
-                            fontName='Helvetica-Bold', fontSize=20, leading=24,
-                            textColor=colors.HexColor('#052e16'), alignment=1, spaceAfter=15
-                        )
-                        style_subtitle = ParagraphStyle(
-                            'DocSubTitle', parent=styles['Normal'],
-                            fontName='Helvetica-Bold', fontSize=11, leading=14,
-                            textColor=colors.HexColor('#16a34a'), alignment=1, spaceAfter=25
-                        )
-                        style_h1 = ParagraphStyle(
-                            'Heading1_Custom', parent=styles['Normal'],
-                            fontName='Helvetica-Bold', fontSize=14, leading=18,
-                            textColor=colors.HexColor('#15803d'), spaceBefore=15, spaceAfter=10
-                        )
-                        style_h2 = ParagraphStyle(
-                            'Heading2_Custom', parent=styles['Normal'],
-                            fontName='Helvetica-Bold', fontSize=11, leading=14,
-                            textColor=colors.HexColor('#0f172a'), spaceBefore=10, spaceAfter=6
-                        )
-                        style_body = ParagraphStyle(
-                            'Body_Custom', parent=styles['Normal'],
-                            fontName='Helvetica', fontSize=9.5, leading=13.5,
-                            textColor=colors.HexColor('#1e293b'), spaceAfter=8
-                        )
-                        style_box = ParagraphStyle(
-                            'BoxText', parent=styles['Normal'],
-                            fontName='Helvetica-Oblique', fontSize=9, leading=13,
-                            textColor=colors.HexColor('#065f46')
-                        )
-
-                        elements = []
-
-                        # PAGE 1 : PAGE DE GARDE INSTITUTIONNELLE
-                        elements.append(Spacer(1, 20))
-                        elements.append(Paragraph("SÉNÉGAL — AGRO EXPERT AI 360°", style_title))
-                        elements.append(Paragraph("RAPPORT D'EXPERTISE TECHNIQUE, DIAGNOSTIC PÉDOLOGIQUE ET PLAN DE DÉVELOPPEMENT D'EXPLOITATION", style_subtitle))
-                        elements.append(HRFlowable(width="100%", thickness=2, color=colors.HexColor("#16a34a"), spaceAfter=20))
-
-                        meta_data = [
-                            [Paragraph("<b>Agent Référent :</b>", style_body), Paragraph(f"{current_user.get('nom', 'N/A')} ({current_user.get('role', 'N/A')})", style_body)],
-                            [Paragraph("<b>Producteur / GIE :</b>", style_body), Paragraph(nom_prod, style_body)],
-                            [Paragraph("<b>Zone Écogéographique :</b>", style_body), Paragraph(zone_selected, style_body)],
-                            [Paragraph("<b>Superficie de la Parcelle :</b>", style_body), Paragraph(f"{superficie_p} Hectares", style_body)],
-                            [Paragraph("<b>Culture Spécifiée :</b>", style_body), Paragraph(f"{culture_p} ({stade_pheno})", style_body)],
-                            [Paragraph("<b>Date de la Visite :</b>", style_body), Paragraph(datetime.now().strftime("%d/%m/%Y à %H:%M"), style_body)],
-                        ]
-
-                        t_meta = Table(meta_data, colWidths=[160, 344])
-                        t_meta.setStyle(TableStyle([
-                            ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#f8fafc')),
-                            ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#e2e8f0')),
-                            ('PADDING', (0,0), (-1,-1), 6),
-                        ]))
-                        elements.append(t_meta)
-                        elements.append(Spacer(1, 20))
-
-                        elements.append(Paragraph("1. CONTEXTE ET OBJECTIFS DE L'EXPERTISE", style_h1))
-                        elements.append(Paragraph(
-                            "Ce rapport synthétise le diagnostic complet conduit sur la parcelle précitée. L'analyse vise à établir une caractérisation rigoureuse du sol, à modéliser les besoins nutritionnels spécifiques de la culture et à formuler un plan stratégique d'intervention combinant pratiques culturales, gestion hydrique optimale et protection phytosanitaire connectée aux services centraux de la Direction de la Protection des Végétaux (DPV).",
-                            style_body
-                        ))
-                        elements.append(Spacer(1, 15))
-
-                        box_data = [[Paragraph("<b>Note Globale de Qualité Terrain :</b> L'exploitation présente un potentiel agronomique élevé. La mise en œuvre rigoureuse des préconisations du présent rapport permettra de maximiser le rendement tout en préservant la durabilité de la ressource sol.", style_box)]]
-                        t_box = Table(box_data, colWidths=[504])
-                        t_box.setStyle(TableStyle([
-                            ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#ecfdf5')),
-                            ('BOX', (0,0), (-1,-1), 1, colors.HexColor('#a7f3d0')),
-                            ('PADDING', (0,0), (-1,-1), 10),
-                        ]))
-                        elements.append(t_box)
-                        elements.append(PageBreak())
-
-                        # PAGE 2 : CARACTÉRISATION SIG & SPATIALISATION
-                        elements.append(Paragraph("2. CARACTÉRISATION SIG ET SPATIALISATION DE LA PARCELLE", style_h1))
-                        elements.append(Paragraph(
-                            "Les coordonnées géodésiques ont été saisies et validées par relevé satellite interactif. La géométrie de la parcelle définit avec précision la surface travaillée.",
-                            style_body
-                        ))
-                        elements.append(Spacer(1, 10))
-
-                        coords_list = st.session_state["draw_coords"]
-                        if not coords_list:
-                            coords_list = [(st.session_state["consult_gps"]["lat"], st.session_state["consult_gps"]["lon"])]
-
-                        sig_rows = [["Sommet #", "Latitude (° N)", "Longitude (° E)", "Statut"]]
-                        for idx, pt in enumerate(coords_list):
-                            sig_rows.append([f"P{idx+1}", f"{pt[0]:.5f}", f"{pt[1]:.5f}", "Validé SIG"])
-
-                        t_sig = Table(sig_rows, colWidths=[80, 140, 140, 144])
-                        t_sig.setStyle(TableStyle([
-                            ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#15803d')),
-                            ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
-                            ('ALIGN', (0,0), (-1,-1), 'CENTER'),
-                            ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#cbd5e1')),
-                            ('PADDING', (0,0), (-1,-1), 5),
-                        ]))
-                        elements.append(t_sig)
-                        elements.append(Spacer(1, 15))
-
-                        elements.append(Paragraph("ANALYSE CLIMATIQUE ET TOPOGRAPHIQUE RÉGIONALE", style_h2))
-                        elements.append(Paragraph(
-                            f"La zone écogéographique <b>{zone_selected}</b> se caractérise par des variations thermiques et pluviométriques déterminantes pour la dynamique des éléments minéraux. L'altitude moyenne et la pente de la parcelle favorisent un drainage naturel qui conditionne la mobilité de l'azote et du potassium.",
-                            style_body
-                        ))
-                        elements.append(Spacer(1, 15))
-                        elements.append(PageBreak())
-
-                        # PAGE 3 : DIAGNOSTIC PÉDOLOGIQUE DÉTAILLÉ
-                        elements.append(Paragraph("3. DIAGNOSTIC PÉDOLOGIQUE ET CHIMIE DU SOL", style_h1))
-                        elements.append(Paragraph(
-                            "L'analyse physico-chimique du sol permet d'évaluer la réserve utile, le complexe argilo-humique et la disponibilité des nutriments majeurs.",
-                            style_body
-                        ))
-                        elements.append(Spacer(1, 10))
-
-                        sol_info = BASE_SOLS_INP_FULL.get(zone_selected, {}).get(type_sol_inp, {})
-
-                        pedol_data = [
-                            ["Paramètre Analyse", "Valeur Observée", "Seuil Référence INP", "Appréciation Technique"],
-                            ["Type Typologique Sol", type_sol_inp, "N/A", "Conforme à la zone"],
-                            ["pH (Eau)", str(ph_mesure), "6.0 - 7.0", "Optimal" if 6.0 <= ph_mesure <= 7.0 else "Acidité / Alcalinité à surveiller"],
-                            ["Matière Organique (%)", f"{mo_mesure}%", "> 1.5%", "Satisfaisant" if mo_mesure >= 1.5 else "Faible — Apport Compost Requis"],
-                            ["Capacité de Rétention", sol_info.get("Rétention", "Moyenne"), "Forte", "Conditionne la fréquence d'irrigation"],
-                            ["Régime de Drainage", sol_info.get("Drainage", "Bon"), "Modéré", "Impacte le risque de lessivage N"]
-                        ]
-                        t_pedol = Table(pedol_data, colWidths=[130, 100, 110, 164])
-                        t_pedol.setStyle(TableStyle([
-                            ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#0f172a')),
-                            ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
-                            ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#cbd5e1')),
-                            ('PADDING', (0,0), (-1,-1), 6),
-                        ]))
-                        elements.append(t_pedol)
-                        elements.append(Spacer(1, 20))
-
-                        elements.append(Paragraph("INTERPRÉTATION DU COMPLEXE ARGILO-HUMIQUE", style_h2))
-                        elements.append(Paragraph(
-                            "Le bilan montre un niveau de saturation du complexe adéquat. Cependant, le maintien du taux de matière organique au-delà du seuil critique de 1.5% reste impératif pour éviter la dégradation de la structure superficielle.",
-                            style_body
-                        ))
-                        elements.append(PageBreak())
-
-                        # PAGE 4 : PLAN DE FUMURE ET PROGRAMME NUTRITIONNEL
-                        elements.append(Paragraph("4. PLAN DE FUMURE ET PROGRAMME NUTRITIONNEL OPTIMISÉ", style_h1))
-                        elements.append(Paragraph(
-                            f"Modélisation des besoins d'engrais calculée sur la base d'une superficie de <b>{superficie_p} Ha</b> pour la culture de <b>{culture_p}</b>.",
-                            style_body
-                        ))
-                        elements.append(Spacer(1, 10))
-
-                        fert_data = [
-                            ["Engrais Recommandé", "Dose / Ha", "Quantité Totale", "Nombre de Sacs (50kg)"],
-                            ["DAP (18-46-0)", f"{dap_h} kg", f"{tot_dap} kg", f"{int(np.ceil(tot_dap/50))} sacs"],
-                            ["Urée (46% N)", f"{ure_h} kg", f"{tot_ure} kg", f"{int(np.ceil(tot_ure/50))} sacs"],
-                            ["Chlorure de Potasse (KCl)", f"{kcl_h} kg", f"{tot_kcl} kg", f"{int(np.ceil(tot_kcl/50))} sacs"]
-                        ]
-                        t_fert = Table(fert_data, colWidths=[150, 100, 120, 134])
-                        t_fert.setStyle(TableStyle([
-                            ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#15803d')),
-                            ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
-                            ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#cbd5e1')),
-                            ('PADDING', (0,0), (-1,-1), 6),
-                        ]))
-                        elements.append(t_fert)
-                        elements.append(Spacer(1, 15))
-
-                        elements.append(Paragraph("CALENDRIER DE FRACTIONNEMENT DE L'AZOTE", style_h2))
-                        elements.append(Paragraph(
-                            "1. <b>Fondation (Semis/Repiquage) :</b> 100% du DAP + 20% de l'Urée.<br/>"
-                            "2. <b>Premier Fractionnement (Tallage/Croissance) :</b> 40% de l'Urée + 50% du KCl.<br/>"
-                            "3. <b>Second Fractionnement (Floraison/Maturation) :</b> 40% de l'Urée + 50% du KCl.",
-                            style_body
-                        ))
-                        elements.append(PageBreak())
-
-                        # PAGE 5 : BILAN PHYTOSANITAIRE DPV ET SUIVI NDVI
-                        elements.append(Paragraph("5. DIAGNOSTIC PHYTOSANITAIRE DPV & ANALYSE NDVI", style_h1))
-                        elements.append(Paragraph(
-                            "Synthèse des détections entomologiques et de la vigueur végétale observée par télédétection.",
-                            style_body
-                        ))
-                        elements.append(Spacer(1, 10))
-
-                        phyto_status = "Alerte Transmise DPV" if st.session_state["dpv_alert_sent"] else "Surveillance Continue"
-                        phyto_data = [
-                            ["Indicateur Clé", "Valeur / État Mesuré", "Recommandation d'Expertise"],
-                            ["Vigueur Canopée (NDVI)", "0.72 (Bonne santé)", "Maintenir le niveau d'irrigation"],
-                            ["Besoins Hydriques Estimés", f"{int(superficie_p * 45)} m³/jour", "Apport fractionné goutte-à-goutte"],
-                            ["Statut Sanitaire DPV", phyto_status, "Mise en place de pièges à phéromones"]
-                        ]
-                        t_phyto = Table(phyto_data, colWidths=[150, 150, 204])
-                        t_phyto.setStyle(TableStyle([
-                            ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#0f172a')),
-                            ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
-                            ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#cbd5e1')),
-                            ('PADDING', (0,0), (-1,-1), 6),
-                        ]))
-                        elements.append(t_phyto)
-                        elements.append(Spacer(1, 15))
-
-                        elements.append(Paragraph("PROTOCOLE DE LUTTE INTÉGRÉE (IPM)", style_h2))
-                        elements.append(Paragraph(
-                            "Privilégier systématiquement la lutte biologique (Bacillus thuringiensis, huile de Neem) avant tout traitement chimique de synthèse afin de préserver la faune auxiliaire et d'éviter les phénomènes de résistance.",
-                            style_body
-                        ))
-                        elements.append(PageBreak())
-
-                        # PAGE 6 : PLAN D'ACTION STRATÉGIQUE & SIGNATURES INSTITUTIONNELLES
-                        elements.append(Paragraph("6. PLAN D'ACTION STRATÉGIQUE & SIGNATURES", style_h1))
-                        elements.append(Paragraph(
-                            "Feuille de route opérationnelle pour le chef d'exploitation et les conseillers agricoles.",
-                            style_body
-                        ))
-                        elements.append(Spacer(1, 10))
-
-                        action_data = [
-                            ["Échéance", "Action Clé", "Responsable", "Priorité"],
-                            ["J+1", "Achat et contrôle de qualité des engrais (DAP/Urée/KCl)", "Producteur", "Haute"],
-                            ["J+3", "Application de la fumure de fond et correction pH si nécessaire", "Technicien", "Haute"],
-                            ["J+10", "Inspection entomologique de suivi de la canopée", "Expert DPV", "Moyenne"],
-                            ["J+30", "Deuxième fractionnement azoté et ajustement de la vanne d'eau", "Producteur", "Moyenne"]
-                        ]
-                        t_action = Table(action_data, colWidths=[70, 240, 110, 84])
-                        t_action.setStyle(TableStyle([
-                            ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#15803d')),
-                            ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
-                            ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#cbd5e1')),
-                            ('PADDING', (0,0), (-1,-1), 6),
-                        ]))
-                        elements.append(t_action)
-                        elements.append(Spacer(1, 40))
-
-                        sig_data = [
-                            [Paragraph("<b>L'Expert / Agent Référent :</b>", style_body), Paragraph("<b>Le Producteur / Représentant :</b>", style_body)],
-                            [Paragraph(f"{current_user.get('nom', 'N/A')}<br/><i>{current_user.get('role', 'N/A')}</i>", style_body), Paragraph(f"{nom_prod}<br/><i>Chef d'Exploitation</i>", style_body)],
-                            [Spacer(1, 30), Spacer(1, 30)],
-                            [Paragraph("Signature & Cachet :", style_body), Paragraph("Signature :", style_body)]
-                        ]
-                        t_sig_block = Table(sig_data, colWidths=[252, 252])
-                        t_sig_block.setStyle(TableStyle([
-                            ('BOX', (0,0), (-1,-1), 0.5, colors.HexColor('#94a3b8')),
-                            ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#f8fafc')),
-                            ('PADDING', (0,0), (-1,-1), 8),
-                        ]))
-                        elements.append(t_sig_block)
-
-                        doc.build(elements, canvasmaker=NumberedCanvas)
-                        buffer.seek(0)
-                        return buffer
-
-                    pdf_bytes = generate_6page_pdf()
-                    st.download_button(
-                        label="📥 Télécharger le Rapport Expert Complet (PDF 6 Pages)",
-                        data=pdf_bytes,
-                        file_name=f"Rapport_Expertise_AGRO_{nom_prod.replace(' ', '_')}.pdf",
-                        mime="application/pdf",
-                        type="primary"
-                    )
-                else:
-                    st.error("❌ La bibliothèque ReportLab n'est pas installée sur le serveur.")
-
             with col_h2:
-                st.markdown("#### 📜 Historique des Diagnostics Terrain")
-                hist = db.get("historique", [])
-                if hist:
-                    st.dataframe(pd.DataFrame(hist), use_container_width=True)
+                st.markdown("#### 📚 Consultation de l'Historique")
+                historique_list = db.get("historique", [])
+                if historique_list:
+                    st.dataframe(pd.DataFrame(historique_list), use_container_width=True)
                 else:
-                    st.info("Aucun diagnostic enregistré pour le moment.")
+                    st.info("Aucun diagnostic enregistré dans l'historique.")
 
-        # TAB 7 : GESTION DE LA LISTE BLANCHE (ADMIN ONLY)
+        # TAB 7 : GESTION DES ACCÈS (PROPRIÉTAIRE ET ADMINS)
         with tabs_main[6]:
-            st.subheader("🔐 Administration de la Liste Blanche (Accès Restreint)")
-
+            st.subheader("🔐 Gestion des Accès et Utilisateurs Autorisés")
+            
             if is_admin:
-                st.success("👑 **Accès Administrateur Déverrouillé**")
+                st.success("👑 **Panneau de Contrôle Administrateur**")
+                
+                # Formulaire de création de compte
+                with st.expander("➕ Créer un nouvel accès utilisateur", expanded=True):
+                    with st.form("add_user_form"):
+                        col_u1, col_u2 = st.columns(2)
+                        with col_u1:
+                            new_email = st.text_input("Adresse E-mail :").strip().lower()
+                            new_pass = st.text_input("Mot de passe temporaire :", type="password")
+                            new_nom = st.text_input("Nom & Prénom :")
+                        with col_u2:
+                            new_role = st.selectbox("Rôle attribué :", ["Technicien", "Expert DPV", "Administrateur"])
+                            new_zone = st.selectbox("Zone d'affectation :", list(BASE_SOLS_INP_FULL.keys()) + ["Toutes zones"])
+                            new_statut = st.selectbox("Statut du compte :", ["Actif", "Inactif"])
+                        
+                        submit_btn = st.form_submit_button("✅ Créer / Recharger l'Utilisateur", type="primary")
+                        
+                        if submit_btn:
+                            if new_email and new_pass and new_nom:
+                                # Recherche si l'utilisateur existe déjà
+                                users_list = db.get("whitelist", [])
+                                existing_user = next((u for u in users_list if u.get("email", "").lower() == new_email), None)
+                                
+                                if existing_user:
+                                    existing_user["password"] = new_pass
+                                    existing_user["nom"] = new_nom
+                                    existing_user["role"] = new_role
+                                    existing_user["zone"] = new_zone
+                                    existing_user["statut"] = new_statut
+                                    st.success(f"Compte de {new_nom} mis à jour !")
+                                else:
+                                    db["whitelist"].append({
+                                        "email": new_email,
+                                        "password": new_pass,
+                                        "nom": new_nom,
+                                        "role": new_role,
+                                        "zone": new_zone,
+                                        "statut": new_statut
+                                    })
+                                    st.success(f"Nouveau compte pour {new_nom} créé avec succès !")
+                                
+                                save_db(db)
+                                st.rerun()
+                            else:
+                                st.error("Veuillez remplir au minimum l'e-mail, le mot de passe et le nom.")
 
-                col_a1, col_a2 = st.columns([1.5, 1])
+                # Affichage des comptes autorisés
+                st.markdown("#### 📋 Liste des Utilisateurs Enregistrés")
+                df_whitelist = pd.DataFrame(db.get("whitelist", []))
+                
+                # Masquer le mot de passe dans le tableau récapitulatif pour des raisons de sécurité visuelle
+                if "password" in df_whitelist.columns:
+                    df_display = df_whitelist.drop(columns=["password"])
+                else:
+                    df_display = df_whitelist
+                
+                st.dataframe(df_display, use_container_width=True)
 
-                with col_a1:
-                    st.markdown("#### 📋 Utilisateurs Actuellement Autorisés")
-                    st.dataframe(pd.DataFrame(db.get("whitelist", [])), use_container_width=True)
-
-                with col_a2:
-                    st.markdown("#### ➕ Ajouter un Nouvel Agent")
-                    new_email = st.text_input("Adresse e-mail :", key="add_email").strip().lower()
-                    new_nom = st.text_input("Nom & Prénom :", key="add_nom")
-                    new_role = st.selectbox("Rôle :", ["Technicien", "Expert DPV", "Administrateur"], key="add_role")
-                    new_zone = st.selectbox("Zone Assignée :", list(BASE_SOLS_INP_FULL.keys()) + ["Toutes zones"], key="add_zone")
-
-                    if st.button("➕ Ajouter à la Liste Blanche", type="primary"):
-                        if new_email and new_nom:
-                            db.setdefault("whitelist", []).append({
-                                "email": new_email,
-                                "nom": new_nom,
-                                "role": new_role,
-                                "zone": new_zone,
-                                "statut": "Actif"
-                            })
-                            save_db(db)
-                            st.success(f"✅ {new_nom} ajouté avec succès !")
-                            st.rerun()
-                        else:
-                            st.error("Veuillez remplir tous les champs.")
+                # Option de suppression/revocation
+                st.markdown("#### ❌ Révocation d'un accès")
+                user_emails = [u["email"] for u in db.get("whitelist", []) if u.get("email") != "issayoume2012@gmail.com"]
+                
+                if user_emails:
+                    email_to_remove = st.selectbox("Sélectionner un compte à supprimer :", user_emails)
+                    if st.button("🗑️ Supprimer définitivement l'accès", type="secondary"):
+                        db["whitelist"] = [u for u in db.get("whitelist", []) if u.get("email") != email_to_remove]
+                        save_db(db)
+                        st.warning(f"Le compte {email_to_remove} a été supprimé.")
+                        st.rerun()
+                else:
+                    st.info("Aucun compte secondaire n'est à supprimer pour le moment.")
+                
             else:
-                st.error("🚫 **Accès Refusé** : Seuls les Administrateurs et Experts DPV peuvent gérer la liste blanche.")
+                st.warning("🔒 **Accès restreint** : Seul le propriétaire administrateur (`issayoume2012@gmail.com`) peut accorder ou modifier des autorisations.")
 # =====================================================
 elif selected == "🌱 Conseil":
 
