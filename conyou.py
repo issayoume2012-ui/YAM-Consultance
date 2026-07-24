@@ -848,11 +848,6 @@ constitue le socle opérationnel pour accélérer la souveraineté alimentaire d
             key="btn_export_multi_agences_v3"
         )
 # =====================================================
-import streamlit as st
-import pandas as pd
-import numpy as np
-import io
-from datetime import datetime
 
 # Importations sécurisées des modules de Cartographie et PDF
 try:
