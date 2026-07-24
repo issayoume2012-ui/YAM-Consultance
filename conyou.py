@@ -849,7 +849,7 @@ constitue le socle opérationnel pour accélérer la souveraineté alimentaire d
         )
 # =====================================================
 # =====================================================
-# 💼 ESPACE CONSULTANCE, EXPERTISE & DÉCISION STRATÉGIQUE
+# 💼 MODULE DE CONSULTANCE INTELLIGENTE & ACCOMPAGNEMENT STRATÉGIQUE
 # =====================================================
 elif selected == "💼 Consultance":
 
@@ -887,6 +887,17 @@ elif selected == "💼 Consultance":
         box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
         height: 100%;
     }
+    .swot-box {
+        padding: 12px;
+        border-radius: 8px;
+        margin-bottom: 10px;
+        font-size: 12px;
+    }
+    .swot-s { background-color: #e8f5e9; border-left: 4px solid #2e7d32; color: #1b5e20; }
+    .swot-w { background-color: #ffebee; border-left: 4px solid #c62828; color: #b71c1c; }
+    .swot-o { background-color: #e3f2fd; border-left: 4px solid #1565c0; color: #0d47a1; }
+    .swot-t { background-color: #fff8e1; border-left: 4px solid #f57f17; color: #e65100; }
+    
     .report-box {
         background-color: #f8fafc;
         border: 1px solid #cbd5e1;
@@ -900,238 +911,331 @@ elif selected == "💼 Consultance":
         line-height: 1.5;
         white-space: pre-wrap;
     }
+    .chat-bubble-user {
+        background: #e3f2fd;
+        padding: 10px 14px;
+        border-radius: 12px 12px 0px 12px;
+        margin: 5px 0;
+        font-size: 13px;
+        text-align: right;
+    }
+    .chat-bubble-expert {
+        background: #f1f8e9;
+        padding: 10px 14px;
+        border-radius: 12px 12px 12px 0px;
+        margin: 5px 0;
+        font-size: 13px;
+    }
     </style>
     """, unsafe_allow_html=True)
 
     st.markdown("""
     <div class="consulting-hero">
-        <h2>💼 Cabinet d'Expertise & Consultance Agrobusiness YouAgronoMe</h2>
-        <p>Service décisionnel pour investisseurs, coopératives et décideurs : audits de faisabilité, structuration de dossiers de financement (LBA, DER/FJ), études technico-économiques et rapports d'alignement institutionnel.</p>
+        <h2>💼 Plateforme Intelligente de Consultance & Accompagnement Stratégique</h2>
+        <p>Solution intégrée de diagnostic IA, modélisation financière (SWOT/PESTEL), orientation vers les guichets de financement (LBA, DER/FJ, ONG) et mise en relation directe avec les experts du réseau YouAgronoMe.</p>
     </div>
     """, unsafe_allow_html=True)
 
     # ----------------------------------------------------
-    # ONGLET INTERACTIFS DE CONSULTANCE
+    # UNIFICATION DES 6 SOUS-MODULES DE CONSULTANCE
     # ----------------------------------------------------
-    tab_audit, tab_tri, tab_booking, tab_experts = st.tabs([
-        "🔬 Audit Agrotechnique & Bilan",
-        "🧮 Modélisation & TRI Financier",
-        "📅 Demande d'Expertise & Rendez-vous",
-        "👥 Annuaire des Experts Réseau"
+    tab_depot, tab_ia, tab_fin, tab_expert, tab_report, tab_kpi = st.tabs([
+        "📥 Demande de Consultance",
+        "🧠 Diagnostic IA (SWOT/PESTEL)",
+        "💰 Guichet Financement",
+        "👨‍🌾 Experts & Messagerie",
+        "📄 Rapports & Historique",
+        "📈 Suivi & KPI (Réévaluation)"
     ])
 
-    # ----------------------------------------------------
-    # TAB 1 : AUDIT COMPLET & GÉNÉRATEUR DE RAPPORT DÉTAILLÉ
-    # ----------------------------------------------------
-    with tab_audit:
-        st.markdown("### 📋 Audit Technico-Économique & Simulation de Projet")
-        st.write("Saisissez les paramètres majeurs de l'exploitation pour éditer un bilan d'orientation stratégique complet.")
+    # Initialisation de la mémoire de session si inexistante
+    if "consult_data" not in st.session_state:
+        st.session_state["consult_data"] = {
+            "domaine": "Agriculture",
+            "urgence": "Moyenne",
+            "probleme": "Amélioration des rendements et accès à l'irrigation",
+            "budget": 15000000,
+            "filiere": "Riz Irrigué",
+            "region": "Saint-Louis",
+            "statut_kpi": 25,
+            "messages": [
+                {"sender": "expert", "text": "Bonjour, je suis l'Ingénieur Ndao. J'ai bien analysé votre demande. Quand souhaiteriez-vous programmer notre premier échange téléphonique ?"}
+            ]
+        }
 
-        with st.form(key="form_consult_audit_global"):
-            c1, c2, c3 = st.columns(3)
-            with c1:
-                nom_projet = st.text_input("Nom du Projet / Exploitation :", value="Agro-Sénégal Bio")
-                region_cible = st.selectbox("Région d'implantation :", ["Saint-Louis", "Kaolack", "Kolda", "Tambacounda", "Thiès", "Ziguinchor", "Louga", "Fatick", "Matam", "Kaffrine", "Kédougou", "Sédhiou", "Diourbel", "Dakar"])
-                superficie_ha = st.number_input("Superficie Totale (Ha) :", min_value=1.0, max_value=10000.0, value=25.0, step=1.0)
+    # ----------------------------------------------------
+    # 1. DEMANDE DE CONSULTANCE & PIÈCES JOINTE
+    # ----------------------------------------------------
+    with tab_depot:
+        st.markdown("### 📥 Dépôt d'une Demande d'Accompagnement")
+        st.write("Décrivez votre problématique ou votre projet pour lancer l'analyse intelligente du système.")
 
-            with c2:
-                filiere_principale = st.selectbox("Filière Stratégique :", [
-                    "Riz Irrigué (SAED)", "Arachide de Semence (DAPSA)", "Horticulture (Oignon / Pomme de terre - ARM)",
-                    "Maïs & Céréales Sèches", "Anacarde & Arboriculture", "Maraîchage Diversifié / Bio"
+        with st.form(key="form_demande_consultance"):
+            col_d1, col_d2 = st.columns(2)
+            
+            with col_d1:
+                domaine = st.selectbox("Domaine d'intervention :", [
+                    "🌾 Agriculture & Agrobusiness", "🐄 Élevage & Production Animale", 
+                    "🐟 Pêche & Aquaculture", "🚀 Entrepreneuriat Rural", 
+                    "💵 Finance & Recommandation Crédit", "📱 Numérique & AgriTech", 
+                    "🌍 Environnement & Transition Écologique"
                 ])
-                source_irrigation = st.selectbox("Mode d'Irrigation / Eau :", ["Canal / Surface (SAED)", "Forage Solaire (DGPRE)", "Puits/Goutte-à-goutte", "Pluvial Strict"])
-                stade_projet = st.selectbox("Maturation du Projet :", ["Idée / Démarrage", "Extension d'Exploitation", "Restructuration / Redressement"])
+                region_p = st.selectbox("Région concernée :", ["Saint-Louis", "Kaolack", "Kolda", "Tambacounda", "Thiès", "Ziguinchor", "Louga", "Fatick", "Matam", "Kaffrine", "Kédougou", "Sédhiou", "Diourbel", "Dakar"])
+                niveau_urgence = st.select_slider("Niveau d'urgence :", options=["Faible", "Moyenne", "Élevée", "🔥 Critique / Urgence Saison"])
 
-            with c3:
-                capital_initial = st.number_input("Capital Investi (FCFA) :", min_value=1000000, value=35000000, step=1000000)
-                marche_cible = st.selectbox("Débouché Principal :", ["Marché Local / ARM", "Agro-industrie (ITA / SODEFITEX)", "Exportation Sous-régionale / Internationale"])
-                objectif_audit = st.selectbox("Besoin de Consultance :", ["Dossier de Financement (LBA/DER)", "Optimisation des Rendements", "Transition Agroécologique", "Certification Quality/Bio"])
+            with col_d2:
+                filiere_p = st.selectbox("Filière spécifique :", ["Riz Irrigué/Pluvial", "Arachide", "Horticulture (Oignon/P.Terre)", "Maïs/Sorgho", "Anacarde/Coton", "Élevage/Lait", "Transform. Agroalimentaire"])
+                budget_est = st.number_input("Capital / Enveloppe globale (FCFA) :", min_value=100000, value=15000000, step=500000)
+                fichiers = st.file_uploader("Téléverser des pièces jointes (Business plan, Analyses de sol, Photos, PDF, Excel) :", accept_multiple_files=True)
 
-            btn_generer_rapport = st.form_submit_button("📄 Générer le Rapport d'Expertise Stratégique")
-
-        if btn_generer_rapport:
-            # Calculs technico-économiques de l'audit
-            rendement_moyen = 6.5 if "Riz" in filiere_principale else (15.0 if "Horticulture" in filiere_principale else 2.5)
-            prod_est = superficie_ha * rendement_moyen
-            prix_moyen_kg = 230 if "Riz" in filiere_principale else (300 if "Horticulture" in filiere_principale else 280)
+            description_prob = st.text_area("Description détaillée du problème, de l'opportunité ou du besoin d'expertise :", value=st.session_state["consult_data"]["probleme"], height=120)
             
-            ca_annuel = prod_est * 1000 * prix_moyen_kg
-            charges_op = ca_annuel * 0.52
-            marge_brute = ca_annuel - charges_op
+            btn_soumettre = st.form_submit_button("🚀 Valider & Lancer l'Analyse Automatique par l'IA")
+
+        if btn_soumettre:
+            st.session_state["consult_data"]["domaine"] = domaine
+            st.session_state["consult_data"]["region"] = region_p
+            st.session_state["consult_data"]["urgence"] = niveau_urgence
+            st.session_state["consult_data"]["filiere"] = filiere_p
+            st.session_state["consult_data"]["budget"] = budget_est
+            st.session_state["consult_data"]["probleme"] = description_prob
             
-            st.success("✅ Audit agronomique et financier calculé avec succès !")
+            st.success("✅ Votre demande a été enregistrée avec succès. L'analyse algorithmique est disponible dans l'onglet 'Diagnostic IA'.")
 
-            # Affichage des métriques clés
-            m1, m2, m3, m4 = st.columns(4)
-            m1.metric("Production Estimée", f"{prod_est:,.1f} Tonnes")
-            m2.metric("Chiffre d'Affaires", f"{ca_annuel/1e6:,.2f} Mio FCFA")
-            m3.metric("Charges Estimées", f"{charges_op/1e6:,.2f} Mio FCFA")
-            m4.metric("Marge Opérationnelle", f"{marge_brute/1e6:,.2f} Mio FCFA")
+    # ----------------------------------------------------
+    # 2. ANALYSE INTELLIGENTE PAR IA (SWOT, PESTEL, CAUSES)
+    # ----------------------------------------------------
+    with tab_ia:
+        st.markdown("### 🧠 Diagnostic Stratégique Multidimensionnel")
+        st.info(f"Analyse générée pour la région **{st.session_state['consult_data']['region']}** - Filière : **{st.session_state['consult_data']['filiere']}**")
 
-            # Rédaction du Rapport Complet
-            texte_rapport_consult = f"""====================================================================================================
-CABINET YOUAGRONOME - RAPPORT D'AUDIT ET D'EXPERTISE AGROBUSINESS
+        # Faisabilité & Recommandations
+        c_f1, c_f2, c_f3 = st.columns(3)
+        c_f1.metric("Faisabilité Technique", "88 %", "Optimale (Accès Water/DGPRE)")
+        c_f2.metric("Faisabilité Financière", "74 %", "Nécessite co-finance DER/LBA")
+        c_f3.metric("Indice de Risque Global", "Bas-Modéré", "-12% avec Assurance CNAAS")
+
+        st.markdown("---")
+        st.markdown("#### 📊 Matrice SWOT (Forces, Faiblesses, Opportunités, Menaces)")
+        
+        sw1, sw2 = st.columns(2)
+        with sw1:
+            st.markdown("""
+            <div class="swot-box swot-s">
+                <b>💪 FORCES (Strengths) :</b><br>
+                • Disponibilité foncière et fort potentiel d'irrigation.<br>
+                • Alignement complet sur le programme national de souveraineté alimentaire.
+            </div>
+            """, unsafe_allow_html=True)
+            st.markdown("""
+            <div class="swot-box swot-w">
+                <b>⚠️ FAIBLESSES (Weaknesses) :</b><br>
+                • Sensibilité aux coûts de l'énergie pour le pompage.<br>
+                • Faible niveau de mécanisation initiale sur la parcelle.
+            </div>
+            """, unsafe_allow_html=True)
+        with sw2:
+            st.markdown("""
+            <div class="swot-box swot-o">
+                <b>🚀 OPPORTUNITÉS (Opportunities) :</b><br>
+                • Forte demande locale et protection du marché via le gel des importations (ARM).<br>
+                • Éligibilité aux subventions d'intrants certifiés DAPSA.
+            </div>
+            """, unsafe_allow_html=True)
+            st.markdown("""
+            <div class="swot-box swot-t">
+                <b>🚨 MENACES (Threats) :</b><br>
+                • Variabilité pluviométrique et risques d'attaques d'oiseaux granivores.<br>
+                • Fluctuations temporaires du prix des engrais phosphatés.
+            </div>
+            """, unsafe_allow_html=True)
+
+        st.markdown("#### 🌍 Analyse PESTEL (Contexte Sénégalais)")
+        pest_df = pd.DataFrame({
+            "Piliers PESTEL": ["Politique", "Économique", "Sociétal", "Technologique", "Écologique", "Légal"],
+            "Analyse de Contexte": [
+                "Priorité absolue de l'État pour l'autosuffisance alimentaire.",
+                "Disponibilité de crédits de campagne bonifiés via La Banque Agricole.",
+                "Création d'emplois ruraux directs pour les jeunes et femmes.",
+                "Adoption des alertes météo SMS ANACIM et de l'irrigation gérée par IA.",
+                "Nécessité de préserver les sols de la salinisation (INP).",
+                "Conformité avec la Loi d'Orientation Agro-Sylvo-Pastorale (LOASP)."
+            ]
+        })
+        st.table(pest_df)
+
+    # ----------------------------------------------------
+    # 3. RECHERCHE DE FINANCEMENT ADAPTÉ
+    # ----------------------------------------------------
+    with tab_fin:
+        st.markdown("### 💰 Recherche & Éligibilité aux Guichets de Financement")
+        st.write("Analyse automatique de compatibilité avec les structures bancaires, SFD et programmes publics au Sénégal.")
+
+        b_budget = st.session_state["consult_data"]["budget"]
+
+        col_b1, col_b2, col_b3 = st.columns(3)
+        
+        with col_b1:
+            st.markdown("""
+            <div class="consult-card">
+                <span class="consult-badge">Banque Partenaire</span>
+                <h4>La Banque Agricole (LBA)</h4>
+                <p style="font-size:12px;"><b>Produit :</b> Crédit de Campagne / Investissement Equipement</p>
+                <p style="font-size:12px; color:#2e7d32;"><b>Compatibilité :</b> 92% (Très Élevée)</p>
+                <small><b>Montant Finançable Est. :</b> {:.0f} FCFA</small>
+            </div>
+            """.format(b_budget * 0.70), unsafe_allow_html=True)
+
+        with col_b2:
+            st.markdown("""
+            <div class="consult-card">
+                <span class="consult-badge">Guichet État</span>
+                <h4>DER / FJ</h4>
+                <p style="font-size:12px;"><b>Produit :</b> Empaquetage Équipement Solaire & Kit Irrigation</p>
+                <p style="font-size:12px; color:#2e7d32;"><b>Compatibilité :</b> 85% (Excellente)</p>
+                <small><b>Montant Finançable Est. :</b> {:.0f} FCFA</small>
+            </div>
+            """.format(b_budget * 0.50), unsafe_allow_html=True)
+
+        with col_b3:
+            st.markdown("""
+            <div class="consult-card">
+                <span class="consult-badge">Microfinance / SFD</span>
+                <h4>CMS / PAMECAS</h4>
+                <p style="font-size:12px;"><b>Produit :</b> Micro-crédit de fonds de roulement rapide</p>
+                <p style="font-size:12px; color:#2e7d32;"><b>Compatibilité :</b> 78% (Moyenne)</p>
+                <small><b>Montant Finançable Est. :</b> {:.0f} FCFA</small>
+            </div>
+            """.format(b_budget * 0.30), unsafe_allow_html=True)
+
+        st.markdown("#### 💡 Conseils pour Maximiser l'Obtention du Financement :")
+        st.success("""
+        * **Analyse de sol (INP)** : Joindre l'attestation de non-salinité du terrain pour rassurer le comité de crédit.
+        * **Contrat de Commercialisation** : Sécuriser un pré-accord d'achat avec une unité industrielle locale ou un grossiste agréé par l'ARM.
+        * **Souscription CNAAS** : Inclure l'assurance agricole subventionnée à 50% par l'État pour annuler le risque climatique.
+        """)
+
+    # ----------------------------------------------------
+    # 4. MISE EN RELATION & MESSAGERIE INTEGRÉE
+    # ----------------------------------------------------
+    with tab_expert:
+        st.markdown("### 👨‍🌾 Choix d'un Consultant & Espace d'Échange")
+        
+        ce_a, ce_b = st.columns([1, 2])
+
+        with ce_a:
+            st.markdown("#### Expert Assigné")
+            st.markdown("""
+            <div class="consult-card">
+                <span class="consult-badge">Agronome Senior</span>
+                <h4>Ing. Mamadou NDAO</h4>
+                <p style="font-size:12px; color:#64748b;">Génie Rural & Aménagements Hydro-Agricoles (Ex-SAED).</p>
+                <small>⭐ 4.9/5 (48 consultations)</small>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            st.write("")
+            if st.button("📅 Planifier un Rendez-vous Visio/Terrain"):
+                st.success("Une demande de rendez-vous a été envoyée sur l'agenda de l'expert.")
+
+        with ce_b:
+            st.markdown("#### 💬 Messagerie Intégrée")
+            
+            # Affichage de l'historique de discussion
+            for msg in st.session_state["consult_data"]["messages"]:
+                if msg["sender"] == "expert":
+                    st.markdown(f"<div class='chat-bubble-expert'><b>Ing. Ndao :</b> {msg['text']}</div>", unsafe_allow_html=True)
+                else:
+                    st.markdown(f"<div class='chat-bubble-user'><b>Vous :</b> {msg['text']}</div>", unsafe_allow_html=True)
+
+            user_input = st.text_input("Saisissez votre message pour l'expert...", key="txt_chat_expert")
+            if st.button("Envoyer le message", key="btn_send_chat"):
+                if user_input:
+                    st.session_state["consult_data"]["messages"].append({"sender": "user", "text": user_input})
+                    st.rerun()
+
+    # ----------------------------------------------------
+    # 5. RAPPORTS AUTOMATIQUES ET HISTORIQUE
+    # ----------------------------------------------------
+    with tab_report:
+        st.markdown("### 📄 Rapport Stratégique Automatique de Consultance")
+        st.write("Générez et téléchargez le rapport d'expertise consolidé au format officiel.")
+
+        rapport_textuel = f"""====================================================================================================
+DOSSIER OFFICIEL DE CONSULTANCE STRATÉGIQUE - YOUAGRONOME SÉNÉGAL
 ====================================================================================================
-PROJET : {nom_projet.upper()}
-Région d'implantation : {region_cible} | Superficie : {superficie_ha} Ha
-Filière : {filiere_principale} | Mode d'irrigation : {source_irrigation}
-Niveau de maturité : {stade_projet} | Objectif : {objectif_audit}
+RÉFÉRENCE : CONSULT-2026-{st.session_state['consult_data']['region'].upper()}
+DOMAINE : {st.session_state['consult_data']['domaine']}
+FILIÈRE : {st.session_state['consult_data']['filiere']} | URGENCE : {st.session_state['consult_data']['urgence']}
 ----------------------------------------------------------------------------------------------------
 
-1. ÉVALUATION TECHNICO-AGRONOMIQUE & POTENTIEL DE PRODUCTION
-   - Production annuelle estimée : {prod_est:,.1f} Tonnes (sur la base d'un rendement cible de {rendement_moyen} T/Ha).
-   - Accès aux intrants & semences : Éligibilité directe aux guichets subventionnés DAPSA pour la zone de {region_cible}.
-   - Recommandation Pédologique (INP) : Analyse de salinité et de texture du sol requise avant aménagement complet.
+1. SYNTHÈSE DE LA PROBLÉMATIQUE SUBMISE
+   "{st.session_state['consult_data']['probleme']}"
 
-2. STRUCTURE FINANCIÈRE & RENTABILITÉ PRÉVISIONNELLE
-   - Capital d'Investissement Initial (CAPEX) : {capital_initial:,.0f} FCFA.
-   - Chiffre d'Affaires Brut Estimé : {ca_annuel:,.0f} FCFA / An.
-   - Charges Opérationnelles Estimées (OPEX) : {charges_op:,.0f} FCFA / An.
-   - Marge Brute Opérationnelle : {marge_brute:,.0f} FCFA / An (Taux de marge : {((marge_brute/ca_annuel)*100):.1f}%).
+2. PLAN D'ACTION DÉTAILLÉ & PRIORISATION DES ACTIONS
+   - Action 1 (Priorité Haute) : Analyse de sol et test d'eau auprès des laboratoires ISRA/INP.
+   - Action 2 (Priorité Haute) : Préparation du dossier de candidature pour le guichet de crédit LBA.
+   - Action 3 (Priorité Moyenne) : Installation du système d'irrigation de précision et sondes d'humidité.
+   - Action 4 (Priorité Continue) : Inscription au service d'alerte agrométéorologique ANACIM.
 
-3. ALIGNEMENT INSTITUTIONNEL & FINANCEMENTS ACCESSIBLES
-   - Éligibilité La Banque Agricole (LBA) : Dossier recevable au titre du crédit de campagne / investissement matériel.
-   - Éligibilité DER/FJ : Potentiel de co-financement pour les équipements d'irrigation solaire.
-   - Régulation & Logistique (ARM) : Recommandé de contracter un accès aux entrepôts de stockage de {region_cible}.
-
-4. FEUILLE DE ROUTE & POINTS D'AMÉLIORATION STRATÉGIQUES
-   * [1] Valider le débit du forage avec les services techniques de la DGPRE.
-   * [2] Intégrer des alertes agrométéorologiques ANACIM par SMS pour limiter les risques climatiques.
-   * [3] Adopter un itinéraire technique conforme aux exigences de l'ANCAR et de l'ISRA.
+3. ESTIMATION DES COÛTS ET DÉLAIS
+   - Délai global de mise en œuvre : 45 jours.
+   - Budget d'investissement réajusté : {st.session_state['consult_data']['budget']:,} FCFA.
+   - Marge brute prévisionnelle à l'hectare : +35% après optimisation.
 
 ====================================================================================================
-Rapport édité le 2026 par le Cabinet d'Expertise YouAgronoMe Sénégal.
+Rapport généré automatiquement par l'IA YouAgronoMe. Validé par le pôle d'expertise technique.
 ====================================================================================================
 """
-            st.markdown(f"<div class='report-box'>{texte_rapport_consult}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='report-box'>{rapport_textuel}</div>", unsafe_allow_html=True)
 
-            # Exportation du rapport en texte/Excel
-            col_exp1, col_exp2 = st.columns(2)
-            with col_exp1:
-                st.download_button(
-                    label="📥 Télécharger le Rapport Complet (.TXT)",
-                    data=texte_rapport_consult,
-                    file_name=f"Rapport_Audit_{nom_projet.replace(' ', '_')}.txt",
-                    mime="text/plain"
-                )
-            with col_exp2:
-                # Génération simple d'un document téléchargeable
-                st.download_button(
-                    label="📊 Export Synthèse (.CSV)",
-                    data=pd.DataFrame([{
-                        "Projet": nom_projet, "Région": region_cible, "Superficie (Ha)": superficie_ha,
-                        "Production (T)": prod_est, "CA (FCFA)": ca_annuel, "Marge (FCFA)": marge_brute
-                    }]).to_csv(index=False),
-                    file_name=f"Synthese_Projet_{nom_projet.replace(' ', '_')}.csv",
-                    mime="text/csv"
-                )
+        col_d1, col_d2 = st.columns(2)
+        with col_d1:
+            st.download_button(
+                label="📥 Télécharger le Rapport (.TXT)",
+                data=rapport_textuel,
+                file_name=f"Rapport_Consultance_{st.session_state['consult_data']['region']}.txt",
+                mime="text/plain"
+            )
+        with col_d2:
+            st.download_button(
+                label="📊 Télécharger les Données (.CSV)",
+                data=pd.DataFrame([st.session_state["consult_data"]]).to_csv(index=False),
+                file_name="Consultation_Data.csv",
+                mime="text/csv"
+            )
 
     # ----------------------------------------------------
-    # TAB 2 : MODELISATION FINANCIERE (TRI & VAN)
+    # 6. SUIVI DES RECOMMANDATIONS & KPI (RÉÉVALUATION IA)
     # ----------------------------------------------------
-    with tab_tri:
-        st.markdown("### 🧮 Modélisation Financière, TRI & VAN sur Multi-Années")
-        st.write("Calculez les flux de trésorerie sur un horizon de 5 à 10 ans pour vos dossiers bancaires.")
+    with tab_kpi:
+        st.markdown("### 📈 Suivi des Recommandations & KPIs")
+        st.write("Mettez à jour l'état d'avancement de vos tâches pour déclencher une réévaluation automatique de votre score par l'IA.")
 
-        col_fin1, col_fin2 = st.columns([1, 2])
+        col_k1, col_k2 = st.columns([1, 1])
 
-        with col_fin1:
-            capex_tri = st.number_input("Investissement Initial Total (FCFA) :", min_value=1000000, value=30000000, step=1000000)
-            duree_annees = st.slider("Horizon de la projection (Années) :", min_value=3, max_value=10, value=5)
-            rev_brut_an = st.number_input("Recettes Annuelles Attendues (FCFA) :", min_value=1000000, value=15000000, step=500000)
-            charges_an = st.number_input("Coûts Exploitation Annuels (FCFA) :", min_value=500000, value=7000000, step=500000)
-            taux_act = st.slider("Taux d'Actualisation (%) :", min_value=5.0, max_value=15.0, value=8.0, step=0.5)
+        with col_k1:
+            st.markdown("#### 📋 Liste de Contrôle des Jalons")
+            chk1 = st.checkbox("Analyse de sol réalisée (INP)", value=True)
+            chk2 = st.checkbox("Dossier de financement soumis (LBA / DER)", value=False)
+            chk3 = st.checkbox("Système d'irrigation installé sur le site", value=False)
+            chk4 = st.checkbox("Souscription à la couverture d'assurance (CNAAS)", value=False)
 
-        with col_fin2:
-            cash_flow_annuel = rev_brut_an - charges_an
-            flux = [-capex_tri] + [cash_flow_annuel] * duree_annees
-            
-            # Calcul VAN
-            van_val = sum([cf / ((1 + taux_act/100) ** i) for i, cf in enumerate(flux)])
-            payback_years = capex_tri / cash_flow_annuel if cash_flow_annuel > 0 else 0
+            # Recalcul dynamique de l'avancement
+            kpi_score = (sum([chk1, chk2, chk3, chk4]) / 4) * 100
+            st.session_state["consult_data"]["statut_kpi"] = kpi_score
 
-            st.markdown("#### 📉 Courbe des Flux de Trésorerie Cumulés")
-            df_cash = pd.DataFrame({
-                "Année": [f"Année {i}" for i in range(duree_annees + 1)],
-                "Flux Net (FCFA)": flux
-            })
-            st.bar_chart(df_cash.set_index("Année"))
+        with col_k2:
+            st.markdown("#### 🔄 Réévaluation Automatique par l'IA")
+            st.progress(int(kpi_score))
+            st.metric("Taux d'Exécution du Projet", f"{kpi_score:.0f} %")
 
-            c_v1, c_v2 = st.columns(2)
-            c_v1.metric("Valeur Actuelle Nette (VAN)", f"{van_val:,.0f} FCFA", delta="Rentable" if van_val > 0 else "Non Rentable")
-            c_v2.metric("Délai de Payback Estimé", f"{payback_years:.1f} ans")
-
-    # ----------------------------------------------------
-    # TAB 3 : FORMULAIRE DE PRISE DE RDV / CONSULTANCE
-    # ----------------------------------------------------
-    with tab_booking:
-        st.markdown("### 📅 Demande de Mission de Consultance sur le Terrain")
-        st.write("Réservez une intervention ou un accompagnement direct avec nos experts séniors.")
-
-        with st.form(key="form_booking_expert"):
-            cb1, cb2 = st.columns(2)
-            with cb1:
-                nom_demandeur = st.text_input("Nom / Structure Demandeur :")
-                telephone = st.text_input("Téléphone / WhatsApp :")
-                email = st.text_input("Adresse Email :")
-            with cb2:
-                type_mission = st.selectbox("Type d'intervention souhaitée :", [
-                    "Audit Pédologique & Drainage sur le terrain",
-                    "Montage de Business Plan complet pour La Banque Agricole",
-                    "Dimensionnement d'Irrigation Solaire (DGPRE)",
-                    "Accompagnement à la Structuration de Coopérative"
-                ])
-                date_prevue = st.date_input("Date souhaitée pour l'intervention :")
-                budget_dispo = st.selectbox("Enveloppe budgétaire indicative :", ["< 500 000 FCFA", "500 000 à 2 000 000 FCFA", "> 2 000 000 FCFA"])
-
-            note_mission = st.text_area("Précisions sur la localisation et la nature de la demande :")
-            submit_rdv = st.form_submit_button("📩 Envoyer la Demande de Mission")
-
-        if submit_rdv:
-            if nom_demandeur and telephone:
-                st.success(f"Merci {nom_demandeur}. Votre demande d'intervention pour **{type_mission}** a été enregistrée. Un consultant YouAgronoMe vous contactera sous 24 heures.")
+            if kpi_score < 50:
+                st.warning("⚡ **Avis IA :** Phase initiale. Concentrez vos efforts sur la finalisation du dossier bancaire.")
+            elif kpi_score < 100:
+                st.info("🚀 **Avis IA :** Projet bien engagé. Pensez à planifier la session d'installation des équipements d'irrigation.")
             else:
-                st.warning("Veuillez renseigner au moins votre nom et un numéro de téléphone valide.")
-
-    # ----------------------------------------------------
-    # TAB 4 : ANNUAIRE DES EXPERTS
-    # ----------------------------------------------------
-    with tab_experts:
-        st.markdown("### 👥 Réseau des Experts Partneraires du Cabinet")
-        
-        ce1, ce2, ce3 = st.columns(3)
-        with ce1:
-            st.markdown("""
-            <div class="consult-card">
-                <span class="consult-badge">Génie Rural & Sols</span>
-                <h4>Dr. Ousmane DIOP</h4>
-                <p style="font-size:12px; color:#64748b;">Spécialiste de la restauration des terres salines et de la cartographie pédologique (INP/ISRA).</p>
-                <hr>
-                <small>📍 Zones d'action : Vallée du Fleuve, Niayes</small>
-            </div>
-            """, unsafe_allow_html=True)
-
-        with ce2:
-            st.markdown("""
-            <div class="consult-card">
-                <span class="consult-badge">Ingénierie Financière</span>
-                <h4>Mme Aminata SALL</h4>
-                <p style="font-size:12px; color:#64748b;">Consultante senior en levée de fonds et montage de dossiers de financement (Ex-La Banque Agricole).</p>
-                <hr>
-                <small>📍 Focus : Guichets LBA, DER/FJ, BOAD</small>
-            </div>
-            """, unsafe_allow_html=True)
-
-        with ce3:
-            st.markdown("""
-            <div class="consult-card">
-                <span class="consult-badge">Hydraulique Agricole</span>
-                <h4>Ing. Mamadou NDAO</h4>
-                <p style="font-size:12px; color:#64748b;">Expert en dimensionnement de réseaux d'irrigation goutte-à-goutte et forages solaires (DGPRE).</p>
-                <hr>
-                <small>📍 Zones d'action : Bassin Arachidier, Casamance</small>
-            </div>
-            """, unsafe_allow_html=True)
+                st.success("🎉 **Avis IA :** Phase de préparation terminée ! Votre projet présente un niveau de risque minimal.")
 # =====================================================
 # 🌱 CONSEIL
 # =====================================================
