@@ -851,7 +851,7 @@ constitue le socle opérationnel pour accélérer la souveraineté alimentaire d
 # =====================================================
 # 🤝 ESPACE CONSULTANCE & EXPERTISE STRATÉGIQUE (ADVANCED)
 # =====================================================
-elif selected == "🤝 Consultance":
+elif selected == "💼 Consultance":
 
     st.markdown("""
     <style>
