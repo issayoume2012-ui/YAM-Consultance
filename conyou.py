@@ -901,43 +901,66 @@ elif selected == "💼 Consultance":
     # --- BASE DE DONNÉES HISTORIQUE & LISTE BLANCHE ---
     DB_FILE = "techniciens_db.json"
 
-    # Propriétaire principal par défaut (Seul compte initial)
-    DEFAULT_OWNER = [
-        {
-            "email": "issayoume2012@gmail.com",
-            "password": "issayoume2026",
-            "nom": "Propriétaire Principal",
-            "role": "Administrateur",
-            "zone": "Toutes zones",
-            "statut": "Actif"
-        }
-    ]
+    # Compte Propriétaire Principal Garantie
+    OWNER_EMAIL = "issayoume2012@gmail.com"
+    OWNER_PASS = "issayoume2026"
+
+    DEFAULT_OWNER = {
+        "email": OWNER_EMAIL,
+        "password": OWNER_PASS,
+        "nom": "Propriétaire Principal",
+        "role": "Administrateur",
+        "zone": "Toutes zones",
+        "statut": "Actif"
+    }
 
     def load_db():
         default_db = {
-            "whitelist": DEFAULT_OWNER,
+            "whitelist": [DEFAULT_OWNER],
             "historique": []
         }
+        
+        data = default_db
         if os.path.exists(DB_FILE):
             try:
                 with open(DB_FILE, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                    if not isinstance(data, dict):
-                        return default_db
-                    if "whitelist" not in data or not isinstance(data["whitelist"], list) or not data["whitelist"]:
-                        data["whitelist"] = DEFAULT_OWNER
-                    if "historique" not in data or not isinstance(data["historique"], list):
-                        data["historique"] = []
-                    return data
+                    loaded = json.load(f)
+                    if isinstance(loaded, dict):
+                        data = loaded
             except Exception:
-                return default_db
-        else:
-            try:
-                with open(DB_FILE, "w", encoding="utf-8") as f:
-                    json.dump(default_db, f, indent=4, ensure_ascii=False)
-            except Exception:
-                pass
-            return default_db
+                data = default_db
+
+        # Validation et mise à jour forcée du compte Propriétaire
+        whitelist = data.get("whitelist", [])
+        if not isinstance(whitelist, list):
+            whitelist = []
+
+        # On recherche si le propriétaire est déjà présent dans la base
+        owner_found = False
+        for user in whitelist:
+            if isinstance(user, dict) and user.get("email", "").strip().lower() == OWNER_EMAIL:
+                # Force la mise à jour des identifiants et rôles du propriétaire
+                user["password"] = OWNER_PASS
+                user["role"] = "Administrateur"
+                user["statut"] = "Actif"
+                owner_found = True
+                break
+
+        if not owner_found:
+            whitelist.append(DEFAULT_OWNER)
+
+        data["whitelist"] = whitelist
+        if "historique" not in data or not isinstance(data["historique"], list):
+            data["historique"] = []
+
+        # Sauvegarde systématique pour maintenir la cohérence de la BDD
+        try:
+            with open(DB_FILE, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=4, ensure_ascii=False)
+        except Exception:
+            pass
+
+        return data
 
     def save_db(db_data):
         try:
@@ -952,12 +975,12 @@ elif selected == "💼 Consultance":
     st.sidebar.markdown("---")
     st.sidebar.subheader("🔒 Connexion & Authentification")
     
-    user_email_input = st.sidebar.text_input("Adresse e-mail :", value="issayoume2012@gmail.com", key="wh_email_input").strip().lower()
-    user_pass_input = st.sidebar.text_input("Mot de passe :", type="password", key="wh_pass_input")
+    user_email_input = st.sidebar.text_input("Adresse e-mail :", value=OWNER_EMAIL, key="wh_email_input").strip().lower()
+    user_pass_input = st.sidebar.text_input("Mot de passe :", type="password", key="wh_pass_input").strip()
     
-    whitelist_data = db.get("whitelist", []) if isinstance(db, dict) else []
+    whitelist_data = db.get("whitelist", [])
     
-    # Dictionnaire des utilisateurs valides (Actifs + Email & Mot de passe conformes)
+    # Dictionnaire des utilisateurs autorisés
     authorized_users = {
         user["email"].strip().lower(): user 
         for user in whitelist_data 
@@ -974,13 +997,13 @@ elif selected == "💼 Consultance":
 
     if user_email_input in authorized_users:
         user_record = authorized_users[user_email_input]
+        
         # Vérification du mot de passe
-        if user_pass_input == user_record.get("password", ""):
+        if user_pass_input == str(user_record.get("password", "")).strip():
             current_user = user_record
             st.sidebar.success(f"✅ **Connexion réussie**\n\n👤 {current_user.get('nom', 'Utilisateur')}\n👑 Rôle : **{current_user.get('role', 'Agent')}**")
             is_authorized = True
             
-            # Attributions des privilèges selon rôle
             user_role = current_user.get('role', 'Technicien')
             is_admin = (user_role == "Administrateur")
             is_expert = user_role in ["Administrateur", "Expert DPV"]
@@ -990,12 +1013,12 @@ elif selected == "💼 Consultance":
         st.sidebar.error("❌ **Adresse e-mail non autorisée**")
 
     if not is_authorized:
-        st.warning("⚠️ **Accès restreint** : Veuillez saisir un identifiant et un mot de passe valides dans le panneau latéral pour accéder au module.")
-        with st.expander("ℹ️ Demande d'accès"):
-            st.info("Seul l'administrateur principal (issayoume2012@gmail.com) est habilité à créer et valider de nouveaux accès.")
+        st.warning("⚠️ **Accès restreint** : Veuillez saisir votre mot de passe dans le panneau latéral pour déverrouiller l'accès.")
+        with st.expander("ℹ️ Aide à la connexion"):
+            st.info(f"Connectez-vous avec l'adresse **{OWNER_EMAIL}** et votre mot de passe configuré.")
 
     else:
-        # --- CALCUL DE SUPERFICIE POLYGONE (GÉODÉSIQUE APPROCHÉE) ---
+        # --- CALCUL DE SUPERFICIE POLYGONE ---
         def calculate_polygon_area_ha(coords):
             if len(coords) < 3:
                 return 0.0
@@ -1266,31 +1289,29 @@ elif selected == "💼 Consultance":
                 else:
                     st.info("Aucun diagnostic enregistré dans l'historique.")
 
-        # TAB 7 : GESTION DES ACCÈS (PROPRIÉTAIRE ET ADMINS)
+        # TAB 7 : GESTION DES ACCÈS
         with tabs_main[6]:
             st.subheader("🔐 Gestion des Accès et Utilisateurs Autorisés")
             
             if is_admin:
                 st.success("👑 **Panneau de Contrôle Administrateur**")
                 
-                # Formulaire de création de compte
-                with st.expander("➕ Créer un nouvel accès utilisateur", expanded=True):
+                with st.expander("➕ Créer ou mettre à jour un accès utilisateur", expanded=True):
                     with st.form("add_user_form"):
                         col_u1, col_u2 = st.columns(2)
                         with col_u1:
                             new_email = st.text_input("Adresse E-mail :").strip().lower()
-                            new_pass = st.text_input("Mot de passe temporaire :", type="password")
+                            new_pass = st.text_input("Mot de passe temporaire :", type="password").strip()
                             new_nom = st.text_input("Nom & Prénom :")
                         with col_u2:
                             new_role = st.selectbox("Rôle attribué :", ["Technicien", "Expert DPV", "Administrateur"])
                             new_zone = st.selectbox("Zone d'affectation :", list(BASE_SOLS_INP_FULL.keys()) + ["Toutes zones"])
                             new_statut = st.selectbox("Statut du compte :", ["Actif", "Inactif"])
                         
-                        submit_btn = st.form_submit_button("✅ Créer / Recharger l'Utilisateur", type="primary")
+                        submit_btn = st.form_submit_button("✅ Enregistrer l'Utilisateur", type="primary")
                         
                         if submit_btn:
                             if new_email and new_pass and new_nom:
-                                # Recherche si l'utilisateur existe déjà
                                 users_list = db.get("whitelist", [])
                                 existing_user = next((u for u in users_list if u.get("email", "").lower() == new_email), None)
                                 
@@ -1317,11 +1338,9 @@ elif selected == "💼 Consultance":
                             else:
                                 st.error("Veuillez remplir au minimum l'e-mail, le mot de passe et le nom.")
 
-                # Affichage des comptes autorisés
                 st.markdown("#### 📋 Liste des Utilisateurs Enregistrés")
                 df_whitelist = pd.DataFrame(db.get("whitelist", []))
                 
-                # Masquer le mot de passe dans le tableau récapitulatif pour des raisons de sécurité visuelle
                 if "password" in df_whitelist.columns:
                     df_display = df_whitelist.drop(columns=["password"])
                 else:
@@ -1329,14 +1348,13 @@ elif selected == "💼 Consultance":
                 
                 st.dataframe(df_display, use_container_width=True)
 
-                # Option de suppression/revocation
                 st.markdown("#### ❌ Révocation d'un accès")
-                user_emails = [u["email"] for u in db.get("whitelist", []) if u.get("email") != "issayoume2012@gmail.com"]
+                user_emails = [u["email"] for u in db.get("whitelist", []) if u.get("email", "").lower() != OWNER_EMAIL]
                 
                 if user_emails:
                     email_to_remove = st.selectbox("Sélectionner un compte à supprimer :", user_emails)
                     if st.button("🗑️ Supprimer définitivement l'accès", type="secondary"):
-                        db["whitelist"] = [u for u in db.get("whitelist", []) if u.get("email") != email_to_remove]
+                        db["whitelist"] = [u for u in db.get("whitelist", []) if u.get("email", "").lower() != email_to_remove]
                         save_db(db)
                         st.warning(f"Le compte {email_to_remove} a été supprimé.")
                         st.rerun()
@@ -1344,7 +1362,7 @@ elif selected == "💼 Consultance":
                     st.info("Aucun compte secondaire n'est à supprimer pour le moment.")
                 
             else:
-                st.warning("🔒 **Accès restreint** : Seul le propriétaire administrateur (`issayoume2012@gmail.com`) peut accorder ou modifier des autorisations.")
+                st.warning("🔒 **Accès restreint** : Seul l'administrateur principal peut accorder ou modifier des autorisations.")
 # =====================================================
 elif selected == "🌱 Conseil":
 
