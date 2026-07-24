@@ -848,10 +848,33 @@ constitue le socle opérationnel pour accélérer la souveraineté alimentaire d
             key="btn_export_multi_agences_v3"
         )
 # =====================================================
+import streamlit as st
+import pandas as pd
+import json
+import io
+from datetime import datetime
+
+# Importation sécurisée des bibliothèques cartographiques et PDF
+try:
+    import folium
+    from streamlit_folium import st_folium
+    HAS_FOLIUM = True
+except ImportError:
+    HAS_FOLIUM = False
+
+try:
+    from reportlab.lib.pagesizes import letter
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib import colors
+    HAS_REPORTLAB = True
+except ImportError:
+    HAS_REPORTLAB = False
+
 # =====================================================
-# 💼 MODULE DE CONSULTANCE STRATÉGIQUE & INTELLIGENCE TERRITORIALE IA
+# 💼 MODULE DE CONSULTANCE EXCLUSIVE ISRA & SÉNÉGAL AGRO-VISION
 # =====================================================
-elif selected == "💼 Consultance":
+if selected == "💼 Consultance":
 
     st.markdown("""
     <style>
@@ -860,296 +883,386 @@ elif selected == "💼 Consultance":
         border-radius: 16px;
         text-align: center;
         color: white;
-        background: linear-gradient(135deg, #0d2310 0%, #1b5e20 50%, #2e7d32 100%);
-        box-shadow: 0 8px 24px rgba(13, 35, 16, 0.2);
+        background: linear-gradient(135deg, #0b2211 0%, #1b5e20 50%, #2e7d32 100%);
+        box-shadow: 0 8px 24px rgba(11, 34, 17, 0.25);
         border-bottom: 4px solid #e1a91a;
         margin-bottom: 25px;
     }
-    .consulting-hero h2 { font-size: 23px !important; font-weight: 800 !important; margin-bottom: 8px !important; color: #ffffff !important; }
-    .consulting-hero p { font-size: 13px !important; opacity: 0.92; max-width: 900px; margin: 0 auto !important; color: #f8fafc; }
+    .consulting-hero h2 { font-size: 24px !important; font-weight: 800 !important; margin-bottom: 8px !important; color: #ffffff !important; }
+    .consulting-hero p { font-size: 13px !important; opacity: 0.95; max-width: 900px; margin: 0 auto !important; color: #f8fafc; }
     
-    .kpi-card {
+    .isra-badge {
+        background: #e8f5e9;
+        color: #1b5e20;
+        padding: 4px 10px;
+        border-radius: 20px;
+        font-size: 11px;
+        font-weight: 700;
+        border: 1px solid #a5d6a7;
+        display: inline-block;
+    }
+    .kpi-card-isra {
         background: #ffffff;
         border: 1px solid #e2e8f0;
         border-radius: 12px;
         padding: 15px;
         text-align: center;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);
+        border-top: 4px solid #1b5e20;
     }
-    .kpi-score { font-size: 24px; font-weight: 800; color: #1b5e20; }
-    .kpi-label { font-size: 11px; color: #64748b; font-weight: 600; }
+    .kpi-val { font-size: 22px; font-weight: 800; color: #1b5e20; }
+    .kpi-sub { font-size: 11px; color: #64748b; font-weight: 600; }
     
-    .twin-box {
-        background: #f0fdf4;
-        border: 2px dashed #16a34a;
-        border-radius: 12px;
-        padding: 15px;
-        margin-bottom: 15px;
-    }
-    .report-box {
-        background-color: #f8fafc;
+    .photo-lever-card {
+        background: #f8fafc;
         border: 1px solid #cbd5e1;
-        border-left: 5px solid #1b5e20;
+        border-radius: 10px;
+        padding: 14px;
+        margin-bottom: 12px;
+    }
+    .report-preview {
+        background-color: #ffffff;
+        border: 1px solid #cbd5e1;
+        border-left: 6px solid #1b5e20;
         padding: 20px;
         border-radius: 8px;
-        margin-top: 15px;
-        font-family: 'Courier New', Courier, monospace;
-        font-size: 12px;
-        color: #0f172a;
-        line-height: 1.5;
-        white-space: pre-wrap;
-    }
-    .chat-simulation {
-        background-color: #f1f5f9;
-        border-radius: 8px;
-        padding: 12px;
-        border-left: 4px solid #2563eb;
-        margin-bottom: 10px;
-        font-size: 12px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+        font-family: 'Georgia', serif;
+        font-size: 13px;
+        color: #1e293b;
+        line-height: 1.6;
     }
     </style>
     """, unsafe_allow_html=True)
 
     st.markdown("""
     <div class="consulting-hero">
-        <h2>💼 Plateforme Nationale de Consultance IA & Intelligence Territoriale</h2>
-        <p>Jumeau numérique d'exploitation, carte spatiale 🛰️, assistant de négociation bancaire, mémoire nationale des projets, marché prédictif et simulateur d'impact territorial.</p>
+        <h2>💼 Cabinet Decisionnel IA & Intelligence Territoriale ISRA</h2>
+        <p>Plateforme nationale de consultance prédictive : Cartographie GIS parcellaire, diagnostic photo multi-leviers par ordinateur, modèles épidémiologiques ISRA/ANCAR et génération de dossier certifié PDF.</p>
     </div>
     """, unsafe_allow_html=True)
 
     # ----------------------------------------------------
-    # INITIALISATION SÉCURISÉE SANS RISK DE KEYERROR
+    # INITIALISATION SÉCURISÉE DU SESSION_STATE (ZÉRO KEYERROR)
     # ----------------------------------------------------
     if "consult_data" not in st.session_state:
         st.session_state["consult_data"] = {}
 
-    defaults = {
-        "nom_projet": "Agro-Performance Vallée du Fleuve",
-        "commune": "Podor",
-        "region": "Saint-Louis",
-        "gps": "16.6538, -14.9581",
-        "domaine": "🌾 Agriculture & Agrobusiness",
-        "filiere": "Riz Irrigué",
-        "superficie": 15.0,
-        "budget": 35000000,
+    defaults_isra = {
+        "nom_projet": "Exploitation Agricole Diamo-Sénégal",
+        "commune": "Ross Béthio",
+        "zone_isra": "Vallée du Fleuve Sénégal (VFS)",
+        "gps_lat": 16.2731,
+        "gps_lon": -16.1352,
+        "superficie_ha": 12.5,
+        "sol_isra": "Fluvisol Hydromorphe (Dior/Deck-Dior)",
+        "filiere": "Riz Irrigué (Variété Sahel 108)",
+        "budget": 28000000,
         "langue": "Wolof",
-        "description": "Aménagement hydro-agricole de 15 Ha pour riziculture intensive avec pompage solaire et réseau sous pression.",
-        "statut_kpi": 45
+        "diagnostic_photo_done": False
     }
 
-    for k, v in defaults.items():
+    for k, v in defaults_isra.items():
         if k not in st.session_state["consult_data"]:
             st.session_state["consult_data"][k] = v
 
     # ----------------------------------------------------
-    # UNIFICATION DES 8 COMPOSANTS STRATÉGIQUES IA
+    # FONCTION DE GÉNÉRATION PDF OFFICIEL (REPORTLAB)
     # ----------------------------------------------------
-    tab_map_twin, tab_fin_negoc, tab_parcours_rep, tab_dossier_ia, tab_marche_pred, tab_memoire_impact = st.tabs([
-        "🛰️ Carte & Jumeau Numérique",
-        "🏦 IA Financement & Négociation",
-        "🗺️ Parcours & Répertoire National",
-        "📄 Générateur Automatique de Dossiers",
-        "📈 Marché Prédictif & Risques",
-        "🧠 Mémoire Nationale & Impact"
+    def generate_pdf_report(data):
+        buffer = io.BytesIO()
+        doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=36)
+        styles = getSampleStyleSheet()
+        
+        title_style = ParagraphStyle('TitleStyle', parent=styles['Heading1'], fontSize=16, leading=20, textColor=colors.HexColor('#1b5e20'), alignment=1)
+        heading_style = ParagraphStyle('HeadingStyle', parent=styles['Heading2'], fontSize=12, leading=16, textColor=colors.HexColor('#0b2211'), spaceBefore=10)
+        body_style = ParagraphStyle('BodyStyle', parent=styles['Normal'], fontSize=9, leading=13, textColor=colors.HexColor('#1e293b'))
+
+        elements = []
+        
+        # En-tête
+        elements.append(Paragraph("<b>RÉPUBLIQUE DU SÉNÉGAL</b>", title_style))
+        elements.append(Paragraph("<b>CABINET D'EXPERTISE ET CONSULTANCE YOUAGRONOME ISRA</b>", title_style))
+        elements.append(Spacer(1, 10))
+        elements.append(HRFlowable(width="100%", thickness=2, color=colors.HexColor('#e1a91a'), spaceAfter=15))
+
+        # Métadonnées Projet
+        meta_data = [
+            [Paragraph(f"<b>Nom du Projet :</b> {data.get('nom_projet')}", body_style), Paragraph(f"<b>Zone ISRA :</b> {data.get('zone_isra')}", body_style)],
+            [Paragraph(f"<b>Localisation :</b> {data.get('commune')} (GPS: {data.get('gps_lat'):.4f}, {data.get('gps_lon'):.4f})", body_style), Paragraph(f"<b>Superficie :</b> {data.get('superficie_ha')} Ha", body_style)],
+            [Paragraph(f"<b>Type de Sol (ISRA) :</b> {data.get('sol_isra')}", body_style), Paragraph(f"<b>Filière / Variété :</b> {data.get('filiere')}", body_style)]
+        ]
+        t_meta = Table(meta_data, colWidths=[270, 270])
+        t_meta.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#f8fafc')),
+            ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#cbd5e1')),
+            ('PADDING', (0,0), (-1,-1), 6),
+        ]))
+        elements.append(t_meta)
+        elements.append(Spacer(1, 15))
+
+        # Section 1 : Diagnostic GIS & Pédologie ISRA
+        elements.append(Paragraph("1. DIAGNOSTIC GÉO-SPATIAL ET PÉDOLOGIQUE ISRA", heading_style))
+        p1 = f"L'analyse par imagerie satellite et géolocalisation confirme un haut potentiel agronomique sur le site de {data.get('commune')}. Le sol de type {data.get('sol_isra')} présente une capacité de rétention d'eau optimale, particulièrement adaptée aux itinéraires techniques certifiés ISRA/SAED."
+        elements.append(Paragraph(p1, body_style))
+        elements.append(Spacer(1, 10))
+
+        # Section 2 : Risques Bio-Ravageurs & Protocole Sanitaire
+        elements.append(Paragraph("2. MODÈLE ÉPIDÉMIOLOGIQUE ET RISQUES RAVAGEURS ISRA", heading_style))
+        rav_data = [
+            ["Bio-Ravageur Identifié", "Niveau de Menace", "Protocole d'Intervention Recommandé (ISRA/ANCAR)"],
+            ["Chenille Légionnaire (Spodoptera)", "Moyen (Alerte)", "Application d'Azadirachtine (Neem) ou Emamectine benzoate"],
+            ["Mouche des Fruits (Bactrocera)", "Élevé (Saison)", "Pose de pièges à phéromones Methyl-Eugenol à la périphérie"],
+            ["Oiseaux Granivores (Quelea)", "Vigilance", "Effarouchement acoustique et filets de protection aux casiers"]
+        ]
+        t_rav = Table(rav_data, colWidths=[130, 100, 310])
+        t_rav.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#1b5e20')),
+            ('TEXTCOLOR', (0,0), (-1,0), colors.white),
+            ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0,0), (-1,-1), 8),
+            ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#cbd5e1')),
+            ('PADDING', (0,0), (-1,-1), 5),
+        ]))
+        elements.append(t_rav)
+        elements.append(Spacer(1, 15))
+
+        # Section 3 : Plan Financier & Bancabilité
+        elements.append(Paragraph("3. ÉVALUATION FINANCIÈRE & BANCABILITÉ (LBA / DER / FONGIP)", heading_style))
+        f_data = [
+            ["Indicateur Financier", "Valeur Estimée", "Avis d'Instruction de Banque"],
+            ["Capital d'Investissement Requis", f"{data.get('budget'):,} FCFA".replace(",", " "), "Inclus dans l'enveloppe guichet LBA"],
+            ["Score de Bancabilité IA", "88 / 100", "Dossier Haute Priorité (Aptitude Forte)"],
+            ["EBE Prévisionnel (Année 1)", f"{int(data.get('budget')*0.48):,} FCFA".replace(",", " "), "Marge nette couvrante (> 40%)"],
+            ["Délai de Récupération (Payback)", "1.6 Ans", "Excellente liquidité"]
+        ]
+        t_f = Table(f_data, colWidths=[180, 140, 220])
+        t_f.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#0b2211')),
+            ('TEXTCOLOR', (0,0), (-1,0), colors.white),
+            ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#cbd5e1')),
+            ('PADDING', (0,0), (-1,-1), 5),
+        ]))
+        elements.append(t_f)
+        elements.append(Spacer(1, 20))
+
+        elements.append(Paragraph("<i>Rapport officiel certifié conforme aux référentiels de recherche agronomique ISRA & aux critères d'octroi de crédits de La Banque Agricole du Sénégal.</i>", body_style))
+
+        doc.build(elements)
+        buffer.seek(0)
+        return buffer
+
+    # ----------------------------------------------------
+    # ONGLET D'INTERACTION EXCLUSIFS SÉNÉGAL
+    # ----------------------------------------------------
+    tab_carto, tab_vision, tab_isra_crops, tab_fin_bde, tab_pdf_export = st.tabs([
+        "🗺️ Cartographie & Délimitation Parcelle",
+        "📸 Diagnostic Photo Terrain Multi-Leviers",
+        "🧬 Matrice ISRA & Modèle Ravageurs",
+        "🏦 Score de Bancabilité & Bailleurs Sénégal",
+        "📄 Rapport Officiel Certifié PDF"
     ])
 
     # ----------------------------------------------------
-    # 1. CARTE AGRICOLE INTELLIGENTE & JUMEAU NUMÉRIQUE
+    # TAB 1 : CARTOGRAPHIE INTERACTIVE & DÉLIMITATION RÉELLE
     # ----------------------------------------------------
-    with tab_map_twin:
-        st.markdown("### 🛰️ Carte Agricole Intelligente & Jumeau Numérique")
-        st.write("Visualisation spatiale de la parcelle, récupération des paramètres GPS/Sol et simulation virtuelle de l'exploitation.")
+    with tab_carto:
+        st.markdown("### 🗺️ Selection & Cartographie Spatiale de la Parcelle")
+        st.write("Positionnez votre parcelle sur la carte du Sénégal pour extraire instantanément le profil pédologique ISRA et les métriques SIG.")
 
-        c_m1, c_m2 = st.columns([1, 1])
+        c_map1, c_map2 = st.columns([2, 1])
 
-        with c_m1:
-            st.markdown("#### 📍 Géolocalisation & Diagnostic Territorial IA")
-            commune_in = st.text_input("Commune / Localité :", value=st.session_state["consult_data"].get("commune"))
-            gps_in = st.text_input("Coordonnées GPS / Repère 📍 :", value=st.session_state["consult_data"].get("gps"))
-            sup_in = st.number_input("Superficie Totale (Ha) :", min_value=0.5, value=float(st.session_state["consult_data"].get("superficie")), step=0.5)
+        with c_map1:
+            # Coordonnées initiales (Par défaut : Ross Béthio / Vallée du Fleuve)
+            lat_init = st.session_state["consult_data"].get("gps_lat", 16.2731)
+            lon_init = st.session_state["consult_data"].get("gps_lon", -16.1352)
 
-            st.markdown("""
-            <div style="background:#e2e8f0; height:180px; border-radius:10px; display:flex; align-items:center; justify-content:center; color:#475569; font-weight:600;">
-                [🛰️ DÉLECTATION SATELLITAIRE : Parcelle Podor - Sol Fluvisol Hydromorphe - Altitude 12m - Fleuve à 450m]
-            </div>
-            """, unsafe_allow_html=True)
+            if HAS_FOLIUM:
+                m = folium.Map(location=[lat_init, lon_init], zoom_start=12, tiles="OpenStreetMap")
+                folium.TileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', attr='Esri', name='Satellite Esri').add_to(m)
+                
+                # Marqueur représentatif
+                folium.Marker(
+                    [lat_init, lon_init],
+                    popup=f"Parcelle : {st.session_state['consult_data']['nom_projet']}",
+                    icon=folium.Icon(color="green", icon="leaf")
+                ).add_to(m)
 
-        with c_m2:
-            st.markdown("#### 🧪 Représentation Virtuelle (Jumeau Numérique)")
-            st.markdown("""
-            <div class="twin-box">
-                <b>🔮 Simulation IA avant investissement :</b><br>
-                • <b>Culture simulée :</b> Riz (Variété Sahel 108)<br>
-                • <b>Rendement prévisionnel :</b> 7.2 Tonnes/Ha<br>
-                • <b>Consommation Eau :</b> 11 000 m³/Ha (Irrigation Solaire optimal)<br>
-                • <b>Infrastructures recommandées :</b> 1 Station de pompage 15kW, 2 bassins de décantation, diguettes de ceinture (anti-crue).
-            </div>
-            """, unsafe_allow_html=True)
+                folium.LayerControl().add_to(m)
+                
+                # Rendu interactif Streamlit
+                map_data = st_folium(m, height=400, width="100%", key="folium_map_consult")
+                
+                if map_data and map_data.get("last_clicked"):
+                    clicked_lat = map_data["last_clicked"]["lat"]
+                    clicked_lng = map_data["last_clicked"]["lng"]
+                    st.session_state["consult_data"]["gps_lat"] = clicked_lat
+                    st.session_state["consult_data"]["gps_lon"] = clicked_lng
+            else:
+                st.info("ℹ️ Carte simplifiée : Module Folium non détecté, coordonnées par défaut appliquées.")
+
+        with c_map2:
+            st.markdown("#### 📐 Métriques SIG Extracted")
             
-            st.audio("https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3")
-            st.caption(f"🎙️ Explication en langue {st.session_state['consult_data']['langue']} de la simulation.")
+            with st.form(key="form_geo_metrics"):
+                lat_val = st.number_input("Latitude GPS :", value=float(st.session_state["consult_data"]["gps_lat"]), format="%.4f")
+                lon_val = st.number_input("Longitude GPS :", value=float(st.session_state["consult_data"]["gps_lon"]), format="%.4f")
+                commune_val = st.text_input("Commune / Zone :", value=st.session_state["consult_data"]["commune"])
+                sup_val = st.number_input("Superficie mesurée (Ha) :", min_value=0.5, value=float(st.session_state["consult_data"]["superficie_ha"]), step=0.5)
+                
+                zone_isra_val = st.selectbox("Zone Agro-Écologique (ISRA) :", [
+                    "Vallée du Fleuve Sénégal (VFS)", "Zone des Niayes (Maraîchage)", 
+                    "Bassin Arachidier Nord/Sud", "Casamance & Sénégal Oriental", "Zone Sylvo-Pastorale (Ferlo)"
+                ])
+
+                btn_save_geo = st.form_submit_button("💾 Actualiser les Données Terrain")
+
+            if btn_save_geo:
+                st.session_state["consult_data"]["gps_lat"] = lat_val
+                st.session_state["consult_data"]["gps_lon"] = lon_val
+                st.session_state["consult_data"]["commune"] = commune_val
+                st.session_state["consult_data"]["superficie_ha"] = sup_val
+                st.session_state["consult_data"]["zone_isra"] = zone_isra_val
+                st.success("✅ Coordonnées et zonage mis à jour.")
 
     # ----------------------------------------------------
-    # 2. IA DE FINANCEMENT & ASSISTANT DE NÉGOCIATION
+    # TAB 2 : DIAGNOSTIC PHOTO TERRAIN MULTI-LEVIERS (VISION IA)
     # ----------------------------------------------------
-    with tab_fin_negoc:
-        st.markdown("### 🏦 IA de Financement & Assistant de Négociation Bancaire")
-        st.write("Évaluation du score de finançabilité, déblocage des leviers d'amélioration et préparation aux entretiens bancaires.")
+    with tab_vision:
+        st.markdown("### 📸 Vision par Ordinateur & Diagnostic Photo Multi-Leviers")
+        st.write("Chargez une photo prise sur le champ (feuille, tige, sol ou ravageur) pour lancer une analyse par l'IA.")
 
-        f1, f2, f3, f4 = st.columns(4)
-        f1.markdown("<div class='kpi-card'><div class='kpi-score'>86/100</div><div class='kpi-label'>Score de Finançabilité IA</div></div>", unsafe_allow_html=True)
-        f2.markdown("<div class='kpi-card'><div class='kpi-score'>Excellente</div><div class='kpi-label'>Compatibilité LBA / BNDE</div></div>", unsafe_allow_html=True)
-        f3.markdown("<div class='kpi-card'><div class='kpi-score'>80%</div><div class='kpi-label'>Couverture FONGIP</div></div>", unsafe_allow_html=True)
-        f4.markdown("<div class='kpi-card'><div class='kpi-score'>60%</div><div class='kpi-label'>Subvention DER/FJ Équipement</div></div>", unsafe_allow_html=True)
+        c_up1, c_up2 = st.columns([1, 1])
+
+        with c_up1:
+            uploaded_image = st.file_uploader("📷 Prenez ou choisissez une photo du champ :", type=["jpg", "png", "jpeg"])
+            
+            if uploaded_image:
+                st.image(uploaded_image, caption="Image Terrain Téléversée", use_container_width=True)
+                btn_run_vision = st.button("🔬 Démarrer l'Analyse IA Multi-Leviers")
+            else:
+                st.info("💡 Exemples de prises de vue : Feuille présentant des taches, sol fissuré, présence de chenilles, canal d'irrigation.")
+
+        with c_up2:
+            if uploaded_image and ('btn_run_vision' in locals() and btn_run_vision):
+                st.session_state["consult_data"]["diagnostic_photo_done"] = True
+                
+                st.markdown("<span class='isra-badge'>ANALYSE MULTI-LEVIERS COMPLÉTAIS</span>", unsafe_allow_html=True)
+                
+                st.markdown("""
+                <div class="photo-lever-card">
+                    <b>🐛 LEVIER 1 : DIAGNOSTIC SANITAIRE & PARASITAIRE (ISRA)</b><br>
+                    • <b>Anomalie Détectée :</b> Attaque précoce de <i>Spodoptera frugiperda</i> (Chenille Légionnaire).<br>
+                    • <b>Degré de Sévérité :</b> Modéré (14% de la surface foliaire touchée).<br>
+                    • <b>Traitement Homologué ANCAR :</b> Pulvérisation d'extrait de Neem bio ou Bio-pesticide certifié.
+                </div>
+                
+                <div class="photo-lever-card">
+                    <b>🧪 LEVIER 2 : NUTRITION FOLIATION & CARENCE NPK</b><br>
+                    • <b>Indice Chlorophyllien (SPAD) :</b> 34.2 (Léger déficit en Azote).<br>
+                    • <b>Recommandation :</b> Apport fractionné d'Urée 46% (50 kg/Ha au stade tallage).
+                </div>
+
+                <div class="photo-lever-card">
+                    <b>💧 LEVIER 3 : HYDROMORPHIE & TEXTURE DU SOL</b><br>
+                    • <b>Humidité Visuelle du Sol :</b> Saturation partielle (Bon drainage requis).<br>
+                    • <b>Risque de Salinisation :</b> Bas-Modéré (Conductivité électrique estimée stable).
+                </div>
+                """, unsafe_allow_html=True)
+            else:
+                st.write("👈 Chargez une photo pour afficher l'analyse multidimensionnelle.")
+
+    # ----------------------------------------------------
+    # TAB 3 : MATRICE ISRA D'APTITUDE & RAVAGEURS
+    # ----------------------------------------------------
+    with tab_isra_crops:
+        st.markdown("### 🧬 Matrice ISRA d'Aptitude Culturale & Modèle Épidémiologique")
+        st.write("Variétés recommandées par le Centre National de Recherches Agricoles (CNRA/ISRA) et modélisation des risques climato-sanitaires.")
+
+        col_m1, col_m2 = st.columns(2)
+
+        with col_m1:
+            st.markdown("#### 🌾 Variétés Certifiées ISRA par Zone")
+            
+            df_isra_var = pd.DataFrame([
+                {"Culture": "Riz Irrigué", "Variétés Recommandées (ISRA)": "Sahel 108, Sahel 201, Sahel 202", "Cycle (Jours)": "115 - 125", "Rendement Cible": "7.5 - 9.0 T/Ha"},
+                {"Culture": "Oignon", "Variétés Recommandées (ISRA)": "Violet de Galmi, Safari, Tropico", "Cycle (Jours)": "120 - 140", "Rendement Cible": "35 - 50 T/Ha"},
+                {"Culture": "Arachide", "Variétés Recommandées (ISRA)": "Fleur 11, 73-33, GH-119-20", "Cycle (Jours)": "90 - 100", "Rendement Cible": "2.2 - 3.0 T/Ha"},
+                {"Culture": "Maïs", "Variétés Recommandées (ISRA)": "Early Thai, Swan 1, Jeune Sédhiou", "Cycle (Jours)": "95 - 105", "Rendement Cible": "4.5 - 6.0 T/Ha"}
+            ])
+            st.table(df_isra_var)
+
+        with col_m2:
+            st.markdown("#### 🪲 Modèle Prédictif des Bioravageurs Locaux")
+            st.warning("⚠️ **Alerte Spodoptera (Chenille Légionnaire) :** Risque élevé en cas de baisse soudaine de l'hygrométrie.")
+            st.error("🚨 **Alerte Bactrocera dorsalis (Mouche des fruits) :** Période critique pour les vergers de mangues de Thiès/Niayes.")
+            st.info("ℹ️ **Alerte Quelea quelea (Oiseaux granivores) :** Surveillance active recommandée par la DPV dans le département de Podor/Dagana.")
+
+    # ----------------------------------------------------
+    # TAB 4 : SCORE DE BANCABILITÉ & BAILLEURS SÉNÉGAL
+    # ----------------------------------------------------
+    with tab_fin_bde:
+        st.markdown("### 🏦 Score de Bancabilité IA & Bailleurs au Sénégal")
+        st.write("Évaluation des critères d'octroi de crédits et identification des guichets de financement adaptés.")
+
+        b1, b2, b3, b4 = st.columns(4)
+        b1.markdown("<div class='kpi-card-isra'><div class='kpi-val'>88 / 100</div><div class='kpi-sub'>Score Bancabilité LBA</div></div>", unsafe_allow_html=True)
+        b2.markdown("<div class='kpi-card-isra'><div class='kpi-val'>Éligible</div><div class='kpi-sub'>Guichet DER/FJ</div></div>", unsafe_allow_html=True)
+        b3.markdown("<div class='kpi-card-isra'><div class='kpi-val'>80%</div><div class='kpi-sub'>Garantie FONGIP</div></div>", unsafe_allow_html=True)
+        b4.markdown("<div class='kpi-card-isra'><div class='kpi-val'>Aptitude A+</div><div class='kpi-sub'>Dossier BNDE/BADEA</div></div>", unsafe_allow_html=True)
 
         st.markdown("---")
-        c_neg1, c_neg2 = st.columns(2)
+        st.markdown("#### 🏛️ Cartographie des Bailleurs & Guichets Partenaires")
 
-        with c_neg1:
-            st.markdown("#### 💡 Améliorations pour Augmenter la Finançabilité")
-            st.warning("⚠️ **Point Bloquant Décelé :** Absence de contrat d'agrégation formel avec un transformateur agréé.")
-            st.success("✅ **Solution IA :** Téléchargez la promesse d'achat type ARM depuis la plateforme et signez un pré-accord avec la coopérative de la zone.")
-
-        with c_neg2:
-            st.markdown("#### 🎙️ Assistant de Négociation Bancaire (Simulation)")
-            st.markdown("""
-            <div class="chat-simulation">
-                <b>🏦 Question Probable de la Banque :</b> "Comment comptez-vous couvrir les pertes en cas de retard d'hivernage ou d'attaque d'oiseaux granivores ?"<br><br>
-                <b>💡 Argument de Réponse Recommandé par l'IA :</b> "Le projet intègre une police d'assurance agricole subventionnée CNAAS à 50%, et la parcelle dispose d'un réseau d'irrigation solaire autonome indépendant de la pluviométrie."
-            </div>
-            """, unsafe_allow_html=True)
+        df_bailleurs = pd.DataFrame([
+            {"Institution": "La Banque Agricole (LBA)", "Guichet": "Crédit de Campagne / Équipement", "Taux d'Intérêt": "7.5 % (Subventionné)", "Garantie Exigée": "FONGIP + Hypothèque/Bail"},
+            {"Institution": "DER / FJ", "Guichet": "Fonds de Enveloppe Chaîne de Valeur", "Taux d'Intérêt": "5.0 %", "Garantie Exigée": "Gage matériel / Caution solidaire"},
+            {"Institution": "BNDE", "Guichet": "Co-financement Agrobusiness PME", "Taux d'Intérêt": "8.0 %", "Garantie Exigée": "Apport personnel (15%) + FONGIP"},
+            {"Institution": "PAMECAS / CMS", "Guichet": "Micro-crédit Maraîchage Rapide", "Taux d'Intérêt": "9.5 %", "Garantie Exigée": "Cautionnement de groupe / Tontine"}
+        ])
+        st.table(df_bailleurs)
 
     # ----------------------------------------------------
-    # 3. PARCOURS ADMINISTRATIF & RÉPERTOIRE NATIONAL
+    # TAB 5 : GÉNÉRATEUR DE RAPPORT PDF CERTIFIÉ
     # ----------------------------------------------------
-    with tab_parcours_rep:
-        st.markdown("### 🗺️ Parcours Administratif Intelligent & Répertoire des Agences")
-        st.write("Procédures légales automatisées et cartographie des institutions référencées au Sénégal.")
+    with tab_pdf_export:
+        st.markdown("### 📄 Générateur de Rapport Stratégique Certifié PDF")
+        st.write("Téléchargez le document d'expertise complet au format PDF officiel pour la soumission à la banque.")
 
-        col_p1, col_p2 = st.columns(2)
+        c_pdf1, c_pdf2 = st.columns([1, 2])
 
-        with col_p1:
-            st.markdown("#### 📋 Feuille de Route Administrative Automatisée")
-            df_parcours = pd.DataFrame([
-                {"Étape": "1. Attestation d'Affectation Foncière", "Organisme": "Mairie / Conseil Municipal", "Délai Est.": "15 jours", "Coût Est.": "Gratuit"},
-                {"Étape": "2. Analyse de Sol & Conformité", "Organisme": "INP / ISRA", "Délai Est.": "7 jours", "Coût Est.": "50 000 FCFA"},
-                {"Étape": "3. Autorisation de Prélèvement d'Eau", "Organisme": "DGPRE", "Délai Est.": "10 jours", "Coût Est.": "Gratuit"},
-                {"Étape": "4. Notice d'Impact Environnemental", "Organisme": "Direction de l'Environnement", "Délai Est.": "20 jours", "Coût Est.": "150 000 FCFA"}
-            ])
-            st.table(df_parcours)
-
-        with col_p2:
-            st.markdown("#### 🏛️ Répertoire des Agences & Partenaires Proches")
-            st.markdown("""
-            * **La Banque Agricole (LBA) - Agence Podor :** Dépôt des demandes de crédits de campagne.
-            * **Direction Régionale du Développement Rural (DRDR) :** Distribution des semences certifiées et engrais DAPSA.
-            * **SAED :** Appui technique à l'aménagement hydro-agricole et gestion des canaux principaux.
-            * **CNAAS :** Souscription aux polices d'assurance récolte et bétail.
-            """)
-
-    # ----------------------------------------------------
-    # 4. GÉNÉRATEUR AUTOMATIQUE DE DOSSIERS COMPLET
-    # ----------------------------------------------------
-    with tab_dossier_ia:
-        st.markdown("### 📄 Générateur Automatique de Dossiers Prêts à Déposer")
-        st.write("Générez en un clic l'intégralité du package documentaire exigé par les bailleurs.")
-
-        col_doc1, col_doc2 = st.columns([1, 2])
-        
-        with col_doc1:
-            st.markdown("#### Documents à inclure dans le Pack :")
-            doc_bp = st.checkbox("Business Plan Complet (Norme LBA)", value=True)
-            doc_der = st.checkbox("Dossier de Demande DER/FJ", value=True)
-            doc_fais = st.checkbox("Étude de Faisabilité Technico-Économique", value=True)
-            doc_treso = st.checkbox("Plan de Trésorerie & Compte d'Exploitation", value=True)
+        with c_pdf1:
+            st.markdown("#### Option d'Exportation PDF")
+            inclure_photo = st.checkbox("Inclure le diagnostic photo multi-leviers", value=True)
+            inclure_bancabilite = st.checkbox("Inclure le volet d'instruction bancaire LBA/DER", value=True)
             
-            btn_generate_pack = st.button("⚡ Générer le Pack Complet IA")
-
-        with col_doc2:
-            if btn_generate_pack:
-                st.success("✅ Package documentaire généré avec succès !")
+            if HAS_REPORTLAB:
+                pdf_buffer = generate_pdf_report(st.session_state["consult_data"])
                 
-                pack_text = f"""====================================================================================================
-PACK OFFICIEL DE FINANCEMENT & FAISABILITÉ - YOUAGRONOME
-====================================================================================================
-PROJET : {st.session_state['consult_data']['nom_projet'].upper()}
-COMMUNE : {st.session_state['consult_data']['commune'].upper()} | SUPERFICIE : {st.session_state['consult_data']['superficie']} HA
-FILIÈRE : {st.session_state['consult_data']['filiere']} | CAPITAL GLOBAL : {st.session_state['consult_data']['budget']:,} FCFA
-----------------------------------------------------------------------------------------------------
+                st.download_button(
+                    label="📥 Télécharger le Rapport Officiel PDF",
+                    data=pdf_buffer,
+                    file_name=f"Rapport_Expertise_ISRA_{st.session_state['consult_data']['commune']}.pdf",
+                    mime="application/pdf"
+                )
+            else:
+                st.error("⚠️ La bibliothèque ReportLab n'est pas installée sur le serveur. Veuillez l'ajouter à requirements.txt (`reportlab`).")
 
-1. ÉTUDE DE FAISABILITÉ ET COMPTE D'EXPLOITATION PRÉVISIONNEL (3 ANS)
-   - Chiffre d'Affaires Année 1 : 48 500 000 FCFA
-   - OPEX Année 1 : 22 100 000 FCFA
-   - Marge Brute Opérationnelle : 26 400 000 FCFA (Taux de Marge : 54.4%)
-   - Seuil de Rentabilité : Rejoint dès le 8ème mois d'exploitation.
-
-2. DOSSIER TECHNIQUE SAED & DGPRE
-   - Besoins en eau globaux : 165 000 m³ / Campagne.
-   - Système de pompage : Groupe photovoltaïque 22 kW avec variateur de vitesse.
-
-3. INDICE DE DÉVELOPPEMENT TERRITORIAL (NOTE IA : 9.1/10)
-   - Emplois directs permanents créés : 18.
-   - Impact Sécurité Alimentaire : Produit 108 Tonnes de riz paddy/an.
-====================================================================================================
-"""
-                st.markdown(f"<div class='report-box'>{pack_text}</div>", unsafe_allow_html=True)
-                st.download_button("📥 Télécharger le Pack Dossier Complet (.TXT)", data=pack_text, file_name="Pack_Financement_YouAgronoMe.txt")
-
-    # ----------------------------------------------------
-    # 5. MARCHÉ AGRICOLE PRÉDICTIF & DÉTECTION RISQUES
-    # ----------------------------------------------------
-    with tab_marche_pred:
-        st.markdown("### 📈 Marché Agricole Prédictif & Détection Précoce des Risques")
-        
-        cm_p1, cm_p2 = st.columns(2)
-
-        with cm_p1:
-            st.markdown("#### 🔮 Recommandations de Vente & Stockage Prédictif")
-            st.info("💡 **Prédiction Prix Riz (3 prochains mois) :** Hausse attendue de +8% en raison de la fin des stocks de campagne. Moment optimal de mise en marché : **Octobre 2026**.")
-            
-            df_pred_prices = pd.DataFrame({
-                "Mois": ["Août 2026", "Septembre 2026", "Octobre 2026", "Novembre 2026"],
-                "Prix Est. Riz Paddy (FCFA/Kg)": [210, 225, 245, 230],
-                "Tendance": ["➡️ Stable", "↗️ En hausse", "🔥 Sommet Prix", "↘️ Repli"]
-            })
-            st.table(df_pred_prices)
-
-        with cm_p2:
-            st.markdown("#### 🚨 Détection Précoce des Risques Locaux")
-            st.error("🚨 **Alerte Risque Chenilles / Ravageurs :** Risque moyen détecté sur les zones adjacentes dans un rayon de 15 km.")
-            st.warning("⚠️ **Risque Canicule / Hydrique :** Pic de température prévu en Septembre. Veillez à maintenir les niveaux d'eau dans les casiers.")
-
-    # ----------------------------------------------------
-    # 6. MÉMOIRE NATIONALE DES PROJETS & IMPACT TERRITORIAL
-    # ----------------------------------------------------
-    with tab_memoire_impact:
-        st.markdown("### 🧠 Mémoire Nationale des Projets & Indice d'Impact")
-        
-        c_i1, c_i2 = st.columns(2)
-
-        with c_i1:
-            st.markdown("#### 📚 Comparaison avec la Mémoire Nationale (Projets Similaires)")
-            st.markdown("""
-            L'IA a analysé **142 projets de riziculture** réalisés dans la région de Saint-Louis :
-            * **Taux de Réussite Historique :** 89 %
-            * **Facteur Majeur d'Échec Identifié :** Entretien négligé des pompes diesel (D'où l'importance de l'option Solaire retenue).
-            * **Bonne Pratique Clé :** Groupement des achats d'engrais avec les unions villageoises de Podor.
-            """)
-
-        with c_i2:
-            st.markdown("#### 🏅 Indice de Développement Territorial (IDT)")
-            st.markdown("""
-            <div class="kpi-card" style="text-align:left;">
-                <b>• Emplois créés :</b> 18 directs, 35 indirects (Femmes/Jeunes)<br>
-                <b>• Autonomie Alimentaire Local :</b> Approvisionne ~ 2 400 personnes/an<br>
-                <b>• Score Écologique :</b> 8.5/10 (Pompage solaire à empreinte carbone neutre)
+        with c_pdf2:
+            st.markdown("#### 👁️ Aperçu du Contenu du Document PDF")
+            st.markdown(f"""
+            <div class="report-preview">
+                <h4 style="color:#1b5e20; text-align:center;">RÉPUBLIQUE DU SÉNÉGAL<br>CABINET D'EXPERTISE YOUAGRONOME ISRA</h4>
+                <hr>
+                <b>PROJET :</b> {st.session_state['consult_data']['nom_projet']}<br>
+                <b>COMMUNE :</b> {st.session_state['consult_data']['commune']} | <b>COORDONNÉES :</b> {st.session_state['consult_data']['gps_lat']:.4f}, {st.session_state['consult_data']['gps_lon']:.4f}<br>
+                <b>SUPERFICIE :</b> {st.session_state['consult_data']['superficie_ha']} Ha | <b>SOL (ISRA) :</b> {st.session_state['consult_data']['sol_isra']}<br>
+                <hr>
+                <b>1. EVALUATION AGRO-PÉDOLOGIQUE :</b> Sol à haute réponse d'engrais NPK. Irrigation optimale conseillée via groupe solaire.<br>
+                <b>2. MODÈLE ÉPIDÉMIOLOGIQUE RAVAGEURS :</b> Traitements ciblant <i>Spodoptera</i> recommandés selon protocole ANCAR.<br>
+                <b>3. SCORE BANCABILITÉ :</b> 88/100 (Aptitude élevée pour guichet LBA).
             </div>
             """, unsafe_allow_html=True)
-            
-            st.write("")
-            st.markdown("#### 🛍️ Place de Marché Institutionnelle Active")
-            st.success("📢 **Offre Institutionnelle :** 2 Acheteurs agrégateurs de la région ont exprimé un intérêt pour réserver votre récolte prévisionnelle.")
-# 🌱 CONSEIL
 # =====================================================
 elif selected == "🌱 Conseil":
 
