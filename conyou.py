@@ -909,6 +909,10 @@ elif selected == "💼 Consultance":
                     "matricule": "TSA-ADMIN-01",
                     "role": "Administrateur Principal",
                     "zone": "Bassin Arachidier / Diourbel",
+                    "telephone": "+221 77 000 00 00",
+                    "organisation": "ANCAR / Direction Régionale",
+                    "commune": "Diourbel",
+                    "experience": "10 ans+",
                     "is_admin": True,
                     "historique": []
                 }
@@ -953,6 +957,14 @@ elif selected == "💼 Consultance":
         box-shadow: 0 1px 3px rgba(0,0,0,0.05);
         margin-bottom: 12px;
     }
+    .guide-box {
+        background-color: #f0fdf4;
+        border: 1px solid #bbf7d0;
+        border-left: 5px solid #16a34a;
+        padding: 16px;
+        border-radius: 8px;
+        margin-bottom: 15px;
+    }
     .alert-card-warning {
         background-color: #fffbebfb;
         border-left: 5px solid #f59e0b;
@@ -979,15 +991,6 @@ elif selected == "💼 Consultance":
         border: 1px dashed #0284c7;
         padding: 18px;
         border-radius: 10px;
-    }
-    .auth-box {
-        max-width: 450px;
-        margin: 0 auto;
-        padding: 25px;
-        background-color: #ffffff;
-        border-radius: 10px;
-        border: 1px solid #cbd5e1;
-        box-shadow: 0 4px 10px rgba(0,0,0,0.05);
     }
     </style>
     """, unsafe_allow_html=True)
@@ -1049,92 +1052,82 @@ elif selected == "💼 Consultance":
         "Mangue Kent (Export)": {"prix_kg": 650, "tendance": "+18%", "marche": "Frais Air Dakar"}
     }
 
-    # --- SYSTÈME D'AUTHENTIFICATION & SESSIONS ---
+    # --- SYSTEME D'AUTHENTIFICATION & SESSIONS ---
     if "logged_user" not in st.session_state:
         st.session_state["logged_user"] = None
 
     if "consult_gps" not in st.session_state:
         st.session_state["consult_gps"] = {"lat": 14.7910, "lon": -16.0700}
 
-    # GESTION DU BLOCAGE PAR CODE PIN ET CONNEXION
+    # ACCÈS DIRECT ET ATTRIBUTION DE CODE PIN APRES EMAIL
     if st.session_state["logged_user"] is None:
-        st.markdown("<h3 style='text-align:center;'>🔒 Espace Sécurisé Techniciens & Administrateur</h3>", unsafe_allow_html=True)
+        st.markdown("<h3 style='text-align:center;'>🔒 Authentification Technicien & Espace Sécurisé</h3>", unsafe_allow_html=True)
         
-        mode_auth = st.radio("Sélecteur d'accès :", ["Connexion Technicien (Code PIN)", "Première Inscription (Activation PIN)", "Accès Admin Général"], horizontal=True)
-        
-        if mode_auth == "Connexion Technicien (Code PIN)":
-            with st.form("form_login"):
-                email_input = st.text_input("E-mail du technicien :").strip().lower()
-                pin_input = st.text_input("Code PIN à 4 chiffres :", type="password")
-                btn_login = st.form_submit_button("Se connecter")
-                
-                if btn_login:
-                    if email_input in db["techniciens"]:
-                        if db["techniciens"][email_input]["pin"] == pin_input:
-                            st.session_state["logged_user"] = email_input
-                            st.success(f"Bienvenue {db['techniciens'][email_input]['nom']} !")
+        col_auth1, col_auth2, col_auth3 = st.columns([1, 2, 1])
+        with col_auth2:
+            email_check = st.text_input("Saisissez votre e-mail d'accès :", placeholder="ex: issayoume2012@gmail.com").strip().lower()
+            
+            if email_check:
+                if email_check == "issayoume2012@gmail.com":
+                    admin_pass = st.text_input("Mot de passe Administrateur Principal :", type="password")
+                    if st.button("Se connecter en tant qu'Admin"):
+                        if admin_pass == "issayoume2026":
+                            if email_check not in db["techniciens"]:
+                                db["techniciens"][email_check] = {
+                                    "nom": "Issa Youme", "pin": "2026", "matricule": "TSA-ADMIN-01",
+                                    "role": "Administrateur Principal", "zone": "Bassin Arachidier / Diourbel",
+                                    "telephone": "+221 77 000 00 00", "organisation": "ANCAR / Direction Régionale",
+                                    "commune": "Diourbel", "experience": "10 ans+", "is_admin": True, "historique": []
+                                }
+                                save_db(db)
+                            st.session_state["logged_user"] = email_check
+                            st.success("Connexion Administrateur réussie !")
                             st.rerun()
                         else:
-                            st.error("❌ Code PIN incorrect.")
+                            st.error("❌ Mot de passe administrateur incorrect.")
+                
+                elif email_check in db["whitelist"]:
+                    if email_check in db["techniciens"]:
+                        # Compte déjà configuré -> Demander le PIN
+                        pin_login = st.text_input("Saisissez votre Code PIN à 4 chiffres :", type="password", max_chars=4)
+                        if st.button("S'identifier"):
+                            if db["techniciens"][email_check]["pin"] == pin_login:
+                                st.session_state["logged_user"] = email_check
+                                st.success("Connexion réussie !")
+                                st.rerun()
+                            else:
+                                st.error("❌ Code PIN incorrect.")
                     else:
-                        st.error("❌ Cet e-mail n'est pas enregistré ou n'est pas dans la liste blanche.")
+                        # Email autorisé mais pas encore de PIN -> Création immédiate du compte
+                        st.info("👋 Votre e-mail est autorisé ! Définissez vos informations et votre code PIN ci-dessous pour activer votre accès :")
+                        with st.form("form_first_init"):
+                            f_nom = st.text_input("Nom & Prénom :")
+                            f_tel = st.text_input("Téléphone :", value="+221 ")
+                            f_org = st.text_input("Organisation / ONG / Service :", value="ANCAR / SDDR")
+                            f_role = st.text_input("Rôle / Spécialité :", value="Technicien Supérieur Agronome")
+                            f_zone = st.selectbox("Zone d'intervention principale :", list(BASE_SOLS_INP_FULL.keys()))
+                            f_commune = st.text_input("Sous-Zone / Commune :", value="Diourbel")
+                            f_exp = st.selectbox("Années d'expérience :", ["< 2 ans", "2 à 5 ans", "5 à 10 ans", "10 ans+"])
+                            f_pin = st.text_input("Créez votre Code PIN (4 chiffres) :", type="password", max_chars=4)
+                            
+                            btn_create = st.form_submit_button("Activer mon accès direct")
+                            if btn_create:
+                                if len(f_pin) == 4 and f_pin.isdigit():
+                                    db["techniciens"][email_check] = {
+                                        "nom": f_nom, "pin": f_pin, "matricule": f"TSA-2026-{random.randint(100,999)}",
+                                        "role": f_role, "zone": f_zone, "telephone": f_tel, "organisation": f_org,
+                                        "commune": f_commune, "experience": f_exp, "is_admin": False, "historique": []
+                                    }
+                                    save_db(db)
+                                    st.session_state["logged_user"] = email_check
+                                    st.success("Accès créé avec succès !")
+                                    st.rerun()
+                                else:
+                                    st.error("Le code PIN doit comporter exactement 4 chiffres.")
+                else:
+                    st.error("⛔ E-mail non autorisé. Veuillez contacter l'Administrateur (issayoume2012@gmail.com) pour ajouter votre e-mail à la liste blanche.")
 
-        elif mode_auth == "Première Inscription (Activation PIN)":
-            with st.form("form_register"):
-                email_reg = st.text_input("E-mail (doit être dans la liste blanche) :").strip().lower()
-                nom_reg = st.text_input("Nom & Prénom du Technicien :")
-                matricule_reg = st.text_input("Matricule (ex: TSA-2026-SN-12) :", value=f"TSA-2026-SN-{random.randint(10,99)}")
-                role_reg = st.text_input("Rôle / Spécialité :", value="Technicien Supérieur Agronome")
-                zone_reg = st.selectbox("Zone d'intervention :", list(BASE_SOLS_INP_FULL.keys()))
-                pin_reg = st.text_input("Définir un Code PIN à 4 chiffres :", type="password", max_chars=4)
-                btn_reg = st.form_submit_button("Activer mon compte")
-
-                if btn_reg:
-                    if email_reg not in db["whitelist"]:
-                        st.error("⛔ Cet e-mail n'est pas autorisé par l'administrateur. Demandez votre ajout à la liste blanche.")
-                    elif email_reg in db["techniciens"]:
-                        st.warning("⚠️ Compte déjà activé. Utilisez l'onglet Connexion.")
-                    elif len(pin_reg) != 4 or not pin_reg.isdigit():
-                        st.error("❌ Le code PIN doit contenir exactement 4 chiffres.")
-                    else:
-                        db["techniciens"][email_reg] = {
-                            "nom": nom_reg,
-                            "pin": pin_reg,
-                            "matricule": matricule_reg,
-                            "role": role_reg,
-                            "zone": zone_reg,
-                            "is_admin": False,
-                            "historique": []
-                        }
-                        save_db(db)
-                        st.success("✅ Compte activé avec succès ! Vous pouvez maintenant vous connecter.")
-
-        elif mode_auth == "Accès Admin Général":
-            with st.form("form_admin"):
-                admin_email = st.text_input("E-mail Administrateur :", value="issayoume2012@gmail.com")
-                admin_pass = st.text_input("Mot de passe Administrateur :", type="password")
-                btn_admin = st.form_submit_button("Connexion Admin")
-
-                if btn_admin:
-                    if admin_email.strip().lower() == "issayoume2012@gmail.com" and admin_pass == "issayoume2026":
-                        if admin_email not in db["techniciens"]:
-                            db["techniciens"][admin_email] = {
-                                "nom": "Issa Youme",
-                                "pin": "2026",
-                                "matricule": "TSA-ADMIN-01",
-                                "role": "Administrateur Principal",
-                                "zone": "Bassin Arachidier / Diourbel",
-                                "is_admin": True,
-                                "historique": []
-                            }
-                            save_db(db)
-                        st.session_state["logged_user"] = admin_email
-                        st.success("Connecté en tant qu'Administrateur Principal !")
-                        st.rerun()
-                    else:
-                        st.error("❌ Identifiants administrateur incorrects.")
-
-        st.stop()  # Empêche la suite de l'affichage tant qu'on n'est pas connecté.
+        st.stop()
 
     # --- COMPTE CONNECTÉ ---
     user_email = st.session_state["logged_user"]
@@ -1142,7 +1135,7 @@ elif selected == "💼 Consultance":
 
     # --- STRUCTURE DES ONGLETS NATIONAUX ---
     tabs_main = st.tabs([
-        "📊 1. Dashboard Technicien",
+        "📊 1. Espace Personnel & Supervision Zone",
         "📝 2. Diagnostic & Sol (INP)",
         "🗺️ 3. Cartographie GPS / Satellite",
         "🐛 4. Entomologie & DPV",
@@ -1154,40 +1147,102 @@ elif selected == "💼 Consultance":
     ])
 
     # ====================================================
-    # TAB 1 : DASHBOARD TECHNICIEN
+    # TAB 1 : ESPACE PERSONNEL, PROFIL & SUPERVISION ZONE (AVEC GUIDES D'ORIENTATION)
     # ====================================================
     with tabs_main[0]:
-        st.subheader("👨‍🌾 Espace Personnel & Supervision Zone")
+        st.subheader("👨‍🌾 Profil du Technicien & Supervision de Zone")
         
+        # PROFIL EDITABLE EN TEMPS REEL
+        with st.expander("👤 Mes Informations Personnelles & Professionnelles (Modifier)", expanded=False):
+            with st.form("form_profile_update"):
+                c_p1, c_p2, c_p3 = st.columns(3)
+                with c_p1:
+                    up_nom = st.text_input("Nom complet :", value=current_user.get("nom", ""))
+                    up_tel = st.text_input("Téléphone :", value=current_user.get("telephone", "+221 "))
+                    up_pin = st.text_input("Modifier Code PIN (4 chiffres) :", value=current_user.get("pin", ""), type="password", max_chars=4)
+                with c_p2:
+                    up_role = st.text_input("Rôle / Postation :", value=current_user.get("role", "Technicien Agronome"))
+                    up_org = st.text_input("Organisation / Employeur :", value=current_user.get("organisation", "ANCAR"))
+                    up_exp = st.selectbox("Expérience :", ["< 2 ans", "2 à 5 ans", "5 à 10 ans", "10 ans+"], index=2)
+                with c_p3:
+                    up_zone = st.selectbox("Zone principale :", list(BASE_SOLS_INP_FULL.keys()), index=0)
+                    up_commune = st.text_input("Sous-Zone / Département :", value=current_user.get("commune", "Diourbel"))
+                    
+                if st.form_submit_button("💾 Mettre à jour mon profil"):
+                    current_user["nom"] = up_nom
+                    current_user["telephone"] = up_tel
+                    current_user["role"] = up_role
+                    current_user["organisation"] = up_org
+                    current_user["experience"] = up_exp
+                    current_user["zone"] = up_zone
+                    current_user["commune"] = up_commune
+                    if len(up_pin) == 4 and up_pin.isdigit():
+                        current_user["pin"] = up_pin
+                    db["techniciens"][user_email] = current_user
+                    save_db(db)
+                    st.success("Profil mis à jour et sauvegardé !")
+                    st.rerun()
+
+        # RECAPITULATIF PROFIL
         col_prof1, col_prof2, col_prof3 = st.columns([1.5, 1.5, 1])
         with col_prof1:
-            st.markdown(f"**Technicien :** {current_user['nom']} (`{current_user['matricule']}`)")
-            st.markdown(f"**Rôle :** {current_user['role']}")
+            st.markdown(f"**Technicien :** {current_user.get('nom')} (`{current_user.get('matricule')}`)")
+            st.markdown(f"**Organisation :** {current_user.get('organisation', 'ANCAR')} | Tel: `{current_user.get('telephone')}`")
         with col_prof2:
-            st.markdown(f"**Zone d'Intervention :** {current_user['zone']}")
-            st.markdown(f"**Historique :** {len(current_user['historique'])} Diagnostic(s) enregistré(s)")
+            st.markdown(f"**Zone d'Intervention :** {current_user.get('zone')} ({current_user.get('commune')})")
+            st.markdown(f"**Historique :** {len(current_user.get('historique', []))} Diagnostic(s) enregistré(s)")
         with col_prof3:
             if st.button("🚪 Déconnexion"):
                 st.session_state["logged_user"] = None
                 st.rerun()
 
         st.markdown("---")
-        
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("Santé globale cultures", "84%", "+3% ce mois")
-        m2.metric("Alerte DPV Active", "2 Zones", "Spodoptera frugiperda", delta_color="inverse")
-        m3.metric("Réserve Utile Eau", "62 mm", "-12mm vs 2025")
-        m4.metric("Rendement Moyen Estimé", "4.8 T/Ha", "Conforme objectifs ISRA")
 
-        st.markdown("### 🔔 Alertes Prioritaires Terrain (Temps Réel)")
-        st.markdown("""
-        <div class="alert-card-danger">
-            <b>🚨 ALERTE CRITIQUE DPV :</b> Risque élevé de Chenille Légionnaire (<i>Spodoptera frugiperda</i>) sur le bassin de Bambey / Diourbel. Inspection immédiate requise sur Maïs au stade 4-6 feuilles.
-        </div>
-        <div class="alert-card-warning">
-            <b>⚠️ ANACIM - Stress Hydrique :</b> Séquence sèche de 7 jours prévue sur la zone Centre. Anticiper le déclenchement de l'irrigation d'appoint sur maraîchage.
-        </div>
-        """, unsafe_allow_html=True)
+        # GUIDES D'ORIENTATION ET D'ANALYSE
+        st.markdown("### 🧭 Guides d'Orientation & Outils de Positionnement Rapide")
+        
+        tab_g1, tab_g2, tab_g3 = st.tabs(["📋 Checklist Avant Visite", "🔍 Moteur d'Orientation Diagnostic", "⚡ Alertes Supervision"])
+        
+        with tab_g1:
+            st.markdown("""
+            <div class="guide-box">
+                <b>📌 Guide de cadrage pour la visite terrain :</b>
+                <ol>
+                    <li><b>Etape 1 :</b> Vérifier l'historique de la parcelle dans l'onglet 9 s'il s'agit d'un producteur récurrent.</li>
+                    <li><b>Etape 2 :</b> Effectuer un prélèvement de sol pour mesurer le pH au pH-mètre portable.</li>
+                    <li><b>Etape 3 :</b> Observer le feuillage (Jaunissement basique = souvent carence N ou lessivage sol Dior).</li>
+                    <li><b>Etape 4 :</b> Inspecter les cornets de maïs / cœurs de plantes pour détecter <i>Spodoptera frugiperda</i>.</li>
+                </ol>
+            </div>
+            """, unsafe_allow_html=True)
+
+        with tab_g2:
+            st.markdown("#### 🎯 Orientation Rapide selon Symptômes Observés")
+            symptom_select = st.selectbox("Sélectionnez le symptôme prédominant observé sur le terrain :", [
+                "Feuilles jaunies à la base (Chlorose)",
+                "Perforations 'en fenêtre' dans les cornets de feuilles",
+                "Taches brunes / brûlures desséchées sur bord des feuilles",
+                "Flétrissement rapide sans décoloration"
+            ])
+            
+            if symptom_select == "Feuilles jaunies à la base (Chlorose)":
+                st.info("💡 **Orientation :** Tendance forte à une carence en Azote (N) ou un pH inadéquat. Rendez-vous dans l'**Onglet 2 (Diagnostic & Sol)** pour ajuster le dosage d'Urée.")
+            elif symptom_select == "Perforations 'en fenêtre' dans les cornets de feuilles":
+                st.warning("💡 **Orientation :** Attaque probable de Chenille Légionnaire. Consultez immédiatement l'**Onglet 4 (Entomologie & DPV)** pour voir la matrice de traitement.")
+            elif symptom_select == "Taches brunes / brûlures desséchées sur bord des feuilles":
+                st.warning("💡 **Orientation :** Risque de stress hydrique accentué ou manque de Potasse (K). Utilisez le **Jumeau Numérique (Onglet 6)** pour simuler l'apport d'eau.")
+            elif symptom_select == "Flétrissement rapide sans décoloration":
+                st.error("💡 **Orientation :** Risque de nématodes racinaires ou de pourriture du collet. Vérifier les racines dans l'Onglet 4.")
+
+        with tab_g3:
+            st.markdown("""
+            <div class="alert-card-danger">
+                <b>🚨 ALERTE DPV REGIONALE :</b> Risque élevé de Chenille Légionnaire (<i>Spodoptera frugiperda</i>) sur la zone Centre.
+            </div>
+            <div class="alert-card-warning">
+                <b>⚠️ ANACIM :</b> Risque de pause pluviométrique. Sensibiliser les producteurs à l'irrigation de complément.
+            </div>
+            """, unsafe_allow_html=True)
 
     # ====================================================
     # TAB 2 : DIAGNOSTIC & ANALYSE SOL (INP)
@@ -1198,7 +1253,7 @@ elif selected == "💼 Consultance":
         c_diag1, c_diag2, c_diag3 = st.columns(3)
         with c_diag1:
             nom_prod = st.text_input("Producteur / GIE :", value="GIE Bokk Liggeey")
-            zone_selected = st.selectbox("Zone Écogéographique (INP) :", list(BASE_SOLS_INP_FULL.keys()))
+            zone_selected = st.selectbox("Zone Écogéographique (INP) :", list(BASE_SOLS_INP_FULL.keys()), index=0)
             type_sol_inp = st.selectbox("Type de Sol (INP) :", list(BASE_SOLS_INP_FULL[zone_selected].keys()))
 
         with c_diag2:
@@ -1434,8 +1489,8 @@ elif selected == "💼 Consultance":
             story.append(Spacer(1, 20))
 
             p1_data = [
-                ["Région / Zone :", zone_selected, "Code Technicien :", current_user['matricule']],
-                ["Producteur / GIE :", nom_prod, "Technicien Référent :", current_user['nom']],
+                ["Région / Zone :", zone_selected, "Code Technicien :", current_user.get('matricule', 'TSA-00')],
+                ["Producteur / GIE :", nom_prod, "Technicien Référent :", current_user.get('nom', 'N/A')],
                 ["Culture Principale :", culture_p, "Superficie Parcelle :", f"{superficie_p} Ha"],
                 ["Coordonnées GPS :", f"{st.session_state['consult_gps']['lat']:.4f}, {st.session_state['consult_gps']['lon']:.4f}", "Date Diagnostic :", datetime.now().strftime("%d/%m/%Y")]
             ]
@@ -1452,7 +1507,7 @@ elif selected == "💼 Consultance":
             story.append(Paragraph(f"L'exploitation sous la gestion de {nom_prod} présente un état général nécessitant des ajustements sur la fertilisation azotée et une vigilance phytosanitaire sur le ravageur prioritaire DPV. Les caractéristiques du sol ({type_sol_inp}) exigent un suivi strict du fractionnement des engrais.", body_style))
             story.append(PageBreak())
 
-            # PAGE 2 (CORRECTION DES <br> EN <br/> POUR ÉVITER LE CRASH REPORTLAB)
+            # PAGE 2
             story.append(Paragraph("<b>PAGE 2 : DIAGNOSTIC MULTI-CRITÈRES DÉTAILLÉ</b>", title_style))
             story.append(Spacer(1, 15))
             story.append(Paragraph("<b>1. Pédologie & Santé du Sol (Données INP) :</b>", h2_style))
@@ -1507,7 +1562,7 @@ elif selected == "💼 Consultance":
             
             sig_data = [
                 ["Le Technicien Supérieur Agronome :", "Le Producteur / Chef d'Exploitation :"],
-                [f"<b>{current_user['nom']}</b>", f"<b>{nom_prod}</b>"],
+                [f"<b>{current_user.get('nom')}</b>", f"<b>{nom_prod}</b>"],
                 ["Signature : ______________________", "Signature : ______________________"]
             ]
             t_sig = Table(sig_data, colWidths=[270, 270])
@@ -1543,7 +1598,10 @@ elif selected == "💼 Consultance":
                         "zone": zone_selected,
                         "marge_est": marge_brute
                     }
-                    db["techniciens"][user_email]["historique"].append(nouveau_diag)
+                    if "historique" not in current_user:
+                        current_user["historique"] = []
+                    current_user["historique"].append(nouveau_diag)
+                    db["techniciens"][user_email] = current_user
                     save_db(db)
                     st.success("✅ Diagnostic enregistré dans votre historique sécurisé !")
         else:
@@ -1555,7 +1613,6 @@ elif selected == "💼 Consultance":
     with tabs_main[8]:
         st.subheader("⚙️ Mes Informations & Historique des Diagnostics")
 
-        # Visualisation de l'historique personnel
         st.markdown("#### 📜 Mon Historique d'Interventions")
         user_histo = current_user.get("historique", [])
         if user_histo:
@@ -1565,7 +1622,6 @@ elif selected == "💼 Consultance":
             st.info("Aucun historique enregistré pour le moment. Réalisez un diagnostic dans l'onglet 8 pour le sauvegarder.")
 
         st.markdown("---")
-        # Panneau spécial Administrateur Général (issayoume2012@gmail.com)
         if current_user.get("is_admin", False):
             st.subheader("🛠️ Panneau Administrateur Principal (Gestion Liste Blanche)")
             
