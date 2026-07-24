@@ -1272,9 +1272,9 @@ with tabs[4]:
 
         df_agences = pd.DataFrame([
             {"Institution": "La Banque Agricole (LBA)", "Guichet": "Crédit de Campagne / Équipement", "Taux": "7.5 %", "Conditions": "Apport 10% + FONGIP"},
-            {"DER / FJ", "Fonds d'Enveloppe Chaîne de Valeur", "Taux": "5.0 %", "Conditions": "Projet Jeune / Femme / Coopérative"},
-            {"BNDE", "Agrobusiness & Transformation PME", "Taux": "8.0 %", "Conditions": "Étude de faisabilité certifiée"},
-            {"LOCAFRIQUE", "Crédit-Bail Équipement Agricole", "Taux": "8.5 %", "Conditions": "Matériel agricole en gage"}
+            {"Institution": "DER / FJ", "Guichet": "Fonds d'Enveloppe Chaîne de Valeur", "Taux": "5.0 %", "Conditions": "Projet Jeune / Femme / Coopérative"},
+            {"Institution": "BNDE", "Guichet": "Agrobusiness & Transformation PME", "Taux": "8.0 %", "Conditions": "Étude de faisabilité certifiée"},
+            {"Institution": "LOCAFRIQUE", "Guichet": "Crédit-Bail Équipement Agricole", "Taux": "8.5 %", "Conditions": "Matériel agricole en gage"}
         ])
         st.table(df_agences)
 
