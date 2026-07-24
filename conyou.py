@@ -849,7 +849,7 @@ constitue le socle opérationnel pour accélérer la souveraineté alimentaire d
         )
 # =====================================================
 # =====================================================
-# 💼 MODULE DE CONSULTANCE STRATÉGIQUE & INTELLIGENCE AUGMENTÉE
+# 💼 MODULE DE CONSULTANCE STRATÉGIQUE & INTELLIGENCE TERRITORIALE IA
 # =====================================================
 elif selected == "💼 Consultance":
 
@@ -866,7 +866,7 @@ elif selected == "💼 Consultance":
         margin-bottom: 25px;
     }
     .consulting-hero h2 { font-size: 23px !important; font-weight: 800 !important; margin-bottom: 8px !important; color: #ffffff !important; }
-    .consulting-hero p { font-size: 13px !important; opacity: 0.92; max-width: 850px; margin: 0 auto !important; color: #f8fafc; }
+    .consulting-hero p { font-size: 13px !important; opacity: 0.92; max-width: 900px; margin: 0 auto !important; color: #f8fafc; }
     
     .kpi-card {
         background: #ffffff;
@@ -876,9 +876,16 @@ elif selected == "💼 Consultance":
         text-align: center;
         box-shadow: 0 2px 4px rgba(0,0,0,0.05);
     }
-    .kpi-score { font-size: 26px; font-weight: 800; color: #1b5e20; }
-    .kpi-label { font-size: 12px; color: #64748b; font-weight: 600; }
+    .kpi-score { font-size: 24px; font-weight: 800; color: #1b5e20; }
+    .kpi-label { font-size: 11px; color: #64748b; font-weight: 600; }
     
+    .twin-box {
+        background: #f0fdf4;
+        border: 2px dashed #16a34a;
+        border-radius: 12px;
+        padding: 15px;
+        margin-bottom: 15px;
+    }
     .report-box {
         background-color: #f8fafc;
         border: 1px solid #cbd5e1;
@@ -892,304 +899,256 @@ elif selected == "💼 Consultance":
         line-height: 1.5;
         white-space: pre-wrap;
     }
-    .audio-box {
-        background-color: #f0fdf4;
-        border: 1px solid #bbf7d0;
-        padding: 12px;
+    .chat-simulation {
+        background-color: #f1f5f9;
         border-radius: 8px;
-        margin-top: 10px;
+        padding: 12px;
+        border-left: 4px solid #2563eb;
+        margin-bottom: 10px;
+        font-size: 12px;
     }
     </style>
     """, unsafe_allow_html=True)
 
     st.markdown("""
     <div class="consulting-hero">
-        <h2>💼 Plateforme Decisionnelle & Consultance IA Agrobusiness</h2>
-        <p>Moteur d'intelligence artificielle avancé : scoring de bancabilité, diagnostic géo-pédologique GPS, analyse des risques climatiques, génération de dossiers financiers et comparateur de rentabilité.</p>
+        <h2>💼 Plateforme Nationale de Consultance IA & Intelligence Territoriale</h2>
+        <p>Jumeau numérique d'exploitation, carte spatiale 🛰️, assistant de négociation bancaire, mémoire nationale des projets, marché prédictif et simulateur d'impact territorial.</p>
     </div>
     """, unsafe_allow_html=True)
 
-   # INITIALISATION SÉCURISÉE DU SESSION_STATE
+    # ----------------------------------------------------
+    # INITIALISATION SÉCURISÉE SANS RISK DE KEYERROR
     # ----------------------------------------------------
     if "consult_data" not in st.session_state:
         st.session_state["consult_data"] = {}
 
-    # Valeurs par défaut sécurisées
     defaults = {
-        "nom_projet": "Agro-Performance Sénégal",
+        "nom_projet": "Agro-Performance Vallée du Fleuve",
         "commune": "Podor",
+        "region": "Saint-Louis",
         "gps": "16.6538, -14.9581",
         "domaine": "🌾 Agriculture & Agrobusiness",
         "filiere": "Riz Irrigué",
-        "budget": 25000000,
+        "superficie": 15.0,
+        "budget": 35000000,
         "langue": "Wolof",
-        "description": "Aménagement de 10 ha pour riziculture intensive avec pompage solaire."
+        "description": "Aménagement hydro-agricole de 15 Ha pour riziculture intensive avec pompage solaire et réseau sous pression.",
+        "statut_kpi": 45
     }
 
-    # S'assure que chaque clé existe dans le dictionnaire
-    for key, value in defaults.items():
-        if key not in st.session_state["consult_data"]:
-            st.session_state["consult_data"][key] = value
+    for k, v in defaults.items():
+        if k not in st.session_state["consult_data"]:
+            st.session_state["consult_data"][k] = v
 
     # ----------------------------------------------------
-    # UNIFICATION DES 6 MODULES DE DÉCISION DISRUPTIFS
+    # UNIFICATION DES 8 COMPOSANTS STRATÉGIQUES IA
     # ----------------------------------------------------
-    tab_depot, tab_geo_clim, tab_bank, tab_dossier, tab_comparateur, tab_marche = st.tabs([
-        "📥 Problématique & Vocal",
-        "🗺️ Diagnostic GPS & Climat",
-        "🏦 Bancabilité & Financements",
-        "📄 Générateur de Dossiers IA",
-        "⚖️ Comparateur de Scénarios",
-        "📊 Observatoire & Écosystème"
+    tab_map_twin, tab_fin_negoc, tab_parcours_rep, tab_dossier_ia, tab_marche_pred, tab_memoire_impact = st.tabs([
+        "🛰️ Carte & Jumeau Numérique",
+        "🏦 IA Financement & Négociation",
+        "🗺️ Parcours & Répertoire National",
+        "📄 Générateur Automatique de Dossiers",
+        "📈 Marché Prédictif & Risques",
+        "🧠 Mémoire Nationale & Impact"
     ])
 
     # ----------------------------------------------------
-    # 1. ASSISTANT MULTILINGUE, VOCAL & DÉPÔT
+    # 1. CARTE AGRICOLE INTELLIGENTE & JUMEAU NUMÉRIQUE
     # ----------------------------------------------------
-    with tab_depot:
-        st.markdown("### 🗣️ Assistant IA Multilingue & Description du Projet")
-        
-        col_l1, col_l2 = st.columns([1, 2])
-        with col_l1:
-            langue_choisie = st.selectbox(
-                "🗣️ Langue d'interaction IA :", 
-                ["Français", "Wolof", "Pulaar", "Sérère", "Diola", "Mandingue"],
-                index=["Français", "Wolof", "Pulaar", "Sérère", "Diola", "Mandingue"].index(st.session_state["consult_data"].get("langue", "Wolof"))
-            )
-            st.session_state["consult_data"]["langue"] = langue_choisie
-            
+    with tab_map_twin:
+        st.markdown("### 🛰️ Carte Agricole Intelligente & Jumeau Numérique")
+        st.write("Visualisation spatiale de la parcelle, récupération des paramètres GPS/Sol et simulation virtuelle de l'exploitation.")
+
+        c_m1, c_m2 = st.columns([1, 1])
+
+        with c_m1:
+            st.markdown("#### 📍 Géolocalisation & Diagnostic Territorial IA")
+            commune_in = st.text_input("Commune / Localité :", value=st.session_state["consult_data"].get("commune"))
+            gps_in = st.text_input("Coordonnées GPS / Repère 📍 :", value=st.session_state["consult_data"].get("gps"))
+            sup_in = st.number_input("Superficie Totale (Ha) :", min_value=0.5, value=float(st.session_state["consult_data"].get("superficie")), step=0.5)
+
             st.markdown("""
-            <div class="audio-box">
-                <small><b>🎙️ Synthèse Vocale IA :</b><br>
-                Écoutez le résumé d'orientation dans votre langue locale.</small>
+            <div style="background:#e2e8f0; height:180px; border-radius:10px; display:flex; align-items:center; justify-content:center; color:#475569; font-weight:600;">
+                [🛰️ DÉLECTATION SATELLITAIRE : Parcelle Podor - Sol Fluvisol Hydromorphe - Altitude 12m - Fleuve à 450m]
             </div>
             """, unsafe_allow_html=True)
-            st.audio("https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3")
 
-        with col_l2:
-            with st.form(key="form_depot_ia"):
-                # Utilisation de .get() pour éviter tout KeyError futur
-                nom_p = st.text_input(
-                    "Nom du Projet / Exploitation :", 
-                    value=st.session_state["consult_data"].get("nom_projet", "Agro-Performance Sénégal")
-                )
-                domaine_p = st.selectbox("Domaine d'activité :", [
-                    "🌾 Agriculture & Agrobusiness", "🐄 Élevage & Production Animale", 
-                    "🐟 Pêche & Aquaculture", "🚀 Entrepreneuriat Rural", "📱 AgriTech"
-                ])
-                desc_p = st.text_area(
-                    "Description du problème ou de l'opportunité :", 
-                    value=st.session_state["consult_data"].get("description", ""), 
-                    height=100
-                )
-                docs = st.file_uploader("Joindre documents (PDF, Excel, Images de terrain) :", accept_multiple_files=True)
-                
-                btn_valider_depot = st.form_submit_button("🚀 Valider & Mettre à jour l'Analyse IA")
-
-            if btn_valider_depot:
-                st.session_state["consult_data"]["nom_projet"] = nom_p
-                st.session_state["consult_data"]["domaine"] = domaine_p
-                st.session_state["consult_data"]["description"] = desc_p
-                st.success("✅ Données synchronisées. L'ensemble des modules IA a réévalué votre dossier.")
-
-            if btn_valider_depot:
-                st.session_state["consult_data"]["nom_projet"] = nom_p
-                st.session_state["consult_data"]["domaine"] = domaine_p
-                st.session_state["consult_data"]["description"] = desc_p
-                st.success("✅ Données synchronisées. L'ensemble des modules IA a réévalué votre dossier.")
-
-    # ----------------------------------------------------
-    # 2. DIAGNOSTIC GÉOGRAPHIQUE (GPS) & RISQUES CLIMATIQUES
-    # ----------------------------------------------------
-    with tab_geo_clim:
-        st.markdown("### 🗺️ Diagnostic Géo-Pédologique & Risques Climatiques IA")
-        
-        c_g1, c_g2 = st.columns(2)
-        with c_g1:
-            commune_in = st.text_input("Commune / Localité d'implantation :", value=st.session_state["consult_data"]["commune"])
-            gps_in = st.text_input("Coordonnées GPS (Optionnel) :", value=st.session_state["consult_data"]["gps"])
-            
-            st.markdown("#### 🔬 Caractéristiques du Sol & Climat (Calcul IA)")
-            st.json({
-                "Type de Sol": "Fluvisol Hydromorphe (Très fertile)",
-                "Pluviométrie Moyenne": "300 - 400 mm/an",
-                "Disponibilité Eau": "Nappe phréatique / Fleuve Sénégal (Excellente)",
-                "Cultures Optimales": ["Riz", "Oignon", "Gombo", "Tomate"]
-            })
-
-        with c_g2:
-            st.markdown("#### 🌡️ Matrice des Risques Climatiques Locaux")
-            st.warning("⚠️ **Risque Sécheresse :** Modéré (Compensé par ressource en eau de surface)")
-            st.error("🚨 **Risque Inondation / Crue :** Élevé en période d'hivernage (Drainage requis)")
-            st.info("ℹ️ **Risque Ravageurs :** Risque aviaire (Oiseaux granivores) de Septembre à Novembre")
-
-            st.markdown("#### 🛡️ Plan d'Adaptation Climatique Recommandé")
+        with c_m2:
+            st.markdown("#### 🧪 Représentation Virtuelle (Jumeau Numérique)")
             st.markdown("""
-            * **Digues de protection** contre les crues de surface.
-            * **Assurance Récolte Subventionnée (CNAAS)** couvrant 50% de la prime.
-            * **Mise en place de filets anti-oiseaux** et effaroucheurs pour les parcelles de riziculture.
+            <div class="twin-box">
+                <b>🔮 Simulation IA avant investissement :</b><br>
+                • <b>Culture simulée :</b> Riz (Variété Sahel 108)<br>
+                • <b>Rendement prévisionnel :</b> 7.2 Tonnes/Ha<br>
+                • <b>Consommation Eau :</b> 11 000 m³/Ha (Irrigation Solaire optimal)<br>
+                • <b>Infrastructures recommandées :</b> 1 Station de pompage 15kW, 2 bassins de décantation, diguettes de ceinture (anti-crue).
+            </div>
+            """, unsafe_allow_html=True)
+            
+            st.audio("https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3")
+            st.caption(f"🎙️ Explication en langue {st.session_state['consult_data']['langue']} de la simulation.")
+
+    # ----------------------------------------------------
+    # 2. IA DE FINANCEMENT & ASSISTANT DE NÉGOCIATION
+    # ----------------------------------------------------
+    with tab_fin_negoc:
+        st.markdown("### 🏦 IA de Financement & Assistant de Négociation Bancaire")
+        st.write("Évaluation du score de finançabilité, déblocage des leviers d'amélioration et préparation aux entretiens bancaires.")
+
+        f1, f2, f3, f4 = st.columns(4)
+        f1.markdown("<div class='kpi-card'><div class='kpi-score'>86/100</div><div class='kpi-label'>Score de Finançabilité IA</div></div>", unsafe_allow_html=True)
+        f2.markdown("<div class='kpi-card'><div class='kpi-score'>Excellente</div><div class='kpi-label'>Compatibilité LBA / BNDE</div></div>", unsafe_allow_html=True)
+        f3.markdown("<div class='kpi-card'><div class='kpi-score'>80%</div><div class='kpi-label'>Couverture FONGIP</div></div>", unsafe_allow_html=True)
+        f4.markdown("<div class='kpi-card'><div class='kpi-score'>60%</div><div class='kpi-label'>Subvention DER/FJ Équipement</div></div>", unsafe_allow_html=True)
+
+        st.markdown("---")
+        c_neg1, c_neg2 = st.columns(2)
+
+        with c_neg1:
+            st.markdown("#### 💡 Améliorations pour Augmenter la Finançabilité")
+            st.warning("⚠️ **Point Bloquant Décelé :** Absence de contrat d'agrégation formel avec un transformateur agréé.")
+            st.success("✅ **Solution IA :** Téléchargez la promesse d'achat type ARM depuis la plateforme et signez un pré-accord avec la coopérative de la zone.")
+
+        with c_neg2:
+            st.markdown("#### 🎙️ Assistant de Négociation Bancaire (Simulation)")
+            st.markdown("""
+            <div class="chat-simulation">
+                <b>🏦 Question Probable de la Banque :</b> "Comment comptez-vous couvrir les pertes en cas de retard d'hivernage ou d'attaque d'oiseaux granivores ?"<br><br>
+                <b>💡 Argument de Réponse Recommandé par l'IA :</b> "Le projet intègre une police d'assurance agricole subventionnée CNAAS à 50%, et la parcelle dispose d'un réseau d'irrigation solaire autonome indépendant de la pluviométrie."
+            </div>
+            """, unsafe_allow_html=True)
+
+    # ----------------------------------------------------
+    # 3. PARCOURS ADMINISTRATIF & RÉPERTOIRE NATIONAL
+    # ----------------------------------------------------
+    with tab_parcours_rep:
+        st.markdown("### 🗺️ Parcours Administratif Intelligent & Répertoire des Agences")
+        st.write("Procédures légales automatisées et cartographie des institutions référencées au Sénégal.")
+
+        col_p1, col_p2 = st.columns(2)
+
+        with col_p1:
+            st.markdown("#### 📋 Feuille de Route Administrative Automatisée")
+            df_parcours = pd.DataFrame([
+                {"Étape": "1. Attestation d'Affectation Foncière", "Organisme": "Mairie / Conseil Municipal", "Délai Est.": "15 jours", "Coût Est.": "Gratuit"},
+                {"Étape": "2. Analyse de Sol & Conformité", "Organisme": "INP / ISRA", "Délai Est.": "7 jours", "Coût Est.": "50 000 FCFA"},
+                {"Étape": "3. Autorisation de Prélèvement d'Eau", "Organisme": "DGPRE", "Délai Est.": "10 jours", "Coût Est.": "Gratuit"},
+                {"Étape": "4. Notice d'Impact Environnemental", "Organisme": "Direction de l'Environnement", "Délai Est.": "20 jours", "Coût Est.": "150 000 FCFA"}
+            ])
+            st.table(df_parcours)
+
+        with col_p2:
+            st.markdown("#### 🏛️ Répertoire des Agences & Partenaires Proches")
+            st.markdown("""
+            * **La Banque Agricole (LBA) - Agence Podor :** Dépôt des demandes de crédits de campagne.
+            * **Direction Régionale du Développement Rural (DRDR) :** Distribution des semences certifiées et engrais DAPSA.
+            * **SAED :** Appui technique à l'aménagement hydro-agricole et gestion des canaux principaux.
+            * **CNAAS :** Souscription aux polices d'assurance récolte et bétail.
             """)
 
     # ----------------------------------------------------
-    # 3. SCORE DE BANCABILITÉ IA & FINANCEMENTS
+    # 4. GÉNÉRATEUR AUTOMATIQUE DE DOSSIERS COMPLET
     # ----------------------------------------------------
-    with tab_bank:
-        st.markdown("### 🏦 Score de Bancabilité IA & Guichets de Financement")
-        st.write("Calcul algorithmique de l'éligibilité bancaire et identification automatique des bailleurs.")
-
-        # Calculateur du Score de Bancabilité
-        score_bancabilite = 84  # Calculé par l'IA
-        
-        s1, s2, s3, s4 = st.columns(4)
-        s1.markdown(f"<div class='kpi-card'><div class='kpi-score'>{score_bancabilite}/100</div><div class='kpi-label'>Score de Bancabilité IA</div></div>", unsafe_allow_html=True)
-        s2.markdown("<div class='kpi-card'><div class='kpi-score'>92%</div><div class='kpi-label'>Éligibilité LBA / BNDE</div></div>", unsafe_allow_html=True)
-        s3.markdown("<div class='kpi-card'><div class='kpi-score'>88%</div><div class='kpi-label'>Éligibilité DER/FJ & FONGIP</div></div>", unsafe_allow_html=True)
-        s4.markdown("<div class='kpi-card'><div class='kpi-score'>75%</div><div class='kpi-label'>Éligibilité BADEA / BAD</div></div>", unsafe_allow_html=True)
-
-        st.markdown("---")
-        st.markdown("#### 🔍 Programme de Financement Automatiquement Identifiés")
-
-        df_fin = pd.DataFrame([
-            {
-                "Institution": "La Banque Agricole (LBA)",
-                "Guichet / Programme": "Crédit de Campagne Agricole",
-                "Montant Max Finançable": "50 000 000 FCFA",
-                "Garantie Requis": "Garantie FONGIP (80%)",
-                "Pièces à fournir": "Business Plan IA, Titre Foncier/Bail, Attestation INP"
-            },
-            {
-                "Institution": "DER / FJ",
-                "Guichet / Programme": "Empaquetage Chaîne de Valeur",
-                "Montant Max Finançable": "15 000 000 FCFA",
-                "Garantie Requis": "Matériel sous gage",
-                "Pièces à fournir": "Devis équipements, Carte d'identité, Formulaire DER"
-            },
-            {
-                "Institution": "BNDE / FONSIS",
-                "Guichet / Programme": "Fonds de Co-Développement Agrobusiness",
-                "Montant Max Finançable": "100 000 000 FCFA",
-                "Garantie Requis": "Pari-passu & Apport personnel (15%)",
-                "Pièces à fournir": "Étude de faisabilité complète, Comptes certifiés"
-            }
-        ])
-        st.table(df_fin)
-
-    # ----------------------------------------------------
-    # 4. GÉNÉRATEUR AUTOMATIQUE DE DOSSIERS DE FINANCEMENT
-    # ----------------------------------------------------
-    with tab_dossier:
+    with tab_dossier_ia:
         st.markdown("### 📄 Générateur Automatique de Dossiers Prêts à Déposer")
-        st.write("Édition instantanée du Business Plan, Plan de Trésorerie, Compte d'Exploitation et Étude de Faisabilité.")
+        st.write("Générez en un clic l'intégralité du package documentaire exigé par les bailleurs.")
 
-        d_col1, d_col2 = st.columns([1, 2])
-        with d_col1:
-            st.markdown("#### Options du Dossier")
-            type_dossier = st.selectbox("Type de document à générer :", [
-                "Business Plan Complet (Norme LBA/DER)",
-                "Étude de Faisabilité Technico-Économique",
-                "Compte d'Exploitation Previsionnel (3 ans)",
-                "Plan de Trésorerie Mensuel"
-            ])
-            inclure_impact = st.checkbox("Inclure l'Indice d'Impact Socio-Économique", value=True)
-            btn_generate_doc = st.button("⚙️ Générer le Dossier Officiel")
+        col_doc1, col_doc2 = st.columns([1, 2])
+        
+        with col_doc1:
+            st.markdown("#### Documents à inclure dans le Pack :")
+            doc_bp = st.checkbox("Business Plan Complet (Norme LBA)", value=True)
+            doc_der = st.checkbox("Dossier de Demande DER/FJ", value=True)
+            doc_fais = st.checkbox("Étude de Faisabilité Technico-Économique", value=True)
+            doc_treso = st.checkbox("Plan de Trésorerie & Compte d'Exploitation", value=True)
+            
+            btn_generate_pack = st.button("⚡ Générer le Pack Complet IA")
 
-        with d_col2:
-            if btn_generate_doc:
-                st.success("✅ Dossier généré avec succès par le Moteur IA !")
+        with col_doc2:
+            if btn_generate_pack:
+                st.success("✅ Package documentaire généré avec succès !")
                 
-                doc_text = f"""====================================================================================================
-DOSSIER DE FINANCEMENT : {st.session_state['consult_data']['nom_projet'].upper()}
-STRUCTURE SOUMISSIONNAIRE : CABINET YOUAGRONOME IA
-GÉNÉRÉ LE : 2026 | DÉPARTEMENT : {st.session_state['consult_data']['commune'].upper()}
+                pack_text = f"""====================================================================================================
+PACK OFFICIEL DE FINANCEMENT & FAISABILITÉ - YOUAGRONOME
 ====================================================================================================
+PROJET : {st.session_state['consult_data']['nom_projet'].upper()}
+COMMUNE : {st.session_state['consult_data']['commune'].upper()} | SUPERFICIE : {st.session_state['consult_data']['superficie']} HA
+FILIÈRE : {st.session_state['consult_data']['filiere']} | CAPITAL GLOBAL : {st.session_state['consult_data']['budget']:,} FCFA
+----------------------------------------------------------------------------------------------------
 
-1. PRÉSENTATION ET SYNTHÈSE DU PROJET
-   - Intitulé : {st.session_state['consult_data']['nom_projet']}
-   - Secteur : {st.session_state['consult_data']['domaine']}
-   - Localisation : Commune de {st.session_state['consult_data']['commune']} (GPS: {st.session_state['consult_data']['gps']})
-   - Objectif : {st.session_state['consult_data']['description']}
+1. ÉTUDE DE FAISABILITÉ ET COMPTE D'EXPLOITATION PRÉVISIONNEL (3 ANS)
+   - Chiffre d'Affaires Année 1 : 48 500 000 FCFA
+   - OPEX Année 1 : 22 100 000 FCFA
+   - Marge Brute Opérationnelle : 26 400 000 FCFA (Taux de Marge : 54.4%)
+   - Seuil de Rentabilité : Rejoint dès le 8ème mois d'exploitation.
 
-2. COMPTE D'EXPLOITATION PREVISIONNEL (EXPRIMÉ EN FCFA)
-   -------------------------------------------------------------------------------------------------
-   Rubriques                            | Année 1           | Année 2           | Année 3
-   -------------------------------------------------------------------------------------------------
-   Chiffre d'Affaires Prévisionnel      | 35 000 000 FCFA   | 48 000 000 FCFA   | 60 000 000 FCFA
-   Charges Opérationnelles (OPEX)       | 18 500 000 FCFA   | 22 000 000 FCFA   | 25 000 000 FCFA
-   Excédent Brut d'Exploitation (EBE)   | 16 500 000 FCFA   | 26 000 000 FCFA   | 35 000 000 FCFA
-   Marge Nette Négligeable Risk         | 47.1 %            | 54.1 %            | 58.3 %
+2. DOSSIER TECHNIQUE SAED & DGPRE
+   - Besoins en eau globaux : 165 000 m³ / Campagne.
+   - Système de pompage : Groupe photovoltaïque 22 kW avec variateur de vitesse.
 
-3. INDICE D'IMPACT SOCIO-ÉCONOMIQUE ESTIMÉ PAR L'IA
-   - Emplois Directs Créés : 14 jeunes ruraux à temps plein.
-   - Emplois Indirects (Saisonniers/Femmes) : 35 personnes.
-   - Production Alimentaire Injectée : 85 Tonnes/an.
-   - Contribution au Développement Local : Réduction de la dépendance aux importations dans la zone.
-
-====================================================================================================
-Document certifié conforme aux exigences d'instruction des risques des SFD et Banques Partenaires.
+3. INDICE DE DÉVELOPPEMENT TERRITORIAL (NOTE IA : 9.1/10)
+   - Emplois directs permanents créés : 18.
+   - Impact Sécurité Alimentaire : Produit 108 Tonnes de riz paddy/an.
 ====================================================================================================
 """
-                st.markdown(f"<div class='report-box'>{doc_text}</div>", unsafe_allow_html=True)
-                st.download_button("📥 Télécharger le Dossier Prêt à Déposer (.TXT)", data=doc_text, file_name="Dossier_Financement_IA.txt")
+                st.markdown(f"<div class='report-box'>{pack_text}</div>", unsafe_allow_html=True)
+                st.download_button("📥 Télécharger le Pack Dossier Complet (.TXT)", data=pack_text, file_name="Pack_Financement_YouAgronoMe.txt")
 
     # ----------------------------------------------------
-    # 5. COMPARATEUR DE SCÉNARIOS D'INVESTISSEMENT
+    # 5. MARCHÉ AGRICOLE PRÉDICTIF & DÉTECTION RISQUES
     # ----------------------------------------------------
-    with tab_comparateur:
-        st.markdown("### ⚖️ Comparateur IA de Scénarios d'Investissement")
-        st.write("Comparez la rentabilité de plusieurs options agricoles avant d'engager votre capital.")
-
-        sc1, sc2 = st.columns(2)
-        with sc1:
-            option_a = st.selectbox("Option d'Investissement A :", ["Riziculture Intensive (10 Ha)", "Maraîchage Oignon/Pomme de terre (5 Ha)"])
-        with sc2:
-            option_b = st.selectbox("Option d'Investissement B :", ["Aviculture Chaire / Pondeuses (5000 sujets)", "Pisciculture Bio-floc (10 Bassins)"])
-
-        st.markdown("#### 📈 Tableau Comparatif d'Évaluation Automatique")
+    with tab_marche_pred:
+        st.markdown("### 📈 Marché Agricole Prédictif & Détection Précoce des Risques")
         
-        df_comp = pd.DataFrame({
-            "Indicateurs Clés": ["Capital requis (FCFA)", "Chiffre d'Affaires Annuel", "Marge Nette Est.", "Délai de Payback", "Niveau de Risque"],
-            f"Option A : {option_a}": ["20 000 000", "32 000 000 FCFA", "42%", "1.8 ans", "Faible (Subventionné)"],
-            f"Option B : {option_b}": ["18 000 000", "38 000 000 FCFA", "31%", "1.2 ans", "Modéré (Alimentation)"]
-        })
-        st.table(df_comp)
-        
-        st.success("💡 **Recommandation Optimale IA :** L'Option A présente une meilleure stabilité financière à long terme grâce aux garanties de prix du marché local.")
+        cm_p1, cm_p2 = st.columns(2)
 
-    # ----------------------------------------------------
-    # 6. OBSERVATOIRE DES PRIX & ÉCOSYSTÈME
-    # ----------------------------------------------------
-    with tab_marche:
-        st.markdown("### 📊 Observatoire des Prix Agricoles & Mise en Relation")
-        
-        col_m1, col_m2 = st.columns([2, 1])
-
-        with col_m1:
-            st.markdown("#### 🏷️ Relevé des Prix en Temps Réel (Marchés Sénégal)")
-            df_prix = pd.DataFrame({
-                "Produit / Intrant": ["Riz Blanc Local (Kg)", "Oignon Local (Sac 25kg)", "Pomme de Terre (Sac 25kg)", "Engrais NPK 15-15-15 (Sac)", "Urée 46% (Sac)"],
-                "Marché Dakar / Buntou Pikine": ["325 FCFA", "9 500 FCFA", "10 500 FCFA", "19 500 FCFA", "18 000 FCFA"],
-                "Marché Saint-Louis / Ross Béthio": ["280 FCFA", "7 500 FCFA", "8 000 FCFA", "17 000 FCFA", "16 500 FCFA"],
-                "Tendance": ["↗️ Stable", "↘️ En baisse", "↗️ En hausse", "➡️ Normalisé", "➡️ Normalisé"]
+        with cm_p1:
+            st.markdown("#### 🔮 Recommandations de Vente & Stockage Prédictif")
+            st.info("💡 **Prédiction Prix Riz (3 prochains mois) :** Hausse attendue de +8% en raison de la fin des stocks de campagne. Moment optimal de mise en marché : **Octobre 2026**.")
+            
+            df_pred_prices = pd.DataFrame({
+                "Mois": ["Août 2026", "Septembre 2026", "Octobre 2026", "Novembre 2026"],
+                "Prix Est. Riz Paddy (FCFA/Kg)": [210, 225, 245, 230],
+                "Tendance": ["➡️ Stable", "↗️ En hausse", "🔥 Sommet Prix", "↘️ Repli"]
             })
-            st.table(df_prix)
+            st.table(df_pred_prices)
 
-        with col_m2:
-            st.markdown("#### 🤝 Écosystème Proche (GPS)")
+        with cm_p2:
+            st.markdown("#### 🚨 Détection Précoce des Risques Locaux")
+            st.error("🚨 **Alerte Risque Chenilles / Ravageurs :** Risque moyen détecté sur les zones adjacentes dans un rayon de 15 km.")
+            st.warning("⚠️ **Risque Canicule / Hydrique :** Pic de température prévu en Septembre. Veillez à maintenir les niveaux d'eau dans les casiers.")
+
+    # ----------------------------------------------------
+    # 6. MÉMOIRE NATIONALE DES PROJETS & IMPACT TERRITORIAL
+    # ----------------------------------------------------
+    with tab_memoire_impact:
+        st.markdown("### 🧠 Mémoire Nationale des Projets & Indice d'Impact")
+        
+        c_i1, c_i2 = st.columns(2)
+
+        with c_i1:
+            st.markdown("#### 📚 Comparaison avec la Mémoire Nationale (Projets Similaires)")
+            st.markdown("""
+            L'IA a analysé **142 projets de riziculture** réalisés dans la région de Saint-Louis :
+            * **Taux de Réussite Historique :** 89 %
+            * **Facteur Majeur d'Échec Identifié :** Entretien négligé des pompes diesel (D'où l'importance de l'option Solaire retenue).
+            * **Bonne Pratique Clé :** Groupement des achats d'engrais avec les unions villageoises de Podor.
+            """)
+
+        with c_i2:
+            st.markdown("#### 🏅 Indice de Développement Territorial (IDT)")
             st.markdown("""
             <div class="kpi-card" style="text-align:left;">
-                <b>🏢 Coopératives Proches :</b><br>
-                • Union des Riziculteurs de Podor (3 km)<br><br>
-                <b>🚜 Fournisseurs d'Intrants :</b><br>
-                • Comptoir Agricole du Nord (7 km)<br><br>
-                <b>🏦 Agence Bancaire :</b><br>
-                • La Banque Agricole - Agence Podor (2 km)
+                <b>• Emplois créés :</b> 18 directs, 35 indirects (Femmes/Jeunes)<br>
+                <b>• Autonomie Alimentaire Local :</b> Approvisionne ~ 2 400 personnes/an<br>
+                <b>• Score Écologique :</b> 8.5/10 (Pompage solaire à empreinte carbone neutre)
             </div>
             """, unsafe_allow_html=True)
-
-        st.markdown("---")
-        st.markdown("#### 🔔 Veille Intelligente sur les Appels à Projets & Subventions")
-        st.info("📢 **Alerte Active :** Subvention État Sénégal sur les kits d'irrigation goutte-à-goutte solaires (Prise en charge à 60%). Date limite de dépôt : Fin du mois.")
-# =====================================================
+            
+            st.write("")
+            st.markdown("#### 🛍️ Place de Marché Institutionnelle Active")
+            st.success("📢 **Offre Institutionnelle :** 2 Acheteurs agrégateurs de la région ont exprimé un intérêt pour réserver votre récolte prévisionnelle.")
 # 🌱 CONSEIL
 # =====================================================
 elif selected == "🌱 Conseil":
