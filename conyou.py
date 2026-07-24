@@ -930,14 +930,12 @@ elif selected == "💼 Consultance":
             except Exception:
                 data = default_db
 
-        # Filtrage strict : ne garder dans la whitelist QUE les dictionnaires valides
         raw_whitelist = data.get("whitelist", [])
         if not isinstance(raw_whitelist, list):
             raw_whitelist = []
 
         clean_whitelist = [u for u in raw_whitelist if isinstance(u, dict)]
 
-        # Recherche et mise à jour forcée du propriétaire principal
         owner_found = False
         for user in clean_whitelist:
             user_email = str(user.get("email", "")).strip().lower()
@@ -955,7 +953,6 @@ elif selected == "💼 Consultance":
         if "historique" not in data or not isinstance(data["historique"], list):
             data["historique"] = []
 
-        # Sauvegarde de la base nettoyée
         try:
             with open(DB_FILE, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=4, ensure_ascii=False)
@@ -1022,7 +1019,6 @@ elif selected == "💼 Consultance":
     if "dpv_alert_sent" not in st.session_state:
         st.session_state["dpv_alert_sent"] = False
 
-    # Variables globales d'analyse synchronisées
     if "farm_producer" not in st.session_state:
         st.session_state["farm_producer"] = "GIE Bokk Liggeey"
     if "farm_zone" not in st.session_state:
@@ -1049,7 +1045,6 @@ elif selected == "💼 Consultance":
     if not isinstance(whitelist_data, list):
         whitelist_data = []
 
-    # Dictionnaire sécurisé des utilisateurs autorisés
     authorized_users = {}
     for user in whitelist_data:
         if isinstance(user, dict) and user.get("statut") == "Actif":
@@ -1107,6 +1102,164 @@ elif selected == "💼 Consultance":
             area_m2 = abs(area) / 2.0
             return round(area_m2 / 10000.0, 2)
 
+        # --- GENERATEUR DE PDF CONDENSÉ 3 PAGES ---
+        def generate_3page_pdf(producer, zone, sol, crop, surface, ph, mo, coords, user_info, dpv_status):
+            buffer = io.BytesIO()
+            doc = SimpleDocTemplate(
+                buffer,
+                pagesize=letter,
+                leftMargin=36,
+                rightMargin=36,
+                topMargin=36,
+                bottomMargin=36
+            )
+            
+            styles = getSampleStyleSheet()
+            primary_color = colors.HexColor("#052e16")
+            secondary_color = colors.HexColor("#16a34a")
+            accent_bg = colors.HexColor("#f0fdf4")
+            
+            title_style = ParagraphStyle('TitleStyle', parent=styles['Heading1'], fontName='Helvetica-Bold', fontSize=18, textColor=primary_color, alignment=1, spaceAfter=8)
+            h2_style = ParagraphStyle('H2Style', parent=styles['Heading2'], fontName='Helvetica-Bold', fontSize=12, textColor=secondary_color, spaceBefore=8, spaceAfter=6)
+            body_style = ParagraphStyle('BodyStyle', parent=styles['Normal'], fontName='Helvetica', fontSize=9, leading=12, textColor=colors.HexColor("#1e293b"))
+            body_bold = ParagraphStyle('BodyBold', parent=body_style, fontName='Helvetica-Bold')
+
+            dap_h, ure_h, kcl_h = BAREMES_ISRA.get(crop, (150, 150, 50))
+            tot_dap, tot_ure, tot_kcl = int(dap_h * surface), int(ure_h * surface), int(kcl_h * surface)
+            sacs_dap, sacs_ure, sacs_kcl = int(np.ceil(tot_dap/50)), int(np.ceil(tot_ure/50)), int(np.ceil(tot_kcl/50))
+
+            story = []
+
+            # ================= PAGE 1 =================
+            story.append(Paragraph("🌾 RAPPORT D'EXPERTISE AGRO-PÉDOLOGIQUE 360°", title_style))
+            story.append(Paragraph(f"<b>Référence :</b> RAP-{datetime.now().strftime('%Y%m%d-%H%M')} | <b>Date :</b> {datetime.now().strftime('%d/%m/%Y à %H:%M')}", ParagraphStyle('Sub', parent=body_style, alignment=1, textColor=colors.gray)))
+            story.append(HRFlowable(width="100%", thickness=1.5, color=primary_color, spaceBefore=6, spaceAfter=10))
+
+            story.append(Paragraph("📌 1. Fiche d'Identification de l'Exploitation", h2_style))
+            data_id = [
+                [Paragraph("<b>Producteur / Organisation :</b>", body_style), Paragraph(producer, body_style), Paragraph("<b>Superficie Totale :</b>", body_style), Paragraph(f"{surface} Ha", body_bold)],
+                [Paragraph("<b>Zone Ecogéographique :</b>", body_style), Paragraph(zone, body_style), Paragraph("<b>Culture Déclarée :</b>", body_style), Paragraph(crop, body_bold)],
+                [Paragraph("<b>Expert Référent :</b>", body_style), Paragraph(f"{user_info.get('nom', 'N/A')}", body_style), Paragraph("<b>Rôle Expert :</b>", body_style), Paragraph(f"{user_info.get('role', 'N/A')}", body_style)]
+            ]
+            t_id = Table(data_id, colWidths=[130, 140, 130, 140])
+            t_id.setStyle(TableStyle([
+                ('BACKGROUND', (0,0), (-1,-1), accent_bg),
+                ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor("#bbf7d0")),
+                ('PADDING', (0,0), (-1,-1), 6)
+            ]))
+            story.append(t_id)
+
+            story.append(Paragraph("🗺️ 2. Localisation SIG & Coordonnées GPS", h2_style))
+            gps_str = ", ".join([f"P{i+1}:({lat:.4f},{lon:.4f})" for i, (lat, lon) in enumerate(coords[:6])]) if coords else f"Centre: ({st.session_state['consult_gps']['lat']:.4f}, {st.session_state['consult_gps']['lon']:.4f})"
+            story.append(Paragraph(f"<b>Polygone Terrain Enregistré :</b> {gps_str}", body_style))
+            
+            story.append(Spacer(1, 10))
+            story.append(Paragraph("🧪 3. Caractérisation Pédologique du Sol", h2_style))
+            sol_details = BASE_SOLS_INP_FULL.get(zone, {}).get(sol, {})
+            data_sol = [
+                ["Indicateur Pédologique", "Valeur Mesurée / Estimée", "Seuil Optimal / Standard", "Interprétation Agonomique"],
+                ["Type Typologique Sol", sol, "-", "Référentiel National INP Sénégal"],
+                ["pH (Potentiel Hydrogène)", f"{ph:.2f}", "6.0 - 7.2", "Favorable / Neutre" if 6.0 <= ph <= 7.2 else ("Acide" if ph < 6.0 else "Alcalin")],
+                ["Matière Organique (MO)", f"{mo:.2f} %", "> 2.0 %", "Satisfaisant" if mo >= 1.5 else "Déficitaire (Apport compost requis)"],
+                ["Capacité de Rétention", sol_details.get("Rétention", "Moyenne"), "Moyenne - Forte", "Bonne gestion du stress hydrique"],
+                ["Qualité du Drainage", sol_details.get("Drainage", "Bon"), "Bon / Modéré", "Infiltration régulière"]
+            ]
+            t_sol = Table(data_sol, colWidths=[140, 110, 110, 180])
+            t_sol.setStyle(TableStyle([
+                ('BACKGROUND', (0,0), (-1,0), primary_color),
+                ('TEXTCOLOR', (0,0), (-1,0), colors.white),
+                ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor("#cbd5e1")),
+                ('PADDING', (0,0), (-1,-1), 5),
+                ('ALIGN', (1,1), (2,-1), 'CENTER')
+            ]))
+            story.append(t_sol)
+
+            # ================= PAGE 2 =================
+            story.append(PageBreak())
+            story.append(Paragraph("📊 4. Plan de Fertilisation Intégré & Recommandations ISRA", h2_style))
+            story.append(Paragraph("Besoins en unités fertilisantes calculés sur la base des barèmes officiels ISRA / ITRA pour un rendement optimal :", body_style))
+            story.append(Spacer(1, 6))
+
+            data_fert = [
+                ["Engrais Spécifique", "Dose Recommandée / Ha", "Besoin Total Parcelle", "Conditionnement Requis"],
+                ["DAP (18-46-0)", f"{dap_h} kg / Ha", f"{tot_dap} kg", f"{sacs_dap} sacs de 50 kg"],
+                ["Urée Fractionnée (46% N)", f"{ure_h} kg / Ha", f"{tot_ure} kg", f"{sacs_ure} sacs de 50 kg"],
+                ["Chlorure de Potasse (KCl)", f"{kcl_h} kg / Ha", f"{tot_kcl} kg", f"{sacs_kcl} sacs de 50 kg"]
+            ]
+            t_fert = Table(data_fert, colWidths=[140, 120, 130, 150])
+            t_fert.setStyle(TableStyle([
+                ('BACKGROUND', (0,0), (-1,0), secondary_color),
+                ('TEXTCOLOR', (0,0), (-1,0), colors.white),
+                ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor("#cbd5e1")),
+                ('PADDING', (0,0), (-1,-1), 6),
+                ('ALIGN', (1,1), (-1,-1), 'CENTER')
+            ]))
+            story.append(t_fert)
+
+            story.append(Spacer(1, 10))
+            story.append(Paragraph("🐛 5. Diagnostic Entomologique & Santé Végétale (IA / DPV)", h2_style))
+            
+            dpv_txt = "<b>Alerte transmise avec succès à la Direction de la Protection des Végétaux (DPV)</b>" if dpv_status else "Surveillance de routine (Aucune alerte critique envoyée)"
+            data_entomo = [
+                ["Paramètre Sanitaire", "Résultat Diagnostic IA"],
+                ["Statut de la Transmission DPV", Paragraph(dpv_txt, body_style)],
+                ["Ravageur Détecté (Vision IA)", "Chenille Légionnaire d'Automne (Spodoptera frugiperda)"],
+                ["Indice de Confiance IA", "96.2 % (Détection Haute Précision)"],
+                ["Seuil d'Ntervention", "Atteint (> 5% des plants affectés)"],
+                ["Traitement Biologique Suggéré", "Bacillus thuringiensis ou Extrait d'Huile de Neem (3 L/Ha)"],
+                ["Traitement Chimique Homologué", "Emamectine benzoate (0.25 L/Ha) sous contrôle technique"]
+            ]
+            t_entomo = Table(data_entomo, colWidths=[180, 360])
+            t_entomo.setStyle(TableStyle([
+                ('BACKGROUND', (0,0), (0,-1), accent_bg),
+                ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor("#bbf7d0")),
+                ('PADDING', (0,0), (-1,-1), 6)
+            ]))
+            story.append(t_entomo)
+
+            # ================= PAGE 3 =================
+            story.append(PageBreak())
+            story.append(Paragraph("🌿 6. Suivi Satellitaire (NDVI) & Bilan Hydrique Dynamique", h2_style))
+            
+            data_sat = [
+                ["Métrique Satellitaire", "Valeur Observée", "Statut / Recommandation"],
+                ["Indice de Vigueur Végétale (NDVI)", "0.76 (Bonne santé)", "Activité photosynthétique optimale"],
+                ["Stress Hydrique Estimé", "Faible à Modéré", "Irrigation régulière requise"],
+                ["Volume d'Eau Recommandé", f"{int(surface * 45)} m³ / jour", f"Calculé pour {surface} Ha de {crop}"]
+            ]
+            t_sat = Table(data_sat, colWidths=[180, 140, 220])
+            t_sat.setStyle(TableStyle([
+                ('BACKGROUND', (0,0), (-1,0), primary_color),
+                ('TEXTCOLOR', (0,0), (-1,0), colors.white),
+                ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor("#cbd5e1")),
+                ('PADDING', (0,0), (-1,-1), 6)
+            ]))
+            story.append(t_sat)
+
+            story.append(Spacer(1, 10))
+            story.append(Paragraph("📝 7. Recommandations Agronomiques Stratégiques & Injonctions", h2_style))
+            story.append(Paragraph("""
+            1. <b>Fractionnement de l'Azote :</b> Appliquer 1/3 de l'Urée au levée et 2/3 au stade de croissance rapide.<br/>
+            2. <b>Correction de la Matière Organique :</b> Épandre 3 à 5 tonnes/Ha de fumier bien décomposé ou de compost avant le prochain cycle.<br/>
+            3. <b>Bio-Surveillance :</b> Maintenir une inspection hebdomadaire des pièges à phéromones pour contrer toute réinfestation.<br/>
+            4. <b>Irrigation Raisonnée :</b> Adapter le volume d'eau en fonction du stade phénologique pour éviter le lessivage des nutriments.
+            """, body_style))
+
+            story.append(Spacer(1, 20))
+            story.append(HRFlowable(width="100%", thickness=1, color=colors.gray, spaceBefore=10, spaceAfter=15))
+            
+            data_sign = [
+                [Paragraph("<b>Signature du Technicien Référent :</b>", body_style), Paragraph("<b>Cachet Officiel & Validation Expert :</b>", body_style)],
+                [Paragraph(f"<br/><br/><b>{user_info.get('nom', 'Agent')}</b><br/>Expert Agronome", body_style), Paragraph("<br/><br/><i>Validé par le Système Agro-IA 360° Sénégal</i>", body_style)]
+            ]
+            t_sign = Table(data_sign, colWidths=[270, 270])
+            t_sign.setStyle(TableStyle([('PADDING', (0,0), (-1,-1), 0)]))
+            story.append(t_sign)
+
+            doc.build(story)
+            buffer.seek(0)
+            return buffer.getvalue()
+
         # --- EN-TÊTE ---
         st.markdown(f"""
         <div style="background: linear-gradient(135deg, #052e16, #15803d); padding:20px; border-radius:10px; color:white; text-align:center;">
@@ -1155,7 +1308,7 @@ elif selected == "💼 Consultance":
                 st.metric("Superficie Calculée", f"{st.session_state['active_surface_ha']} Ha")
 
                 if st.button("💾 Synchroniser la Superficie", type="primary", key="btn_sync_surf"):
-                    st.success(f"✅ Parcelle de {st.session_state['active_surface_ha']} Ha synchronisée instantanément avec tous les modules !")
+                    st.success(f"✅ Parcelle de {st.session_state['active_surface_ha']} Ha synchronisée instantanément !")
 
             with col_m1:
                 if HAS_FOLIUM:
@@ -1184,7 +1337,6 @@ elif selected == "💼 Consultance":
             with col_d1:
                 st.session_state["farm_producer"] = st.text_input("Producteur / Exploitation :", value=st.session_state["farm_producer"], key="p_name_sync")
                 
-                # Sélection Zone
                 zones_keys = list(BASE_SOLS_INP_FULL.keys())
                 z_idx = zones_keys.index(st.session_state["farm_zone"]) if st.session_state["farm_zone"] in zones_keys else 0
                 selected_zone = st.selectbox("Zone Écogéographique :", zones_keys, index=z_idx, key="p_zone_sync")
@@ -1196,7 +1348,6 @@ elif selected == "💼 Consultance":
                     st.session_state["farm_mo"] = float(BASE_SOLS_INP_FULL[selected_zone][st.session_state["farm_sol"]]["MO"])
                     st.rerun()
 
-                # Sélection Sol
                 sols_keys = list(BASE_SOLS_INP_FULL[st.session_state["farm_zone"]].keys())
                 s_idx = sols_keys.index(st.session_state["farm_sol"]) if st.session_state["farm_sol"] in sols_keys else 0
                 selected_sol = st.selectbox("Type de Sol :", sols_keys, index=s_idx, key="p_sol_sync")
@@ -1212,7 +1363,6 @@ elif selected == "💼 Consultance":
                 c_idx = crops_keys.index(st.session_state["farm_crop"]) if st.session_state["farm_crop"] in crops_keys else 0
                 st.session_state["farm_crop"] = st.selectbox("Culture :", crops_keys, index=c_idx, key="p_cult_sync")
                 
-                # Surface synchronisée
                 sup_input = st.number_input("Superficie (Ha) [Synchronisée] :", value=float(st.session_state["active_surface_ha"]), min_value=0.1, step=0.1, key="p_sup_input_sync")
                 st.session_state["active_surface_ha"] = sup_input
 
@@ -1225,10 +1375,9 @@ elif selected == "💼 Consultance":
                 st.session_state["farm_mo"] = st.number_input("Matière Organique (%) :", value=float(st.session_state["farm_mo"]), step=0.1, key="p_mo_sync")
 
             if st.button("💾 Enregistrer et Valider l'Analyse", type="primary", key="btn_save_analysis_global"):
-                st.success("✅ Paramètres de la parcelle enregistrés et synchronisés pour tous les onglets !")
+                st.success("✅ Paramètres de la parcelle enregistrés et synchronisés !")
                 st.rerun()
 
-            # CALCUL DES RECOMMANDATIONS D'ENGRAIS
             dap_h, ure_h, kcl_h = BAREMES_ISRA.get(st.session_state["farm_crop"], (150, 150, 50))
             superficie_p = st.session_state["active_surface_ha"]
 
@@ -1259,7 +1408,7 @@ elif selected == "💼 Consultance":
                 with col_i2:
                     st.markdown("#### 🤖 Résultat du Modèle de Vision")
                     with st.spinner("Segmentation et classification du ravageur..."):
-                        st.success("**Attaque Détectée :** Chenille Légionnaire (Spodoptera frugiperda) — Indice de Confiance: 96.2%")
+                        st.success("**Attaque Détectée :** Chenille Légionnaire (Spodoptera frugiperda) — Confiance: 96.2%")
                         st.markdown("""
                         * **Organes Touchés :** Limbe foliaire et verticille.
                         * **Gravité :** Élevée (Proche du seuil d'infestation critique).
@@ -1269,7 +1418,7 @@ elif selected == "💼 Consultance":
                         if is_expert:
                             if st.button("📡 Transmettre la Fiche d'Alerte Sanitaire à la DPV", type="primary", key="btn_send_dpv"):
                                 st.session_state["dpv_alert_sent"] = True
-                                st.success("✅ Fiche d'alerte transmise à la Direction de la Protection des Végétaux !")
+                                st.success("✅ Fiche d'alerte transmise à la DPV !")
                         else:
                             st.info("🔒 *La transmission d'alerte officielle à la DPV est réservée aux profils 'Expert DPV' et 'Administrateur'.*")
 
@@ -1281,7 +1430,6 @@ elif selected == "💼 Consultance":
         with tabs_main[3]:
             st.subheader("🤖 Diagnostic Synthétique Intégré")
 
-            # Récupération en temps réel des valeurs synchronisées
             prod_val = st.session_state["farm_producer"]
             zone_val = st.session_state["farm_zone"]
             sol_val = st.session_state["farm_sol"]
@@ -1332,15 +1480,48 @@ elif selected == "💼 Consultance":
                 besoin_eau_m3 = int(surf_val * 45)
                 st.metric("Besoin d'Irrigation", f"{besoin_eau_m3} m³/jour", f"Pour {surf_val} Ha")
 
-        # TAB 6 : RAPPORT PDF EXPERT & HISTORIQUE
+        # TAB 6 : RAPPORT PDF EXPERT 3 PAGES & HISTORIQUE
         with tabs_main[5]:
-            st.subheader("📄 Générateur de Rapport Institutionnel & Historique")
+            st.subheader("📄 Générateur de Rapport PDF (3 Pages) & Historique")
 
-            col_h1, col_h2 = st.columns([1, 1])
+            col_pdf1, col_pdf2 = st.columns([1.2, 1])
 
-            with col_h1:
-                st.markdown("#### 💾 Sauvegarde Terrain")
-                if st.button("📥 Enregistrer la Fiche dans l'Historique", key="btn_save_history"):
+            with col_pdf1:
+                st.markdown("#### 📑 Générer le Rapport PDF Officiel (3 Pages)")
+                st.write("Le rapport inclut toutes les données géospatiales, pédologiques, la fertilisation ISRA et le diagnostic DPV.")
+                
+                if HAS_REPORTLAB:
+                    try:
+                        pdf_bytes = generate_3page_pdf(
+                            producer=st.session_state["farm_producer"],
+                            zone=st.session_state["farm_zone"],
+                            sol=st.session_state["farm_sol"],
+                            crop=st.session_state["farm_crop"],
+                            surface=st.session_state["active_surface_ha"],
+                            ph=st.session_state["farm_ph"],
+                            mo=st.session_state["farm_mo"],
+                            coords=st.session_state["draw_coords"],
+                            user_info=current_user,
+                            dpv_status=st.session_state["dpv_alert_sent"]
+                        )
+                        
+                        filename = f"Rapport_Expertise_{st.session_state['farm_producer'].replace(' ', '_')}.pdf"
+                        st.download_button(
+                            label="📥 Télécharger le Rapport PDF (3 Pages Dense)",
+                            data=pdf_bytes,
+                            file_name=filename,
+                            mime="application/pdf",
+                            type="primary",
+                            key="btn_download_pdf_3p"
+                        )
+                    except Exception as e:
+                        st.error(f"Erreur lors de la génération du PDF : {str(e)}")
+                else:
+                    st.warning("⚠️ La bibliothèque `reportlab` n'est pas installée sur le serveur. Exécutez `pip install reportlab` pour activer cette fonction.")
+
+                st.markdown("---")
+                st.markdown("#### 💾 Sauvegarde dans l'Historique")
+                if st.button("📥 Enregistrer la Fiche Actuelle dans la Base", key="btn_save_history"):
                     new_entry = {
                         "id": len(db.get("historique", [])) + 1,
                         "date": datetime.now().strftime("%Y-%m-%d %H:%M"),
@@ -1351,15 +1532,14 @@ elif selected == "💼 Consultance":
                         "zone": st.session_state["farm_zone"],
                         "sol": st.session_state["farm_sol"],
                         "ph": st.session_state["farm_ph"],
-                        "mo": st.session_state["farm_mo"],
-                        "coords": st.session_state["draw_coords"]
+                        "mo": st.session_state["farm_mo"]
                     }
                     db.setdefault("historique", []).append(new_entry)
                     save_db(db)
                     st.success("✅ Fiche sauvegardée dans l'historique !")
                     st.rerun()
 
-            with col_h2:
+            with col_pdf2:
                 st.markdown("#### 📚 Consultation de l'Historique")
                 historique_list = db.get("historique", [])
                 if historique_list:
@@ -1399,7 +1579,7 @@ elif selected == "💼 Consultance":
                                     existing_user["role"] = new_role
                                     existing_user["zone"] = new_zone
                                     existing_user["statut"] = new_statut
-                                    st.success(f"Compte de {new_nom} ({new_email}) mis à jour avec succès !")
+                                    st.success(f"Compte de {new_nom} ({new_email}) mis à jour !")
                                 else:
                                     db["whitelist"].append({
                                         "email": new_email,
@@ -1409,7 +1589,7 @@ elif selected == "💼 Consultance":
                                         "zone": new_zone,
                                         "statut": new_statut
                                     })
-                                    st.success(f"Nouveau compte pour {new_nom} créé avec succès !")
+                                    st.success(f"Nouveau compte pour {new_nom} créé !")
                                 
                                 save_db(db)
                                 st.rerun()
