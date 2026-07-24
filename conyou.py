@@ -973,6 +973,71 @@ elif selected == "💼 Consultance":
 
     db = load_db()
 
+    # --- DATABASES INSTITUTIONNELLES SÉNÉGALAISES ---
+    BASE_SOLS_INP_FULL = {
+        "Vallée du Fleuve Sénégal (Saint-Louis, Matam, Bakel)": {
+            "Sol Deck (Fluvisol Hydromorphe Argileux)": {"pH": 6.8, "MO": 2.1, "N": 0.12, "P": 18, "K": 210, "Rétention": "Très forte (>140mm/m)", "Drainage": "Lent"},
+            "Sol Dior (Arénosol / Sableux Brut)": {"pH": 5.8, "MO": 0.4, "N": 0.03, "P": 8, "K": 60, "Rétention": "Faible (40mm/m)", "Drainage": "Excessif"},
+            "Sol Deck-Dior (Franco-Argilo-Sableux)": {"pH": 6.5, "MO": 1.2, "N": 0.08, "P": 14, "K": 130, "Rétention": "Moyenne (90mm/m)", "Drainage": "Modéré"}
+        },
+        "Zone des Niayes (Dakar, Thiès, Louga Littoral)": {
+            "Sables des Niayes / Céane (Arénosol Eutrique)": {"pH": 6.2, "MO": 0.6, "N": 0.04, "P": 22, "K": 80, "Rétention": "Faible", "Drainage": "Rapide"},
+            "Sol Hydromorphe de Bas-Fond / Niaye": {"pH": 5.5, "MO": 3.8, "N": 0.22, "P": 25, "K": 150, "Rétention": "Forte", "Drainage": "Imparfait"}
+        },
+        "Bassin Arachidier (Kaolack, Fatick, Kaffrine, Diourbel, Louga)": {
+            "Sol Dior (Sol Ferrugineux Tropical non lessivé)": {"pH": 5.7, "MO": 0.5, "N": 0.04, "P": 7, "K": 65, "Rétention": "Faible (50mm/m)", "Drainage": "Rapide"},
+            "Sol Deck-Dior (Franco-Sableux de Plateau)": {"pH": 6.3, "MO": 1.1, "N": 0.07, "P": 12, "K": 110, "Rétention": "Moyenne", "Drainage": "Bon"}
+        },
+        "Casamance (Ziguinchor, Kolda, Sédhiou)": {
+            "Sol Ferrallitique Désaturé (Sol Rouge)": {"pH": 5.2, "MO": 1.8, "N": 0.10, "P": 11, "K": 90, "Rétention": "Moyenne", "Drainage": "Bon"},
+            "Sol Hydromorphe Risicole": {"pH": 5.0, "MO": 2.9, "N": 0.18, "P": 15, "K": 120, "Rétention": "Forte", "Drainage": "Lent"}
+        }
+    }
+
+    BASE_RAVAGEURS_DPV = [
+        {"Nom": "Chenille Légionnaire (Spodoptera frugiperda)", "Cibles": "Maïs, Riz, Sorgho", "Seuil": "5% plants", "Bio": "Bacillus thuringiensis / Neem", "Chimique": "Emamectine benzoate"},
+        {"Nom": "Mouche des Fruits (Bactrocera dorsalis)", "Cibles": "Mangue, Citrus", "Seuil": "2 mouches/piège/j", "Bio": "Piège Méthyl-Eugenol", "Chimique": "Appât Protéique + Spinosad"},
+        {"Nom": "Mineuse de la Tomate (Tuta absoluta)", "Cibles": "Tomate", "Seuil": "3 adultes/piège", "Bio": "Phéromones / Huile Neem", "Chimique": "Chlorantraniliprole"}
+    ]
+
+    BAREMES_ISRA = {
+        "Maïs Hybride": (150, 150, 50),
+        "Riz (Sahel)": (150, 250, 100),
+        "Oignon (Violet Galmi)": (200, 200, 150),
+        "Tomate Industrielle": (250, 200, 200),
+        "Arachide": (100, 0, 50),
+        "Mangue": (300, 150, 300)
+    }
+
+    # --- INITIALISATION ET SYNCHRONISATION DU SESSION STATE ---
+    if "consult_gps" not in st.session_state:
+        st.session_state["consult_gps"] = {"lat": 14.7910, "lon": -16.0700}
+
+    if "draw_coords" not in st.session_state:
+        st.session_state["draw_coords"] = []
+
+    if "active_surface_ha" not in st.session_state:
+        st.session_state["active_surface_ha"] = 1.0
+
+    if "dpv_alert_sent" not in st.session_state:
+        st.session_state["dpv_alert_sent"] = False
+
+    # Variables globales d'analyse synchronisées
+    if "farm_producer" not in st.session_state:
+        st.session_state["farm_producer"] = "GIE Bokk Liggeey"
+    if "farm_zone" not in st.session_state:
+        st.session_state["farm_zone"] = list(BASE_SOLS_INP_FULL.keys())[0]
+    if "farm_sol" not in st.session_state:
+        st.session_state["farm_sol"] = list(BASE_SOLS_INP_FULL[st.session_state["farm_zone"]].keys())[0]
+    if "farm_crop" not in st.session_state:
+        st.session_state["farm_crop"] = "Maïs Hybride"
+    if "farm_stade" not in st.session_state:
+        st.session_state["farm_stade"] = "Levée / Repiquage"
+    if "farm_ph" not in st.session_state:
+        st.session_state["farm_ph"] = float(BASE_SOLS_INP_FULL[st.session_state["farm_zone"]][st.session_state["farm_sol"]]["pH"])
+    if "farm_mo" not in st.session_state:
+        st.session_state["farm_mo"] = float(BASE_SOLS_INP_FULL[st.session_state["farm_zone"]][st.session_state["farm_sol"]]["MO"])
+
     # --- SÉCURITÉ & AUTHENTIFICATION ---
     st.sidebar.markdown("---")
     st.sidebar.subheader("🔒 Connexion & Authentification")
@@ -1000,7 +1065,6 @@ elif selected == "💼 Consultance":
     if user_email_input in authorized_users:
         user_record = authorized_users[user_email_input]
         
-        # Vérification sécurisée du mot de passe
         if user_pass_input == str(user_record.get("password", "")).strip():
             current_user = user_record
             st.sidebar.success(f"✅ **Connexion réussie**\n\n👤 {current_user.get('nom', 'Utilisateur')}\n👑 Rôle : **{current_user.get('role', 'Agent')}**")
@@ -1043,46 +1107,6 @@ elif selected == "💼 Consultance":
             area_m2 = abs(area) / 2.0
             return round(area_m2 / 10000.0, 2)
 
-        # --- DATABASES INSTITUTIONNELLES SÉNÉGALAISES ---
-        BASE_SOLS_INP_FULL = {
-            "Vallée du Fleuve Sénégal (Saint-Louis, Matam, Bakel)": {
-                "Sol Deck (Fluvisol Hydromorphe Argileux)": {"pH": 6.8, "MO": 2.1, "N": 0.12, "P": 18, "K": 210, "Rétention": "Très forte (>140mm/m)", "Drainage": "Lent"},
-                "Sol Dior (Arénosol / Sableux Brut)": {"pH": 5.8, "MO": 0.4, "N": 0.03, "P": 8, "K": 60, "Rétention": "Faible (40mm/m)", "Drainage": "Excessif"},
-                "Sol Deck-Dior (Franco-Argilo-Sableux)": {"pH": 6.5, "MO": 1.2, "N": 0.08, "P": 14, "K": 130, "Rétention": "Moyenne (90mm/m)", "Drainage": "Modéré"}
-            },
-            "Zone des Niayes (Dakar, Thiès, Louga Littoral)": {
-                "Sables des Niayes / Céane (Arénosol Eutrique)": {"pH": 6.2, "MO": 0.6, "N": 0.04, "P": 22, "K": 80, "Rétention": "Faible", "Drainage": "Rapide"},
-                "Sol Hydromorphe de Bas-Fond / Niaye": {"pH": 5.5, "MO": 3.8, "N": 0.22, "P": 25, "K": 150, "Rétention": "Forte", "Drainage": "Imparfait"}
-            },
-            "Bassin Arachidier (Kaolack, Fatick, Kaffrine, Diourbel, Louga)": {
-                "Sol Dior (Sol Ferrugineux Tropical non lessivé)": {"pH": 5.7, "MO": 0.5, "N": 0.04, "P": 7, "K": 65, "Rétention": "Faible (50mm/m)", "Drainage": "Rapide"},
-                "Sol Deck-Dior (Franco-Sableux de Plateau)": {"pH": 6.3, "MO": 1.1, "N": 0.07, "P": 12, "K": 110, "Rétention": "Moyenne", "Drainage": "Bon"}
-            },
-            "Casamance (Ziguinchor, Kolda, Sédhiou)": {
-                "Sol Ferrallitique Désaturé (Sol Rouge)": {"pH": 5.2, "MO": 1.8, "N": 0.10, "P": 11, "K": 90, "Rétention": "Moyenne", "Drainage": "Bon"},
-                "Sol Hydromorphe Risicole": {"pH": 5.0, "MO": 2.9, "N": 0.18, "P": 15, "K": 120, "Rétention": "Forte", "Drainage": "Lent"}
-            }
-        }
-
-        BASE_RAVAGEURS_DPV = [
-            {"Nom": "Chenille Légionnaire (Spodoptera frugiperda)", "Cibles": "Maïs, Riz, Sorgho", "Seuil": "5% plants", "Bio": "Bacillus thuringiensis / Neem", "Chimique": "Emamectine benzoate"},
-            {"Nom": "Mouche des Fruits (Bactrocera dorsalis)", "Cibles": "Mangue, Citrus", "Seuil": "2 mouches/piège/j", "Bio": "Piège Méthyl-Eugenol", "Chimique": "Appât Protéique + Spinosad"},
-            {"Nom": "Mineuse de la Tomate (Tuta absoluta)", "Cibles": "Tomate", "Seuil": "3 adultes/piège", "Bio": "Phéromones / Huile Neem", "Chimique": "Chlorantraniliprole"}
-        ]
-
-        # --- INITIALISATION SESSION STATE ---
-        if "consult_gps" not in st.session_state:
-            st.session_state["consult_gps"] = {"lat": 14.7910, "lon": -16.0700}
-
-        if "draw_coords" not in st.session_state:
-            st.session_state["draw_coords"] = []
-
-        if "active_surface_ha" not in st.session_state:
-            st.session_state["active_surface_ha"] = 1.0
-
-        if "dpv_alert_sent" not in st.session_state:
-            st.session_state["dpv_alert_sent"] = False
-
         # --- EN-TÊTE ---
         st.markdown(f"""
         <div style="background: linear-gradient(135deg, #052e16, #15803d); padding:20px; border-radius:10px; color:white; text-align:center;">
@@ -1109,17 +1133,17 @@ elif selected == "💼 Consultance":
 
             with col_m2:
                 st.markdown("#### 📐 Polygone Terrain")
-                add_lat = st.number_input("Lat :", value=st.session_state["consult_gps"]["lat"], format="%.5f")
-                add_lon = st.number_input("Lon :", value=st.session_state["consult_gps"]["lon"], format="%.5f")
+                add_lat = st.number_input("Lat :", value=st.session_state["consult_gps"]["lat"], format="%.5f", key="sig_lat")
+                add_lon = st.number_input("Lon :", value=st.session_state["consult_gps"]["lon"], format="%.5f", key="sig_lon")
 
-                if st.button("➕ Ajouter ce Sommet"):
+                if st.button("➕ Ajouter ce Sommet", key="btn_add_pt"):
                     st.session_state["draw_coords"].append((add_lat, add_lon))
                     calc_ha = calculate_polygon_area_ha(st.session_state["draw_coords"])
                     if calc_ha > 0:
                         st.session_state["active_surface_ha"] = calc_ha
                     st.rerun()
 
-                if st.button("🗑️ Effacer le Polygone"):
+                if st.button("🗑️ Effacer le Polygone", key="btn_clear_pts"):
                     st.session_state["draw_coords"] = []
                     st.session_state["active_surface_ha"] = 1.0
                     st.rerun()
@@ -1130,8 +1154,8 @@ elif selected == "💼 Consultance":
 
                 st.metric("Superficie Calculée", f"{st.session_state['active_surface_ha']} Ha")
 
-                if st.button("💾 Synchroniser la Superficie", type="primary"):
-                    st.success(f"✅ Parcelle de {st.session_state['active_surface_ha']} Ha synchronisée instantanément !")
+                if st.button("💾 Synchroniser la Superficie", type="primary", key="btn_sync_surf"):
+                    st.success(f"✅ Parcelle de {st.session_state['active_surface_ha']} Ha synchronisée instantanément avec tous les modules !")
 
             with col_m1:
                 if HAS_FOLIUM:
@@ -1158,28 +1182,61 @@ elif selected == "💼 Consultance":
 
             col_d1, col_d2, col_d3 = st.columns(3)
             with col_d1:
-                nom_prod = st.text_input("Producteur / Exploitation :", value="GIE Bokk Liggeey", key="p_name")
-                zone_selected = st.selectbox("Zone Écogéographique :", list(BASE_SOLS_INP_FULL.keys()), key="p_zone")
-                type_sol_inp = st.selectbox("Type de Sol :", list(BASE_SOLS_INP_FULL[zone_selected].keys()), key="p_sol")
+                st.session_state["farm_producer"] = st.text_input("Producteur / Exploitation :", value=st.session_state["farm_producer"], key="p_name_sync")
+                
+                # Sélection Zone
+                zones_keys = list(BASE_SOLS_INP_FULL.keys())
+                z_idx = zones_keys.index(st.session_state["farm_zone"]) if st.session_state["farm_zone"] in zones_keys else 0
+                selected_zone = st.selectbox("Zone Écogéographique :", zones_keys, index=z_idx, key="p_zone_sync")
+                
+                if selected_zone != st.session_state["farm_zone"]:
+                    st.session_state["farm_zone"] = selected_zone
+                    st.session_state["farm_sol"] = list(BASE_SOLS_INP_FULL[selected_zone].keys())[0]
+                    st.session_state["farm_ph"] = float(BASE_SOLS_INP_FULL[selected_zone][st.session_state["farm_sol"]]["pH"])
+                    st.session_state["farm_mo"] = float(BASE_SOLS_INP_FULL[selected_zone][st.session_state["farm_sol"]]["MO"])
+                    st.rerun()
+
+                # Sélection Sol
+                sols_keys = list(BASE_SOLS_INP_FULL[st.session_state["farm_zone"]].keys())
+                s_idx = sols_keys.index(st.session_state["farm_sol"]) if st.session_state["farm_sol"] in sols_keys else 0
+                selected_sol = st.selectbox("Type de Sol :", sols_keys, index=s_idx, key="p_sol_sync")
+                
+                if selected_sol != st.session_state["farm_sol"]:
+                    st.session_state["farm_sol"] = selected_sol
+                    st.session_state["farm_ph"] = float(BASE_SOLS_INP_FULL[st.session_state["farm_zone"]][selected_sol]["pH"])
+                    st.session_state["farm_mo"] = float(BASE_SOLS_INP_FULL[st.session_state["farm_zone"]][selected_sol]["MO"])
+                    st.rerun()
 
             with col_d2:
-                culture_p = st.selectbox("Culture :", ["Maïs Hybride", "Riz (Sahel)", "Oignon (Violet Galmi)", "Tomate Industrielle", "Arachide", "Mangue"], key="p_cult")
-                superficie_p = st.number_input("Superficie (Ha) [Synchronisée] :", value=float(st.session_state["active_surface_ha"]), min_value=0.1, step=0.1, key="p_sup_input")
-                st.session_state["active_surface_ha"] = superficie_p
-                stade_pheno = st.selectbox("Stade Phénologique :", ["Levée / Repiquage", "Croissance végétative", "Floraison / Maturation"], key="p_stade")
+                crops_keys = list(BAREMES_ISRA.keys())
+                c_idx = crops_keys.index(st.session_state["farm_crop"]) if st.session_state["farm_crop"] in crops_keys else 0
+                st.session_state["farm_crop"] = st.selectbox("Culture :", crops_keys, index=c_idx, key="p_cult_sync")
+                
+                # Surface synchronisée
+                sup_input = st.number_input("Superficie (Ha) [Synchronisée] :", value=float(st.session_state["active_surface_ha"]), min_value=0.1, step=0.1, key="p_sup_input_sync")
+                st.session_state["active_surface_ha"] = sup_input
+
+                stades_list = ["Levée / Repiquage", "Croissance végétative", "Floraison / Maturation"]
+                st_idx = stades_list.index(st.session_state["farm_stade"]) if st.session_state["farm_stade"] in stades_list else 0
+                st.session_state["farm_stade"] = st.selectbox("Stade Phénologique :", stades_list, index=st_idx, key="p_stade_sync")
 
             with col_d3:
-                ph_mesure = st.number_input("pH Sol Mesuré :", value=float(BASE_SOLS_INP_FULL[zone_selected][type_sol_inp]["pH"]), step=0.1, key="p_ph")
-                mo_mesure = st.number_input("Matière Organique (%) :", value=float(BASE_SOLS_INP_FULL[zone_selected][type_sol_inp]["MO"]), step=0.1, key="p_mo")
+                st.session_state["farm_ph"] = st.number_input("pH Sol Mesuré :", value=float(st.session_state["farm_ph"]), step=0.1, key="p_ph_sync")
+                st.session_state["farm_mo"] = st.number_input("Matière Organique (%) :", value=float(st.session_state["farm_mo"]), step=0.1, key="p_mo_sync")
 
-            baremes_isra = {"Maïs Hybride": (150, 150, 50), "Riz (Sahel)": (150, 250, 100), "Oignon (Violet Galmi)": (200, 200, 150), "Tomate Industrielle": (250, 200, 200), "Arachide": (100, 0, 50), "Mangue": (300, 150, 300)}
-            dap_h, ure_h, kcl_h = baremes_isra.get(culture_p, (150, 150, 50))
+            if st.button("💾 Enregistrer et Valider l'Analyse", type="primary", key="btn_save_analysis_global"):
+                st.success("✅ Paramètres de la parcelle enregistrés et synchronisés pour tous les onglets !")
+                st.rerun()
+
+            # CALCUL DES RECOMMANDATIONS D'ENGRAIS
+            dap_h, ure_h, kcl_h = BAREMES_ISRA.get(st.session_state["farm_crop"], (150, 150, 50))
+            superficie_p = st.session_state["active_surface_ha"]
 
             tot_dap = int(dap_h * superficie_p)
             tot_ure = int(ure_h * superficie_p)
             tot_kcl = int(kcl_h * superficie_p)
 
-            st.markdown(f"#### 📊 Plan de Recommandations d'Engrais ({superficie_p} Ha)")
+            st.markdown(f"#### 📊 Plan de Recommandations d'Engrais — {st.session_state['farm_crop']} ({superficie_p} Ha)")
             st.table(pd.DataFrame({
                 "Engrais": ["DAP (18-46-0)", "Urée (46% N)", "Chlorure de Potasse (KCl)"],
                 "Dose Unitaire / Ha": [f"{dap_h} kg", f"{ure_h} kg", f"{kcl_h} kg"],
@@ -1191,8 +1248,8 @@ elif selected == "💼 Consultance":
         with tabs_main[2]:
             st.subheader("🐛 Diagnostic Entomologique par Image & Connexion DPV")
             
-            st.info("Chargez ou capturez une photo des dégâts pour identification par modèle de vision par ordinateur.")
-            img_file = st.file_uploader("📷 Fichier Image :", type=["jpg", "jpeg", "png"])
+            st.info(f"Parcelle en cours d'analyse : **{st.session_state['farm_producer']}** ({st.session_state['active_surface_ha']} Ha de {st.session_state['farm_crop']})")
+            img_file = st.file_uploader("📷 Fichier Image :", type=["jpg", "jpeg", "png"], key="entomo_img_uploader")
             
             if img_file is not None:
                 col_i1, col_i2 = st.columns([1, 1.5])
@@ -1210,7 +1267,7 @@ elif selected == "💼 Consultance":
                         """)
                         
                         if is_expert:
-                            if st.button("📡 Transmettre la Fiche d'Alerte Sanitaire à la DPV", type="primary"):
+                            if st.button("📡 Transmettre la Fiche d'Alerte Sanitaire à la DPV", type="primary", key="btn_send_dpv"):
                                 st.session_state["dpv_alert_sent"] = True
                                 st.success("✅ Fiche d'alerte transmise à la Direction de la Protection des Végétaux !")
                         else:
@@ -1224,18 +1281,34 @@ elif selected == "💼 Consultance":
         with tabs_main[3]:
             st.subheader("🤖 Diagnostic Synthétique Intégré")
 
-            if st.button("⚡ Lancer l'Analyse Croisée IA", type="primary"):
-                diag_ph = "Neutre / Favorable" if 6.0 <= ph_mesure <= 7.2 else ("Acide" if ph_mesure < 6.0 else "Alcalin")
-                diag_mo = "Faible (<1.5%)" if mo_mesure < 1.5 else "Satisfaisant"
+            # Récupération en temps réel des valeurs synchronisées
+            prod_val = st.session_state["farm_producer"]
+            zone_val = st.session_state["farm_zone"]
+            sol_val = st.session_state["farm_sol"]
+            crop_val = st.session_state["farm_crop"]
+            stade_val = st.session_state["farm_stade"]
+            surf_val = st.session_state["active_surface_ha"]
+            ph_val = st.session_state["farm_ph"]
+            mo_val = st.session_state["farm_mo"]
+
+            dap_h, ure_h, kcl_h = BAREMES_ISRA.get(crop_val, (150, 150, 50))
+            dap_tot = int(dap_h * surf_val)
+            ure_tot = int(ure_h * surf_val)
+            kcl_tot = int(kcl_h * surf_val)
+
+            if st.button("⚡ Lancer l'Analyse Croisée IA", type="primary", key="btn_run_ia_diag"):
+                diag_ph = "Neutre / Favorable" if 6.0 <= ph_val <= 7.2 else ("Acide" if ph_val < 6.0 else "Alcalin")
+                diag_mo = "Faible (<1.5%)" if mo_val < 1.5 else "Satisfaisant"
 
                 st.markdown(f"""
                 <div style="background-color:#f0fdf4; border:1px solid #86efac; padding:18px; border-radius:8px; color:#14532d;">
-                    <h4>📋 BILAN D'EXPERTISE TERRAIN — {nom_prod.upper()}</h4>
+                    <h4>📋 BILAN D'EXPERTISE TERRAIN — {prod_val.upper()}</h4>
                     <hr/>
                     <p><b>• Agent Référent :</b> {current_user.get('nom', 'N/A')} ({current_user.get('email', 'N/A')})</p>
-                    <p><b>• Exploitation :</b> {superficie_p} Ha — Zone : {zone_selected}</p>
-                    <p><b>• Bilan Sol :</b> pH {ph_mesure} ({diag_ph}) | Taux de MO : {mo_mesure}% ({diag_mo})</p>
-                    <p><b>• Besoins d'Engrais :</b> DAP : {tot_dap} kg | Urée : {tot_ure} kg | KCl : {tot_kcl} kg</p>
+                    <p><b>• Exploitation :</b> {surf_val} Ha de <b>{crop_val}</b> ({stade_val}) — Zone : {zone_val}</p>
+                    <p><b>• Type de Sol :</b> {sol_val}</p>
+                    <p><b>• Bilan Sol :</b> pH {ph_val} ({diag_ph}) | Taux de MO : {mo_val}% ({diag_mo})</p>
+                    <p><b>• Besoins Recommandés en Engrais :</b> DAP : {dap_tot} kg | Urée : {ure_tot} kg | KCl : {kcl_tot} kg</p>
                     <p><b>• Risque Phytosanitaire :</b> {'Alerte transmise DPV' if st.session_state['dpv_alert_sent'] else 'Surveillance normale'}</p>
                 </div>
                 """, unsafe_allow_html=True)
@@ -1244,17 +1317,20 @@ elif selected == "💼 Consultance":
         with tabs_main[4]:
             st.subheader("🌿 Suivi Satellitaire (NDVI) & Bilan Hydrique")
 
+            surf_val = st.session_state["active_surface_ha"]
+            crop_val = st.session_state["farm_crop"]
+
             col_n1, col_n2 = st.columns(2)
             with col_n1:
                 st.markdown("#### 🛰️ Vigueur Végétale")
                 ndvi_val = round(random.uniform(0.62, 0.84), 2)
                 st.metric("Indice NDVI Estimé", f"{ndvi_val}", "+0.05 / 10 jours")
-                st.info("Canopée en bonne santé photosynthétique.")
+                st.info(f"Canopée de **{crop_val}** en bonne santé photosynthétique.")
 
             with col_n2:
                 st.markdown("#### 💧 Besoins en Eau")
-                besoin_eau_m3 = int(superficie_p * 45)
-                st.metric("Besoin d'Irrigation", f"{besoin_eau_m3} m³/jour", f"Pour {superficie_p} Ha")
+                besoin_eau_m3 = int(surf_val * 45)
+                st.metric("Besoin d'Irrigation", f"{besoin_eau_m3} m³/jour", f"Pour {surf_val} Ha")
 
         # TAB 6 : RAPPORT PDF EXPERT & HISTORIQUE
         with tabs_main[5]:
@@ -1264,18 +1340,18 @@ elif selected == "💼 Consultance":
 
             with col_h1:
                 st.markdown("#### 💾 Sauvegarde Terrain")
-                if st.button("📥 Enregistrer la Fiche dans l'Historique"):
+                if st.button("📥 Enregistrer la Fiche dans l'Historique", key="btn_save_history"):
                     new_entry = {
                         "id": len(db.get("historique", [])) + 1,
                         "date": datetime.now().strftime("%Y-%m-%d %H:%M"),
                         "agent": current_user.get('nom', 'N/A'),
-                        "producteur": nom_prod,
-                        "culture": culture_p,
-                        "superficie": superficie_p,
-                        "zone": zone_selected,
-                        "sol": type_sol_inp,
-                        "ph": ph_mesure,
-                        "mo": mo_mesure,
+                        "producteur": st.session_state["farm_producer"],
+                        "culture": st.session_state["farm_crop"],
+                        "superficie": st.session_state["active_surface_ha"],
+                        "zone": st.session_state["farm_zone"],
+                        "sol": st.session_state["farm_sol"],
+                        "ph": st.session_state["farm_ph"],
+                        "mo": st.session_state["farm_mo"],
                         "coords": st.session_state["draw_coords"]
                     }
                     db.setdefault("historique", []).append(new_entry)
@@ -1352,17 +1428,15 @@ elif selected == "💼 Consultance":
                 st.dataframe(df_display, use_container_width=True)
 
                 st.markdown("#### 🚫 Révocation Directe ou Suppression")
-                
-                # Tous les e-mails sont désormais affichés dans la liste déroulante
                 all_emails = [str(u.get("email", "")).strip() for u in valid_users if str(u.get("email", "")).strip()]
                 
                 if all_emails:
-                    email_to_action = st.selectbox("Sélectionner un compte à gérer :", all_emails)
+                    email_to_action = st.selectbox("Sélectionner un compte à gérer :", all_emails, key="select_user_manage")
                     
                     col_act1, col_act2 = st.columns(2)
                     
                     with col_act1:
-                        if st.button("🔒 Rendre Inactif (Désactiver l'accès)", type="secondary"):
+                        if st.button("🔒 Rendre Inactif (Désactiver l'accès)", type="secondary", key="btn_disable_user"):
                             for u in valid_users:
                                 if str(u.get("email", "")).strip().lower() == email_to_action.lower():
                                     u["statut"] = "Inactif"
@@ -1371,7 +1445,7 @@ elif selected == "💼 Consultance":
                             st.rerun()
                             
                     with col_act2:
-                        if st.button("🗑️ Supprimer Définitivement du système", type="primary"):
+                        if st.button("🗑️ Supprimer Définitivement du système", type="primary", key="btn_delete_user"):
                             db["whitelist"] = [
                                 u for u in valid_users 
                                 if str(u.get("email", "")).strip().lower() != email_to_action.lower()
