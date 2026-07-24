@@ -865,12 +865,33 @@ constitue le socle opérationnel pour accélérer la souveraineté alimentaire d
             key="btn_export_multi_agences_v3"
         )
 # =====================================================
-
 # =====================================================
 # 💼 MODULE DE CONSULTANCE STRATÉGIQUE & INTELLIGENCE TERRITORIALE IA
 # =====================================================
 elif selected == "💼 Consultance":
 
+    # ----------------------------------------------------
+    # VÉRIFICATION DE SÉCURITÉ DES IMPORTS
+    # ----------------------------------------------------
+    try:
+        import folium
+        from streamlit_folium import st_folium
+        HAS_FOLIUM = True
+    except ImportError:
+        HAS_FOLIUM = False
+
+    try:
+        from reportlab.lib.pagesizes import letter
+        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.lib import colors
+        HAS_REPORTLAB = True
+    except ImportError:
+        HAS_REPORTLAB = False
+
+    # ----------------------------------------------------
+    # STYLES CSS PERSONNALISÉS
+    # ----------------------------------------------------
     st.markdown("""
     <style>
     .main-header {
@@ -1050,8 +1071,8 @@ elif selected == "💼 Consultance":
         col1, col2 = st.columns([2, 1])
 
         with col1:
-            lat = st.session_state["consult_data"]["gps_lat"]
-            lon = st.session_state["consult_data"]["gps_lon"]
+            lat = float(st.session_state["consult_data"]["gps_lat"])
+            lon = float(st.session_state["consult_data"]["gps_lon"])
 
             if HAS_FOLIUM:
                 m = folium.Map(location=[lat, lon], zoom_start=11, tiles="OpenStreetMap")
@@ -1080,16 +1101,23 @@ elif selected == "💼 Consultance":
                 region_p = st.selectbox("Région Administrative :", [
                     "Saint-Louis", "Thiès", "Louga", "Fatick", "Kaolack", "Ziguinchor", "Kolda", "Tambacounda", "Matam", "Kédougou", "Sedhiou", "Kaffrine", "Dakar", "Diourbel"
                 ], index=0)
+                
+                lat_input = st.number_input("Latitude (GPS) :", value=float(st.session_state["consult_data"]["gps_lat"]), format="%.4f")
+                lon_input = st.number_input("Longitude (GPS) :", value=float(st.session_state["consult_data"]["gps_lon"]), format="%.4f")
+                
                 sup_p = st.number_input("Superficie Totale (Ha) :", min_value=0.5, value=float(st.session_state["consult_data"]["superficie"]), step=1.0)
                 
-                btn_save_c = st.form_submit_button("💾 Mettre à jour le Site")
+                btn_save_c = st.form_submit_button("💾 Mettre à jour le Site & la Carte")
 
             if btn_save_c:
                 st.session_state["consult_data"]["nom_projet"] = nom_p
                 st.session_state["consult_data"]["commune"] = commune_p
                 st.session_state["consult_data"]["region"] = region_p
+                st.session_state["consult_data"]["gps_lat"] = lat_input
+                st.session_state["consult_data"]["gps_lon"] = lon_input
                 st.session_state["consult_data"]["superficie"] = sup_p
-                st.success("✅ Site géolocalisé mis à jour.")
+                st.success("✅ Données du site et carte synchronisées avec succès !")
+                st.rerun()
 
             st.markdown("""
             <div class="feature-card">
@@ -1198,7 +1226,8 @@ elif selected == "💼 Consultance":
         with col_t1:
             st.markdown("#### 📈 6. Indice de Végétation NDVI & Stress Hydrique")
             
-            dates = pd.date_range(start="2026-01-01", periods=6, freq="M")
+            # Utilisation de "ME" (Month End) au lieu de "M" pour compatibilité Pandas
+            dates = pd.date_range(start="2026-01-01", periods=6, freq="ME")
             ndvi_vals = [0.25, 0.45, 0.78, 0.82, 0.60, 0.30]
             df_ndvi = pd.DataFrame({"Date": dates, "Indice NDVI": ndvi_vals}).set_index("Date")
             
