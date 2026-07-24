@@ -917,37 +917,59 @@ elif selected == "💼 Consultance":
             try:
                 with open(DB_FILE, "r", encoding="utf-8") as f:
                     data = json.load(f)
-                    if "whitelist" not in data or not data["whitelist"]:
+                    if not isinstance(data, dict):
+                        return default_db
+                    if "whitelist" not in data or not isinstance(data["whitelist"], list) or not data["whitelist"]:
                         data["whitelist"] = DEFAULT_WHITELIST
-                    if "historique" not in data:
+                    if "historique" not in data or not isinstance(data["historique"], list):
                         data["historique"] = []
                     return data
             except Exception:
                 return default_db
         else:
-            with open(DB_FILE, "w", encoding="utf-8") as f:
-                json.dump(default_db, f, indent=4, ensure_ascii=False)
+            try:
+                with open(DB_FILE, "w", encoding="utf-8") as f:
+                    json.dump(default_db, f, indent=4, ensure_ascii=False)
+            except Exception:
+                pass
             return default_db
 
     def save_db(db_data):
-        with open(DB_FILE, "w", encoding="utf-8") as f:
-            json.dump(db_data, f, indent=4, ensure_ascii=False)
+        try:
+            with open(DB_FILE, "w", encoding="utf-8") as f:
+                json.dump(db_data, f, indent=4, ensure_ascii=False)
+        except Exception:
+            pass
 
     db = load_db()
 
-    # --- SÉCURITÉ & AUTHENTIFICATION LISTE BLANCHE ---
+    # --- SÉCURITÉ & AUTHENTIFICATION LISTE BLANCHE (LIGNE 944 CORRIGÉE) ---
     st.sidebar.markdown("---")
     st.sidebar.subheader("🔒 Authentification Liste Blanche")
     
     user_email_input = st.sidebar.text_input("Adresse e-mail identifiée :", value="agent.ancar@gouv.sn", key="wh_email_input").strip().lower()
     
-    authorized_users = {user["email"].lower(): user for user in db.get("whitelist", []) if user.get("statut") == "Actif"}
+    # --------------------------------------------------------------------------
+    # CORRECTION DE L'ERREUR AttributeError (Ligne 944):
+    # Récupération sécurisée du dictionnaire db et filtrage strict des éléments
+    # --------------------------------------------------------------------------
+    whitelist_data = db.get("whitelist", []) if isinstance(db, dict) else []
+    
+    authorized_users = {
+        user["email"].strip().lower(): user 
+        for user in whitelist_data 
+        if isinstance(user, dict) 
+           and user.get("statut") == "Actif" 
+           and isinstance(user.get("email"), str) 
+           and user.get("email").strip()
+    }
+    # --------------------------------------------------------------------------
     
     if user_email_input in authorized_users:
         current_user = authorized_users[user_email_input]
-        st.sidebar.success(f"✅ **Accès Autorisé**\n\n👤 {current_user['nom']} ({current_user['role']})")
+        st.sidebar.success(f"✅ **Accès Autorisé**\n\n👤 {current_user.get('nom', 'Utilisateur')} ({current_user.get('role', 'Agent')})")
         is_authorized = True
-        is_admin = current_user['role'] in ["Administrateur", "Expert DPV"]
+        is_admin = current_user.get('role') in ["Administrateur", "Expert DPV"]
     else:
         st.sidebar.error("❌ **Accès Non Autorisé**\n\nCet e-mail ne figure pas sur la liste blanche.")
         is_authorized = False
@@ -960,7 +982,7 @@ elif selected == "💼 Consultance":
             st.code("Support : support.agro-ia@gouv.sn", language="text")
 
     else:
-        # --- CALCUL DE SUPERFICIE POLYGONE (GEODÉSIQUE APPROCHÉE) ---
+        # --- CALCUL DE SUPERFICIE POLYGONE (GÉODÉSIQUE APPROCHÉE) ---
         def calculate_polygon_area_ha(coords):
             if len(coords) < 3:
                 return 0.0
@@ -1067,7 +1089,7 @@ elif selected == "💼 Consultance":
         st.markdown(f"""
         <div style="background: linear-gradient(135deg, #052e16, #15803d); padding:20px; border-radius:10px; color:white; text-align:center;">
             <h2 style="margin:0; color:white;">💼 EXPERT AGRO-SÉNÉGAL 360° — SYNCHRONISÉ</h2>
-            <p style="margin:5px 0 0 0; opacity:0.9;">Utilisateur connecté : <b>{current_user['nom']}</b> ({current_user['role']}) — Zone : {current_user['zone']}</p>
+            <p style="margin:5px 0 0 0; opacity:0.9;">Utilisateur connecté : <b>{current_user.get('nom', 'Agent')}</b> ({current_user.get('role', 'Technicien')}) — Zone : {current_user.get('zone', 'N/A')}</p>
         </div>
         <br/>
         """, unsafe_allow_html=True)
@@ -1209,7 +1231,7 @@ elif selected == "💼 Consultance":
                 <div style="background-color:#f0fdf4; border:1px solid #86efac; padding:18px; border-radius:8px; color:#14532d;">
                     <h4>📋 BILAN D'EXPERTISE TERRAIN — {nom_prod.upper()}</h4>
                     <hr/>
-                    <p><b>• Agent Référent :</b> {current_user['nom']} ({current_user['email']})</p>
+                    <p><b>• Agent Référent :</b> {current_user.get('nom', 'N/A')} ({current_user.get('email', 'N/A')})</p>
                     <p><b>• Exploitation :</b> {superficie_p} Ha — Zone : {zone_selected}</p>
                     <p><b>• Bilan Sol :</b> pH {ph_mesure} ({diag_ph}) | Taux de MO : {mo_mesure}% ({diag_mo})</p>
                     <p><b>• Besoins d'Engrais :</b> DAP : {tot_dap} kg | Urée : {tot_ure} kg | KCl : {tot_kcl} kg</p>
@@ -1245,7 +1267,7 @@ elif selected == "💼 Consultance":
                     new_entry = {
                         "id": len(db.get("historique", [])) + 1,
                         "date": datetime.now().strftime("%Y-%m-%d %H:%M"),
-                        "agent": current_user['nom'],
+                        "agent": current_user.get('nom', 'N/A'),
                         "producteur": nom_prod,
                         "culture": culture_p,
                         "superficie": superficie_p,
@@ -1316,7 +1338,7 @@ elif selected == "💼 Consultance":
                         elements.append(HRFlowable(width="100%", thickness=2, color=colors.HexColor("#16a34a"), spaceAfter=20))
 
                         meta_data = [
-                            [Paragraph("<b>Agent Référent :</b>", style_body), Paragraph(f"{current_user['nom']} ({current_user['role']})", style_body)],
+                            [Paragraph("<b>Agent Référent :</b>", style_body), Paragraph(f"{current_user.get('nom', 'N/A')} ({current_user.get('role', 'N/A')})", style_body)],
                             [Paragraph("<b>Producteur / GIE :</b>", style_body), Paragraph(nom_prod, style_body)],
                             [Paragraph("<b>Zone Écogéographique :</b>", style_body), Paragraph(zone_selected, style_body)],
                             [Paragraph("<b>Superficie de la Parcelle :</b>", style_body), Paragraph(f"{superficie_p} Hectares", style_body)],
@@ -1448,7 +1470,7 @@ elif selected == "💼 Consultance":
                         elements.append(Paragraph(
                             "1. <b>Fondation (Semis/Repiquage) :</b> 100% du DAP + 20% de l'Urée.<br/>"
                             "2. <b>Premier Fractionnement (Tallage/Croissance) :</b> 40% de l'Urée + 50% du KCl.<br/>"
-                            "3. <b>Second Fractionnement (Floraison/Maison) :</b> 40% de l'Urée + 50% du KCl.",
+                            "3. <b>Second Fractionnement (Floraison/Maturation) :</b> 40% de l'Urée + 50% du KCl.",
                             style_body
                         ))
                         elements.append(PageBreak())
@@ -1456,7 +1478,7 @@ elif selected == "💼 Consultance":
                         # PAGE 5 : BILAN PHYTOSANITAIRE DPV ET SUIVI NDVI
                         elements.append(Paragraph("5. DIAGNOSTIC PHYTOSANITAIRE DPV & ANALYSE NDVI", style_h1))
                         elements.append(Paragraph(
-                            "Synthese des détections entomologiques et de la vigueur végétale observée par télédétection.",
+                            "Synthèse des détections entomologiques et de la vigueur végétale observée par télédétection.",
                             style_body
                         ))
                         elements.append(Spacer(1, 10))
@@ -1512,7 +1534,7 @@ elif selected == "💼 Consultance":
 
                         sig_data = [
                             [Paragraph("<b>L'Expert / Agent Référent :</b>", style_body), Paragraph("<b>Le Producteur / Représentant :</b>", style_body)],
-                            [Paragraph(f"{current_user['nom']}<br/><i>{current_user['role']}</i>", style_body), Paragraph(f"{nom_prod}<br/><i>Chef d'Exploitation</i>", style_body)],
+                            [Paragraph(f"{current_user.get('nom', 'N/A')}<br/><i>{current_user.get('role', 'N/A')}</i>", style_body), Paragraph(f"{nom_prod}<br/><i>Chef d'Exploitation</i>", style_body)],
                             [Spacer(1, 30), Spacer(1, 30)],
                             [Paragraph("Signature & Cachet :", style_body), Paragraph("Signature :", style_body)]
                         ]
