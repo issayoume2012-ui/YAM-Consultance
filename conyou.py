@@ -1298,19 +1298,19 @@ elif selected == "💼 Consultance":
             if is_admin:
                 st.success("👑 **Panneau de Contrôle Administrateur**")
                 
-                with st.expander("➕ Créer ou mettre à jour un accès utilisateur", expanded=True):
+                with st.expander("➕ Créer ou modifier un utilisateur", expanded=True):
                     with st.form("add_user_form"):
                         col_u1, col_u2 = st.columns(2)
                         with col_u1:
                             new_email = st.text_input("Adresse E-mail :").strip().lower()
-                            new_pass = st.text_input("Mot de passe temporaire :", type="password").strip()
+                            new_pass = st.text_input("Mot de passe :", type="password").strip()
                             new_nom = st.text_input("Nom & Prénom :")
                         with col_u2:
                             new_role = st.selectbox("Rôle attribué :", ["Technicien", "Expert DPV", "Administrateur"])
                             new_zone = st.selectbox("Zone d'affectation :", list(BASE_SOLS_INP_FULL.keys()) + ["Toutes zones"])
                             new_statut = st.selectbox("Statut du compte :", ["Actif", "Inactif"])
                         
-                        submit_btn = st.form_submit_button("✅ Enregistrer l'Utilisateur", type="primary")
+                        submit_btn = st.form_submit_button("✅ Enregistrer / Mettre à jour", type="primary")
                         
                         if submit_btn:
                             if new_email and new_pass and new_nom:
@@ -1323,7 +1323,7 @@ elif selected == "💼 Consultance":
                                     existing_user["role"] = new_role
                                     existing_user["zone"] = new_zone
                                     existing_user["statut"] = new_statut
-                                    st.success(f"Compte de {new_nom} mis à jour !")
+                                    st.success(f"Compte de {new_nom} ({new_email}) mis à jour avec succès !")
                                 else:
                                     db["whitelist"].append({
                                         "email": new_email,
@@ -1351,28 +1351,39 @@ elif selected == "💼 Consultance":
                 
                 st.dataframe(df_display, use_container_width=True)
 
-                st.markdown("#### ❌ Révocation d'un accès")
-                user_emails = [
-                    str(u.get("email", "")).strip() 
-                    for u in valid_users 
-                    if str(u.get("email", "")).strip().lower() != OWNER_EMAIL
-                ]
+                st.markdown("#### 🚫 Révocation Directe ou Suppression")
                 
-                if user_emails:
-                    email_to_remove = st.selectbox("Sélectionner un compte à supprimer :", user_emails)
-                    if st.button("🗑️ Supprimer définitivement l'accès", type="secondary"):
-                        db["whitelist"] = [
-                            u for u in valid_users 
-                            if str(u.get("email", "")).strip().lower() != email_to_remove.lower()
-                        ]
-                        save_db(db)
-                        st.warning(f"Le compte {email_to_remove} a été supprimé.")
-                        st.rerun()
+                # Tous les e-mails sont désormais affichés dans la liste déroulante
+                all_emails = [str(u.get("email", "")).strip() for u in valid_users if str(u.get("email", "")).strip()]
+                
+                if all_emails:
+                    email_to_action = st.selectbox("Sélectionner un compte à gérer :", all_emails)
+                    
+                    col_act1, col_act2 = st.columns(2)
+                    
+                    with col_act1:
+                        if st.button("🔒 Rendre Inactif (Désactiver l'accès)", type="secondary"):
+                            for u in valid_users:
+                                if str(u.get("email", "")).strip().lower() == email_to_action.lower():
+                                    u["statut"] = "Inactif"
+                            save_db(db)
+                            st.warning(f"L'accès pour {email_to_action} a été désactivé !")
+                            st.rerun()
+                            
+                    with col_act2:
+                        if st.button("🗑️ Supprimer Définitivement du système", type="primary"):
+                            db["whitelist"] = [
+                                u for u in valid_users 
+                                if str(u.get("email", "")).strip().lower() != email_to_action.lower()
+                            ]
+                            save_db(db)
+                            st.error(f"Le compte {email_to_action} a été supprimé de la base.")
+                            st.rerun()
                 else:
-                    st.info("Aucun compte secondaire n'est à supprimer pour le moment.")
+                    st.info("Aucun utilisateur trouvé.")
                 
             else:
-                st.warning("🔒 **Accès restreint** : Seul l'administrateur principal peut accorder ou modifier des autorisations.")
+                st.warning("🔒 **Accès restreint** : Seul un administrateur peut modifier ou révoquer les accès.")
 # =====================================================
 elif selected == "🌱 Conseil":
 
