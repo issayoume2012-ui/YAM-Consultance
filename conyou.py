@@ -901,7 +901,7 @@ elif selected == "💼 Consultance":
     # --- BASE DE DONNÉES HISTORIQUE & LISTE BLANCHE ---
     DB_FILE = "techniciens_db.json"
 
-    # Compte Propriétaire Principal Garantie
+    # Compte Propriétaire Principal Garanti
     OWNER_EMAIL = "issayoume2012@gmail.com"
     OWNER_PASS = "issayoume2026"
 
@@ -930,16 +930,18 @@ elif selected == "💼 Consultance":
             except Exception:
                 data = default_db
 
-        # Validation et mise à jour forcée du compte Propriétaire
-        whitelist = data.get("whitelist", [])
-        if not isinstance(whitelist, list):
-            whitelist = []
+        # Filtrage strict : ne garder dans la whitelist QUE les dictionnaires valides
+        raw_whitelist = data.get("whitelist", [])
+        if not isinstance(raw_whitelist, list):
+            raw_whitelist = []
 
-        # On recherche si le propriétaire est déjà présent dans la base
+        clean_whitelist = [u for u in raw_whitelist if isinstance(u, dict)]
+
+        # Recherche et mise à jour forcée du propriétaire principal
         owner_found = False
-        for user in whitelist:
-            if isinstance(user, dict) and user.get("email", "").strip().lower() == OWNER_EMAIL:
-                # Force la mise à jour des identifiants et rôles du propriétaire
+        for user in clean_whitelist:
+            user_email = str(user.get("email", "")).strip().lower()
+            if user_email == OWNER_EMAIL:
                 user["password"] = OWNER_PASS
                 user["role"] = "Administrateur"
                 user["statut"] = "Actif"
@@ -947,13 +949,13 @@ elif selected == "💼 Consultance":
                 break
 
         if not owner_found:
-            whitelist.append(DEFAULT_OWNER)
+            clean_whitelist.append(DEFAULT_OWNER)
 
-        data["whitelist"] = whitelist
+        data["whitelist"] = clean_whitelist
         if "historique" not in data or not isinstance(data["historique"], list):
             data["historique"] = []
 
-        # Sauvegarde systématique pour maintenir la cohérence de la BDD
+        # Sauvegarde de la base nettoyée
         try:
             with open(DB_FILE, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=4, ensure_ascii=False)
@@ -979,16 +981,16 @@ elif selected == "💼 Consultance":
     user_pass_input = st.sidebar.text_input("Mot de passe :", type="password", key="wh_pass_input").strip()
     
     whitelist_data = db.get("whitelist", [])
-    
-    # Dictionnaire des utilisateurs autorisés
-    authorized_users = {
-        user["email"].strip().lower(): user 
-        for user in whitelist_data 
-        if isinstance(user, dict) 
-           and user.get("statut") == "Actif" 
-           and isinstance(user.get("email"), str) 
-           and user.get("email").strip()
-    }
+    if not isinstance(whitelist_data, list):
+        whitelist_data = []
+
+    # Dictionnaire sécurisé des utilisateurs autorisés
+    authorized_users = {}
+    for user in whitelist_data:
+        if isinstance(user, dict) and user.get("statut") == "Actif":
+            email_val = str(user.get("email", "")).strip().lower()
+            if email_val:
+                authorized_users[email_val] = user
 
     is_authorized = False
     is_admin = False
@@ -998,13 +1000,13 @@ elif selected == "💼 Consultance":
     if user_email_input in authorized_users:
         user_record = authorized_users[user_email_input]
         
-        # Vérification du mot de passe
+        # Vérification sécurisée du mot de passe
         if user_pass_input == str(user_record.get("password", "")).strip():
             current_user = user_record
             st.sidebar.success(f"✅ **Connexion réussie**\n\n👤 {current_user.get('nom', 'Utilisateur')}\n👑 Rôle : **{current_user.get('role', 'Agent')}**")
             is_authorized = True
             
-            user_role = current_user.get('role', 'Technicien')
+            user_role = str(current_user.get('role', 'Technicien'))
             is_admin = (user_role == "Administrateur")
             is_expert = user_role in ["Administrateur", "Expert DPV"]
         elif user_pass_input:
@@ -1312,8 +1314,8 @@ elif selected == "💼 Consultance":
                         
                         if submit_btn:
                             if new_email and new_pass and new_nom:
-                                users_list = db.get("whitelist", [])
-                                existing_user = next((u for u in users_list if u.get("email", "").lower() == new_email), None)
+                                users_list = [u for u in db.get("whitelist", []) if isinstance(u, dict)]
+                                existing_user = next((u for u in users_list if str(u.get("email", "")).strip().lower() == new_email), None)
                                 
                                 if existing_user:
                                     existing_user["password"] = new_pass
@@ -1339,7 +1341,8 @@ elif selected == "💼 Consultance":
                                 st.error("Veuillez remplir au minimum l'e-mail, le mot de passe et le nom.")
 
                 st.markdown("#### 📋 Liste des Utilisateurs Enregistrés")
-                df_whitelist = pd.DataFrame(db.get("whitelist", []))
+                valid_users = [u for u in db.get("whitelist", []) if isinstance(u, dict)]
+                df_whitelist = pd.DataFrame(valid_users)
                 
                 if "password" in df_whitelist.columns:
                     df_display = df_whitelist.drop(columns=["password"])
@@ -1349,12 +1352,19 @@ elif selected == "💼 Consultance":
                 st.dataframe(df_display, use_container_width=True)
 
                 st.markdown("#### ❌ Révocation d'un accès")
-                user_emails = [u["email"] for u in db.get("whitelist", []) if u.get("email", "").lower() != OWNER_EMAIL]
+                user_emails = [
+                    str(u.get("email", "")).strip() 
+                    for u in valid_users 
+                    if str(u.get("email", "")).strip().lower() != OWNER_EMAIL
+                ]
                 
                 if user_emails:
                     email_to_remove = st.selectbox("Sélectionner un compte à supprimer :", user_emails)
                     if st.button("🗑️ Supprimer définitivement l'accès", type="secondary"):
-                        db["whitelist"] = [u for u in db.get("whitelist", []) if u.get("email", "").lower() != email_to_remove]
+                        db["whitelist"] = [
+                            u for u in valid_users 
+                            if str(u.get("email", "")).strip().lower() != email_to_remove.lower()
+                        ]
                         save_db(db)
                         st.warning(f"Le compte {email_to_remove} a été supprimé.")
                         st.rerun()
