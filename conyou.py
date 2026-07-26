@@ -43,7 +43,7 @@ except ImportError:
 # 1. INITIALISATION ET CONFIGURATION DE LA PAGE
 # =====================================================
 st.set_page_config(
-    page_title="AgriConsultSn-YAM",
+    page_title="YouAgronoMe",
     page_icon="🌾",
     layout="wide"
 )
@@ -59,9 +59,15 @@ if 'sim_active' not in st.session_state:
 
 
 # =====================================================
-# 2. DESIGN DU MENU DE NAVIGATION (CSS HARMONISÉ)
+# 2. INJECTION DES DEPENDANCES CSS/JS ET DESIGN NAVIGATION
 # =====================================================
 st.markdown("""
+<!-- Chargement des bibliothèques Leaflet & Leaflet.Draw pour l'édition dynamique -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css" />
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
+
 <style>
 .stAppHeader { display: none !important; }
 .main .block-container { padding-top: 15px !important; max-width: 95% !important; }
@@ -577,7 +583,7 @@ elif selected == "📊 Tableau de Bord":
         )
 
     with profil[3]:
-        st.info("💼 **Vue Agrobusiness & Finance** : Financements La Banque Agricole & DER/FJ, capacités logistiques ARM et cultures de rente.")
+        st.info("💼 **Vue Agrobusiness & Finance** : Financements La Banque Agricole & DER/FJ, capacities logistiques ARM et cultures de rente.")
         c1, c2, c3, c4 = st.columns(4)
         with c1:
             st.markdown(f"""
@@ -872,7 +878,7 @@ elif selected == "💼 Consultance":
     }
 
     if "consult_gps" not in st.session_state:
-        st.session_state["consult_gps"] = {"lat": 14.7910, "lon": -16.0700}
+        st.session_state["consult_gps"] = {"lat": 14.6937, "lon": -17.4441}
     if "draw_coords" not in st.session_state:
         st.session_state["draw_coords"] = []
     if "active_surface_ha" not in st.session_state:
@@ -1085,7 +1091,7 @@ elif selected == "💼 Consultance":
         ])
 
         with tabs_main[0]:
-            st.subheader("🗺️ Tracé Géospatial de la Parcelle sur Fond Satellite Esri ArcGIS")
+            st.subheader("🗺️ Tracé Géospatial de la Parcelle avec Leaflet.Draw & Esri Satellite")
             col_m1, col_m2 = st.columns([2.5, 1])
 
             with col_m2:
@@ -1095,14 +1101,14 @@ elif selected == "💼 Consultance":
 
                 c_b1, c_b2 = st.columns(2)
                 with c_b1:
-                    if st.button("➕ Ajouter", key="btn_add_pt", use_container_width=True):
+                    if st.button("➕ Ajouter Pt", key="btn_add_pt", use_container_width=True):
                         st.session_state["draw_coords"].append((add_lat, add_lon))
                         calc_ha = calculate_polygon_area_ha(st.session_state["draw_coords"])
                         if calc_ha > 0:
                             st.session_state["active_surface_ha"] = calc_ha
                         st.rerun()
                 with c_b2:
-                    if st.button("↩️ Ann. sommet", key="btn_undo_pt", use_container_width=True):
+                    if st.button("↩️ Annuler", key="btn_undo_pt", use_container_width=True):
                         if st.session_state["draw_coords"]:
                             st.session_state["draw_coords"].pop()
                             calc_ha = calculate_polygon_area_ha(st.session_state["draw_coords"])
@@ -1114,7 +1120,7 @@ elif selected == "💼 Consultance":
                     st.session_state["active_surface_ha"] = 1.0
                     st.rerun()
 
-                st.info("💡 **Astuce :** Vous pouvez aussi cliquer directement sur la carte pour capturer des coordonnées.")
+                st.info("💡 **Astuce :** Dessinez votre parcelle avec les outils sur la carte ou ajoutez les sommets manuellement.")
 
                 calc_ha = calculate_polygon_area_ha(st.session_state["draw_coords"])
                 if calc_ha > 0:
@@ -1136,20 +1142,34 @@ elif selected == "💼 Consultance":
 
             with col_m1:
                 if HAS_FOLIUM:
-                    m = folium.Map(location=[st.session_state["consult_gps"]["lat"], st.session_state["consult_gps"]["lon"]], zoom_start=15)
-                    folium.TileLayer(
+                    # Initialisation de la carte avec centrage dynamique
+                    center_lat = st.session_state["consult_gps"]["lat"]
+                    center_lon = st.session_state["consult_gps"]["lon"]
+                    m = folium.Map(location=[center_lat, center_lon], zoom_start=13)
+
+                    # Fond Satellite Esri ArcGIS (Par défaut)
+                    esri_sat = folium.TileLayer(
                         tiles='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-                        attr='Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community',
-                        name='Esri Satellite', overlay=False, control=True
+                        attr='Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community',
+                        name='Satellite Esri ArcGIS',
+                        overlay=False,
+                        control=True
                     ).add_to(m)
 
+                    # Plan Standard (OSM)
+                    folium.TileLayer('openstreetmap', name='Plan Standard (OSM)').add_to(m)
+
+                    # Groupe pour stocker les dessins de parcelles
+                    drawn_items = folium.FeatureGroup(name="Parcelles Dessinées").add_to(m)
+
+                    # Affichage du polygone déjà enregistré si présent
                     if st.session_state["draw_coords"]:
                         for idx, pt in enumerate(st.session_state["draw_coords"]):
                             folium.Marker(
                                 pt, 
                                 popup=f"Sommet P{idx+1}: {pt}", 
                                 icon=folium.Icon(color="green", icon="info-sign")
-                            ).add_to(m)
+                            ).add_to(drawn_items)
                             
                         if len(st.session_state["draw_coords"]) >= 3:
                             folium.Polygon(
@@ -1159,15 +1179,55 @@ elif selected == "💼 Consultance":
                                 fill=True, 
                                 fill_color="#22c55e", 
                                 fill_opacity=0.4
-                            ).add_to(m)
-                        elif len(st.session_state["draw_coords"]) == 2:
-                            folium.PolyLine(st.session_state["draw_coords"], color="blue", weight=3).add_to(m)
+                            ).add_to(drawn_items)
 
-                    st_map = st_folium(m, height=480, width="100%", key="sig_map_sync")
-                    
-                    if st_map and st_map.get("last_clicked"):
-                        clk = st_map["last_clicked"]
-                        st.session_state["consult_gps"] = {"lat": clk["lat"], "lon": clk["lng"]}
+                    # Intégration des outils Leaflet.Draw complets
+                    from folium.plugins import Draw
+                    draw_control = Draw(
+                        export=True,
+                        filename='parcelle_geojson',
+                        position='topleft',
+                        draw_options={
+                            'polyline': False,
+                            'polygon': {
+                                'allowIntersection': False,
+                                'showArea': True,
+                                'metric': ['ha', 'm']
+                            },
+                            'rectangle': True,
+                            'circle': False,
+                            'marker': False,
+                            'circlemarker': False
+                        },
+                        edit_options={
+                            'featureGroup': drawn_items,
+                            'remove': True,
+                            'edit': True
+                        }
+                    )
+                    draw_control.add_to(m)
+                    folium.LayerControl().add_to(m)
+
+                    # Rendu interactif via streamlit-folium
+                    st_map = st_folium(m, height=520, width="100%", key="sig_map_sync_draw")
+
+                    # Synchronisation dynamique lors du tracé ou des clics sur la carte
+                    if st_map:
+                        if st_map.get("all_drawings") and len(st_map["all_drawings"]) > 0:
+                            last_draw = st_map["all_drawings"][-1]
+                            geom_type = last_draw.get("geometry", {}).get("type")
+                            raw_coords = last_draw.get("geometry", {}).get("coordinates", [])
+
+                            if geom_type == "Polygon" and raw_coords:
+                                extracted_coords = [(c[1], c[0]) for c in raw_coords[0]]
+                                st.session_state["draw_coords"] = extracted_coords
+                                auto_surf = calculate_polygon_area_ha(extracted_coords)
+                                if auto_surf > 0:
+                                    st.session_state["active_surface_ha"] = auto_surf
+
+                        elif st_map.get("last_clicked"):
+                            clk = st_map["last_clicked"]
+                            st.session_state["consult_gps"] = {"lat": clk["lat"], "lon": clk["lng"]}
 
         with tabs_main[1]:
             st.subheader("🧪 Paramètres Pédologiques & Plan de Nutrition")
