@@ -59,15 +59,9 @@ if 'sim_active' not in st.session_state:
 
 
 # =====================================================
-# 2. INJECTION DES DEPENDANCES CSS/JS ET DESIGN NAVIGATION
+# 2. DESIGN DU MENU DE NAVIGATION (CSS HARMONISÉ)
 # =====================================================
 st.markdown("""
-<!-- Chargement des bibliothèques Leaflet & Leaflet.Draw pour l'édition dynamique -->
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css" />
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css"/>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
-
 <style>
 .stAppHeader { display: none !important; }
 .main .block-container { padding-top: 15px !important; max-width: 95% !important; }
@@ -583,7 +577,7 @@ elif selected == "📊 Tableau de Bord":
         )
 
     with profil[3]:
-        st.info("💼 **Vue Agrobusiness & Finance** : Financements La Banque Agricole & DER/FJ, capacities logistiques ARM et cultures de rente.")
+        st.info("💼 **Vue Agrobusiness & Finance** : Financements La Banque Agricole & DER/FJ, capacités logistiques ARM et cultures de rente.")
         c1, c2, c3, c4 = st.columns(4)
         with c1:
             st.markdown(f"""
@@ -878,7 +872,7 @@ elif selected == "💼 Consultance":
     }
 
     if "consult_gps" not in st.session_state:
-        st.session_state["consult_gps"] = {"lat": 14.6937, "lon": -17.4441}
+        st.session_state["consult_gps"] = {"lat": 14.7910, "lon": -16.0700}
     if "draw_coords" not in st.session_state:
         st.session_state["draw_coords"] = []
     if "active_surface_ha" not in st.session_state:
@@ -982,9 +976,9 @@ elif selected == "💼 Consultance":
             ]
             
             data_id = [
-                [Paragraph("<b>Producteur / Organisation :</b>", body_style), Paragraph(str(producer), body_style), Paragraph("<b>Superficie Totale :</b>", body_style), Paragraph(f"{surface} Ha", body_bold)],
-                [Paragraph("<b>Zone Ecogéographique :</b>", body_style), Paragraph(str(zone), body_style), Paragraph("<b>Culture Déclarée :</b>", body_style), Paragraph(str(crop), body_bold)],
-                [Paragraph("<b>Expert Référent :</b>", body_style), Paragraph(f"{str(user_info.get('nom', 'N/A'))}", body_style), Paragraph("<b>Rôle Expert :</b>", body_style), Paragraph(f"{str(user_info.get('role', 'N/A'))}", body_style)]
+                [Paragraph("<b>Producteur / Organisation :</b>", body_style), Paragraph(producer, body_style), Paragraph("<b>Superficie Totale :</b>", body_style), Paragraph(f"{surface} Ha", body_bold)],
+                [Paragraph("<b>Zone Ecogéographique :</b>", body_style), Paragraph(zone, body_style), Paragraph("<b>Culture Déclarée :</b>", body_style), Paragraph(crop, body_bold)],
+                [Paragraph("<b>Expert Référent :</b>", body_style), Paragraph(f"{user_info.get('nom', 'N/A')}", body_style), Paragraph("<b>Rôle Expert :</b>", body_style), Paragraph(f"{user_info.get('role', 'N/A')}", body_style)]
             ]
             t_id = Table(data_id, colWidths=[130, 140, 130, 140])
             t_id.setStyle(TableStyle([('BACKGROUND', (0,0), (-1,-1), accent_bg), ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor("#bbf7d0")), ('PADDING', (0,0), (-1,-1), 6)]))
@@ -999,11 +993,11 @@ elif selected == "💼 Consultance":
             sol_details = BASE_SOLS_INP_FULL.get(zone, {}).get(sol, {})
             data_sol = [
                 ["Indicateur Pédologique", "Valeur Mesurée / Estimée", "Seuil Optimal / Standard", "Interprétation Agonomique"],
-                ["Type Typologique Sol", str(sol), "-", "Référentiel National INP Sénégal"],
+                ["Type Typologique Sol", sol, "-", "Référentiel National INP Sénégal"],
                 ["pH (Potentiel Hydrogène)", f"{ph:.2f}", "6.0 - 7.2", "Favorable / Neutre" if 6.0 <= ph <= 7.2 else ("Acide" if ph < 6.0 else "Alcalin")],
                 ["Matière Organique (MO)", f"{mo:.2f} %", "> 2.0 %", "Satisfaisant" if mo >= 1.5 else "Déficitaire (Apport compost requis)"],
-                ["Capacité de Rétention", str(sol_details.get("Rétention", "Moyenne")), "Moyenne - Forte", "Bonne gestion du stress hydrique"],
-                ["Qualité du Drainage", str(sol_details.get("Drainage", "Bon")), "Bon / Modéré", "Infiltration régulière"]
+                ["Capacité de Rétention", sol_details.get("Rétention", "Moyenne"), "Moyenne - Forte", "Bonne gestion du stress hydrique"],
+                ["Qualité du Drainage", sol_details.get("Drainage", "Bon"), "Bon / Modéré", "Infiltration régulière"]
             ]
             t_sol = Table(data_sol, colWidths=[140, 110, 110, 180])
             t_sol.setStyle(TableStyle([('BACKGROUND', (0,0), (-1,0), primary_color), ('TEXTCOLOR', (0,0), (-1,0), colors.white), ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor("#cbd5e1")), ('PADDING', (0,0), (-1,-1), 5), ('ALIGN', (1,1), (2,-1), 'CENTER')]))
@@ -1030,7 +1024,7 @@ elif selected == "💼 Consultance":
             
             data_entomo = [
                 ["Paramètre Sanitaire", "Résultat Diagnostic IA"],
-                ["Statut de la Transmission DPV", Paragraph(str(dpv_txt), body_style)],
+                ["Statut de la Transmission DPV", Paragraph(dpv_txt, body_style)],
                 ["Ravageur Détecté (Vision IA)", "Chenille Légionnaire d'Automne (Spodoptera frugiperda)"],
                 ["Indice de Confiance IA", "96.2 % (Détection Haute Précision)"],
                 ["Seuil d'Intervention", "Atteint (> 5% des plants affectés)"],
@@ -1062,7 +1056,7 @@ elif selected == "💼 Consultance":
             
             data_sign = [
                 [Paragraph("<b>Signature du Technicien Référent :</b>", body_style), Paragraph("<b>Cachet Officiel & Validation Expert :</b>", body_style)],
-                [Paragraph(f"<br/><br/><b>{str(user_info.get('nom', 'Agent'))}</b><br/>Expert Agronome", body_style), Paragraph("<br/><br/><i>Validé par le Système Agro-IA 360° Sénégal</i>", body_style)]
+                [Paragraph(f"<br/><br/><b>{user_info.get('nom', 'Agent')}</b><br/>Expert Agronome", body_style), Paragraph("<br/><br/><i>Validé par le Système Agro-IA 360° Sénégal</i>", body_style)]
             ]
             t_sign = Table(data_sign, colWidths=[270, 270])
             t_sign.setStyle(TableStyle([('PADDING', (0,0), (-1,-1), 0)]))
@@ -1090,8 +1084,8 @@ elif selected == "💼 Consultance":
             "🔐 7. Gestion des Accès"
         ])
 
-        with tabs_main[0]:
-            st.subheader("🗺️ Tracé Géospatial de la Parcelle avec Leaflet.Draw & Esri Satellite")
+      with tabs_main[0]:
+            st.subheader("🗺️ Tracé Géospatial de la Parcelle sur Fond Satellite Esri ArcGIS")
             col_m1, col_m2 = st.columns([2.5, 1])
 
             with col_m2:
@@ -1099,16 +1093,17 @@ elif selected == "💼 Consultance":
                 add_lat = st.number_input("Lat :", value=float(st.session_state["consult_gps"]["lat"]), format="%.5f", key="sig_lat")
                 add_lon = st.number_input("Lon :", value=float(st.session_state["consult_gps"]["lon"]), format="%.5f", key="sig_lon")
 
+                # Boutons d'édition et de saisie
                 c_b1, c_b2 = st.columns(2)
                 with c_b1:
-                    if st.button("➕ Ajouter Pt", key="btn_add_pt", use_container_width=True):
+                    if st.button("➕ Ajouter", key="btn_add_pt", use_container_width=True):
                         st.session_state["draw_coords"].append((add_lat, add_lon))
                         calc_ha = calculate_polygon_area_ha(st.session_state["draw_coords"])
                         if calc_ha > 0:
                             st.session_state["active_surface_ha"] = calc_ha
                         st.rerun()
                 with c_b2:
-                    if st.button("↩️ Annuler", key="btn_undo_pt", use_container_width=True):
+                    if st.button("↩️ Ann. sommet", key="btn_undo_pt", use_container_width=True):
                         if st.session_state["draw_coords"]:
                             st.session_state["draw_coords"].pop()
                             calc_ha = calculate_polygon_area_ha(st.session_state["draw_coords"])
@@ -1120,7 +1115,7 @@ elif selected == "💼 Consultance":
                     st.session_state["active_surface_ha"] = 1.0
                     st.rerun()
 
-                st.info("💡 **Astuce :** Dessinez votre parcelle avec les outils sur la carte ou ajoutez les sommets manuellement.")
+                st.info("💡 **Astuce :** Vous pouvez aussi cliquer directement sur la carte pour capturer des coordonnées.")
 
                 calc_ha = calculate_polygon_area_ha(st.session_state["draw_coords"])
                 if calc_ha > 0:
@@ -1131,6 +1126,7 @@ elif selected == "💼 Consultance":
                 if st.button("💾 Synchroniser la Superficie", type="primary", key="btn_sync_surf", use_container_width=True):
                     st.success(f"✅ Parcelle de {st.session_state['active_surface_ha']} Ha synchronisée instantanément !")
 
+                # Tableau d'édition des sommets (Équivalent de la table attributaire / liste des vertices)
                 if st.session_state["draw_coords"]:
                     with st.expander("📋 Liste des sommets (Édition)"):
                         for idx, pt in enumerate(st.session_state["draw_coords"]):
@@ -1142,91 +1138,44 @@ elif selected == "💼 Consultance":
 
             with col_m1:
                 if HAS_FOLIUM:
-                    center_lat = float(st.session_state["consult_gps"]["lat"])
-                    center_lon = float(st.session_state["consult_gps"]["lon"])
-                    m = folium.Map(location=[center_lat, center_lon], zoom_start=13)
-
+                    m = folium.Map(location=[st.session_state["consult_gps"]["lat"], st.session_state["consult_gps"]["lon"]], zoom_start=15)
                     folium.TileLayer(
                         tiles='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-                        attr='Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community',
-                        name='Satellite Esri ArcGIS',
-                        overlay=False,
-                        control=True
+                        attr='Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community',
+                        name='Esri Satellite', overlay=False, control=True
                     ).add_to(m)
-
-                    folium.TileLayer('openstreetmap', name='Plan Standard (OSM)').add_to(m)
-
-                    drawn_items = folium.FeatureGroup(name="Parcelles Dessinées").add_to(m)
 
                     if st.session_state["draw_coords"]:
                         for idx, pt in enumerate(st.session_state["draw_coords"]):
                             folium.Marker(
-                                [float(pt[0]), float(pt[1])], 
-                                popup=str(f"Sommet P{idx+1}: {pt}"), 
+                                pt, 
+                                popup=f"Sommet P{idx+1}: {pt}", 
                                 icon=folium.Icon(color="green", icon="info-sign")
-                            ).add_to(drawn_items)
+                            ).add_to(m)
                             
                         if len(st.session_state["draw_coords"]) >= 3:
-                            clean_poly_coords = [[float(p[0]), float(p[1])] for p in st.session_state["draw_coords"]]
                             folium.Polygon(
-                                clean_poly_coords, 
+                                st.session_state["draw_coords"], 
                                 color="#16a34a", 
                                 weight=3, 
                                 fill=True, 
                                 fill_color="#22c55e", 
                                 fill_opacity=0.4
-                            ).add_to(drawn_items)
+                            ).add_to(m)
+                        elif len(st.session_state["draw_coords"]) == 2:
+                            folium.PolyLine(st.session_state["draw_coords"], color="blue", weight=3).add_to(m)
 
-                    from folium.plugins import Draw
-                    draw_control = Draw(
-                        export=True,
-                        filename='parcelle_geojson',
-                        position='topleft',
-                        draw_options={
-                            'polyline': False,
-                            'polygon': {
-                                'allowIntersection': False,
-                                'showArea': True,
-                                'metric': ['ha', 'm']
-                            },
-                            'rectangle': True,
-                            'circle': False,
-                            'marker': False,
-                            'circlemarker': False
-                        },
-                        edit_options={
-                            'featureGroup': drawn_items,
-                            'remove': True,
-                            'edit': True
-                        }
-                    )
-                    draw_control.add_to(m)
-                    folium.LayerControl().add_to(m)
-
-                    st_map = st_folium(m, height=520, width="100%", key="sig_map_sync_draw")
-
-                    if st_map:
-                        if st_map.get("all_drawings") and len(st_map["all_drawings"]) > 0:
-                            last_draw = st_map["all_drawings"][-1]
-                            geom_type = last_draw.get("geometry", {}).get("type")
-                            raw_coords = last_draw.get("geometry", {}).get("coordinates", [])
-
-                            if geom_type == "Polygon" and raw_coords:
-                                extracted_coords = [(float(c[1]), float(c[0])) for c in raw_coords[0]]
-                                st.session_state["draw_coords"] = extracted_coords
-                                auto_surf = calculate_polygon_area_ha(extracted_coords)
-                                if auto_surf > 0:
-                                    st.session_state["active_surface_ha"] = auto_surf
-
-                        elif st_map.get("last_clicked"):
-                            clk = st_map["last_clicked"]
-                            st.session_state["consult_gps"] = {"lat": float(clk["lat"]), "lon": float(clk["lng"])}
+                    st_map = st_folium(m, height=480, width="100%", key="sig_map_sync")
+                    
+                    if st_map and st_map.get("last_clicked"):
+                        clk = st_map["last_clicked"]
+                        st.session_state["consult_gps"] = {"lat": clk["lat"], "lon": clk["lng"]}
 
         with tabs_main[1]:
             st.subheader("🧪 Paramètres Pédologiques & Plan de Nutrition")
             col_d1, col_d2, col_d3 = st.columns(3)
             with col_d1:
-                st.session_state["farm_producer"] = st.text_input("Producteur / Exploitation :", value=str(st.session_state["farm_producer"]), key="p_name_sync")
+                st.session_state["farm_producer"] = st.text_input("Producteur / Exploitation :", value=st.session_state["farm_producer"], key="p_name_sync")
                 zones_keys = list(BASE_SOLS_INP_FULL.keys())
                 z_idx = zones_keys.index(st.session_state["farm_zone"]) if st.session_state["farm_zone"] in zones_keys else 0
                 selected_zone = st.selectbox("Zone Écogéographique :", zones_keys, index=z_idx, key="p_zone_sync")
@@ -1311,14 +1260,14 @@ elif selected == "💼 Consultance":
 
         with tabs_main[3]:
             st.subheader("🤖 Diagnostic Synthétique Intégré")
-            prod_val = str(st.session_state["farm_producer"])
-            zone_val = str(st.session_state["farm_zone"])
-            sol_val = str(st.session_state["farm_sol"])
-            crop_val = str(st.session_state["farm_crop"])
-            stade_val = str(st.session_state["farm_stade"])
-            surf_val = float(st.session_state["active_surface_ha"])
-            ph_val = float(st.session_state["farm_ph"])
-            mo_val = float(st.session_state["farm_mo"])
+            prod_val = st.session_state["farm_producer"]
+            zone_val = st.session_state["farm_zone"]
+            sol_val = st.session_state["farm_sol"]
+            crop_val = st.session_state["farm_crop"]
+            stade_val = st.session_state["farm_stade"]
+            surf_val = st.session_state["active_surface_ha"]
+            ph_val = st.session_state["farm_ph"]
+            mo_val = st.session_state["farm_mo"]
 
             dap_h, ure_h, kcl_h = BAREMES_ISRA.get(crop_val, (150, 150, 50))
             dap_tot = int(dap_h * surf_val)
@@ -1344,8 +1293,8 @@ elif selected == "💼 Consultance":
 
         with tabs_main[4]:
             st.subheader("🌿 Suivi Satellitaire (NDVI) & Bilan Hydrique")
-            surf_val = float(st.session_state["active_surface_ha"])
-            crop_val = str(st.session_state["farm_crop"])
+            surf_val = st.session_state["active_surface_ha"]
+            crop_val = st.session_state["farm_crop"]
             col_n1, col_n2 = st.columns(2)
             with col_n1:
                 st.markdown("#### 🛰️ Vigueur Végétale")
@@ -1368,13 +1317,13 @@ elif selected == "💼 Consultance":
                 if HAS_REPORTLAB:
                     try:
                         pdf_bytes = generate_3page_pdf(
-                            producer=str(st.session_state["farm_producer"]), zone=str(st.session_state["farm_zone"]),
-                            sol=str(st.session_state["farm_sol"]), crop=str(st.session_state["farm_crop"]),
-                            surface=float(st.session_state["active_surface_ha"]), ph=float(st.session_state["farm_ph"]),
-                            mo=float(st.session_state["farm_mo"]), coords=st.session_state["draw_coords"],
+                            producer=st.session_state["farm_producer"], zone=st.session_state["farm_zone"],
+                            sol=st.session_state["farm_sol"], crop=st.session_state["farm_crop"],
+                            surface=st.session_state["active_surface_ha"], ph=st.session_state["farm_ph"],
+                            mo=st.session_state["farm_mo"], coords=st.session_state["draw_coords"],
                             user_info=current_user, dpv_status=st.session_state["dpv_alert_sent"]
                         )
-                        filename = f"Rapport_Expertise_{str(st.session_state['farm_producer']).replace(' ', '_')}.pdf"
+                        filename = f"Rapport_Expertise_{st.session_state['farm_producer'].replace(' ', '_')}.pdf"
                         st.download_button(
                             label="📥 Télécharger le Rapport PDF (3 Pages Dense)",
                             data=pdf_bytes, file_name=filename, mime="application/pdf",
@@ -1391,14 +1340,14 @@ elif selected == "💼 Consultance":
                     new_entry = {
                         "id": len(db.get("historique", [])) + 1,
                         "date": datetime.now().strftime("%Y-%m-%d %H:%M"),
-                        "agent": str(current_user.get('nom', 'N/A')),
-                        "producteur": str(st.session_state["farm_producer"]),
-                        "culture": str(st.session_state["farm_crop"]),
-                        "superficie": float(st.session_state["active_surface_ha"]),
-                        "zone": str(st.session_state["farm_zone"]),
-                        "sol": str(st.session_state["farm_sol"]),
-                        "ph": float(st.session_state["farm_ph"]),
-                        "mo": float(st.session_state["farm_mo"])
+                        "agent": current_user.get('nom', 'N/A'),
+                        "producteur": st.session_state["farm_producer"],
+                        "culture": st.session_state["farm_crop"],
+                        "superficie": st.session_state["active_surface_ha"],
+                        "zone": st.session_state["farm_zone"],
+                        "sol": st.session_state["farm_sol"],
+                        "ph": st.session_state["farm_ph"],
+                        "mo": st.session_state["farm_mo"]
                     }
                     db.setdefault("historique", []).append(new_entry)
                     save_db(db)
