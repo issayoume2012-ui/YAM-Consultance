@@ -1089,41 +1089,101 @@ elif selected == "💼 Consultance":
             col_m1, col_m2 = st.columns([2.5, 1])
 
             with col_m2:
-                st.markdown("#### 📐 Délimitation & Saisie SIG (Style ArcGIS)")
-                add_lat = st.number_input("Latitude :", value=float(st.session_state["consult_gps"]["lat"]), format="%.5f", key="sig_lat")
-                add_lon = st.number_input("Longitude :", value=float(st.session_state["consult_gps"]["lon"]), format="%.5f", key="sig_lon")
+                st.markdown("#### 📐 Mode de Délimitation de Parcelle")
+                mode_delim = st.radio(
+                    "Choisissez la méthode de délimitation :",
+                    ["Formes géométriques (Rectangles, Cercles, Polygones)", "Dessin à main levée (Tracé libre)"],
+                    key="radio_mode_delim"
+                )
 
-                c_b1, c_b2 = st.columns(2)
-                with c_b1:
-                    if st.button("➕ Ajouter Sommet", key="btn_add_pt", use_container_width=True):
-                        st.session_state["draw_coords"].append((add_lat, add_lon))
-                        calc_ha = calculate_polygon_area_ha(st.session_state["draw_coords"])
-                        if calc_ha > 0:
-                            st.session_state["active_surface_ha"] = calc_ha
-                        st.rerun()
-                with c_b2:
-                    if st.button("↩️ Ann. Sommet", key="btn_undo_pt", use_container_width=True):
-                        if st.session_state["draw_coords"]:
-                            st.session_state["draw_coords"].pop()
-                            calc_ha = calculate_polygon_area_ha(st.session_state["draw_coords"])
-                            st.session_state["active_surface_ha"] = calc_ha if calc_ha > 0 else 1.0
+                if "Formes géométriques" in mode_delim:
+                    st.markdown("##### 🔷 Formes Pré-définies")
+                    forme_type = st.selectbox("Type de forme :", ["Rectangle régulier", "Cercle / Pivot", "Polygone régulier"])
+                    
+                    if "Rectangle" in forme_type:
+                        rec_l = st.number_input("Longueur (m) :", min_value=10.0, value=100.0, step=10.0)
+                        rec_L = st.number_input("Largeur (m) :", min_value=10.0, value=100.0, step=10.0)
+                        if st.button("Générer le Rectangle", key="btn_gen_rect"):
+                            surface_calc = (rec_l * rec_L) / 10000.0
+                            st.session_state["active_surface_ha"] = round(surface_calc, 2)
+                            lat_c, lon_c = st.session_state["consult_gps"]["lat"], st.session_state["consult_gps"]["lon"]
+                            d_lat = (rec_l / 2.0) / 111139.0
+                            d_lon = (rec_L / 2.0) / (111139.0 * np.cos(np.radians(lat_c)))
+                            st.session_state["draw_coords"] = [
+                                (lat_c + d_lat, lon_c - d_lon),
+                                (lat_c + d_lat, lon_c + d_lon),
+                                (lat_c - d_lat, lon_c + d_lon),
+                                (lat_c - d_lat, lon_c - d_lon)
+                            ]
+                            st.success(f"Rectangle généré ! Superficie : {st.session_state['active_surface_ha']} Ha")
                             st.rerun()
 
-                if st.button("🗑️ Effacer le Polygone", key="btn_clear_pts", use_container_width=True):
+                    elif "Cercle" in forme_type:
+                        c_rayon = st.number_input("Rayon du pivot (m) :", min_value=10.0, value=50.0, step=5.0)
+                        if st.button("Générer le Cercle / Pivot", key="btn_gen_cercle"):
+                            surface_calc = (np.pi * (c_rayon ** 2)) / 10000.0
+                            st.session_state["active_surface_ha"] = round(surface_calc, 2)
+                            lat_c, lon_c = st.session_state["consult_gps"]["lat"], st.session_state["consult_gps"]["lon"]
+                            pts = []
+                            for angle in np.linspace(0, 2 * np.pi, 12, endpoint=False):
+                                dr = c_rayon / 111139.0
+                                pts.append((lat_c + dr * np.sin(angle), lon_c + dr * np.cos(angle) / np.cos(np.radians(lat_c))))
+                            st.session_state["draw_coords"] = pts
+                            st.success(f"Cercle généré ! Superficie : {st.session_state['active_surface_ha']} Ha")
+                            st.rerun()
+
+                    else:
+                        poly_cotes = st.slider("Nombre de côtés :", 3, 8, 5)
+                        poly_rayon = st.number_input("Rayon moyen (m) :", min_value=10.0, value=80.0, step=10.0)
+                        if st.button("Générer le Polygone Régulier", key="btn_gen_poly"):
+                            surface_calc = (poly_cotes * (poly_rayon ** 2) * np.sin(2 * np.pi / poly_cotes) / 2.0) / 10000.0
+                            st.session_state["active_surface_ha"] = round(abs(surface_calc), 2)
+                            lat_c, lon_c = st.session_state["consult_gps"]["lat"], st.session_state["consult_gps"]["lon"]
+                            pts = []
+                            for i in range(poly_cotes):
+                                angle = i * 2 * np.pi / poly_cotes
+                                dr = poly_rayon / 111139.0
+                                pts.append((lat_c + dr * np.sin(angle), lon_c + dr * np.cos(angle) / np.cos(np.radians(lat_c))))
+                            st.session_state["draw_coords"] = pts
+                            st.success(f"Polygone généré ! Superficie : {st.session_state['active_surface_ha']} Ha")
+                            st.rerun()
+
+                else:
+                    st.markdown("##### ✏️ Tracé Manuel & Sommets Précis")
+                    add_lat = st.number_input("Latitude :", value=float(st.session_state["consult_gps"]["lat"]), format="%.5f", key="sig_lat")
+                    add_lon = st.number_input("Longitude :", value=float(st.session_state["consult_gps"]["lon"]), format="%.5f", key="sig_lon")
+
+                    c_b1, c_b2 = st.columns(2)
+                    with c_b1:
+                        if st.button("➕ Ajouter Sommet", key="btn_add_pt", use_container_width=True):
+                            st.session_state["draw_coords"].append((add_lat, add_lon))
+                            calc_ha = calculate_polygon_area_ha(st.session_state["draw_coords"])
+                            if calc_ha > 0:
+                                st.session_state["active_surface_ha"] = calc_ha
+                            st.rerun()
+                    with c_b2:
+                        if st.button("↩️ Ann. Sommet", key="btn_undo_pt", use_container_width=True):
+                            if st.session_state["draw_coords"]:
+                                st.session_state["draw_coords"].pop()
+                                calc_ha = calculate_polygon_area_ha(st.session_state["draw_coords"])
+                                st.session_state["active_surface_ha"] = calc_ha if calc_ha > 0 else 1.0
+                                st.rerun()
+
+                if st.button("🗑️ Effacer le Tracé", key="btn_clear_pts", use_container_width=True):
                     st.session_state["draw_coords"] = []
                     st.session_state["active_surface_ha"] = 1.0
                     st.rerun()
 
-                st.info("💡 **Mode pro :** Cliquez directement sur la carte interactive pour ajouter des sommets géographiques.")
+                st.info("💡 **Synchronisation :** Les données géospatiales et la superficie sont automatiquement synchronisées avec les rubriques de fertilisation et de rapportage.")
 
                 calc_ha = calculate_polygon_area_ha(st.session_state["draw_coords"])
                 if calc_ha > 0:
                     st.session_state["active_surface_ha"] = calc_ha
 
-                st.metric("Superficie Délimitée", f"{st.session_state['active_surface_ha']} Ha")
+                st.metric("Superficie Délimitée & Synchronisée", f"{st.session_state['active_surface_ha']} Ha")
 
-                if st.button("💾 Synchroniser avec l'IA & Analyses", type="primary", key="btn_sync_surf", use_container_width=True):
-                    st.success(f"✅ Superficie de {st.session_state['active_surface_ha']} Ha synchronisée avec succès dans l'ensemble des modules d'analyse !")
+                if st.button("💾 Synchroniser avec les Rubriques Concernées", type="primary", key="btn_sync_surf", use_container_width=True):
+                    st.success(f"✅ Superficie de {st.session_state['active_surface_ha']} Ha synchronisée avec succès dans les rubriques d'analyse et de fumure !")
 
                 if st.session_state["draw_coords"]:
                     with st.expander("📋 Table Attributaire des Sommets"):
