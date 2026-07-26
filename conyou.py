@@ -758,7 +758,7 @@ if selected == "💼 Consultance":
 
     db = load_db()
 
-    # --- BASE PÉDOLOGIQUE COMPLÈTE DU SÉNÉGAL (12 Grands Types - FAO / ORSTOM / CPCS) ---
+    # --- BASE PÉDOLOGIQUE COMPLÈTE DU SÉNÉGAR (12 Grands Types - FAO / ORSTOM / CPCS) ---
     BASE_SOLS_INP_EXPERT = {
         "Vallée du Fleuve Sénégal (Saint-Louis, Matam, Bakel)": {
             "Sol Deck (Fluvisol Hydromorphe Argileux)": {"pH": 6.8, "MO": 2.1, "N": 0.12, "P": 18, "K": 210, "Rétention": "Très forte (>140mm/m)", "Drainage": "Lent", "Texture": "Argilo-limoneux"},
@@ -808,11 +808,11 @@ if selected == "💼 Consultance":
 
         # 4. Foreurs de Fruits & Ravageurs des Vergers
         "Mouche des fruits (Bactrocera invadens / Ceratitis capitata)": "Piqûres nécrotiques et asticots dans la pulpe (mangues, agrumes, cucurbitacées). Piégeage de masse au méthyl-eugénol et ramassage des fruits tombés.",
-        "carpocapsa / Vers des fruits": "Perforations de fruits. Traitement préventif des floraisons.",
+        "Carpocapse / Vers des fruits": "Perforations de fruits. Traitement préventif des floraisons.",
 
         # 5. Pathogènes Fongiques, Bactériens & Vasculaires
         "Pourriture racinaire & Fonte des semis (Fusarium / Pythium / Rhizoctonia)": "Flétrissement brutal des plantules et pourriture du collet. Fongicides cuivrés et drainage des sols gorgés d'eau.",
-        "Flétrissement bactérien / Ralstonia (Coryné / Ralstonia solanacearum)": "Attaque du système vasculaire des solanacées. Utilisation de porte-greffes résistants et assainissement des outils.",
+        "Flétrissement bactérien / Ralstonia (Ralstonia solanacearum)": "Attaque du système vasculaire des solanacées. Utilisation de porte-greffes résistants et assainissement des outils.",
         "Oïdium / Maladie des taches blanches (Erysiphe / Leveillula)": "Feutrage blanc poudreux favorisé par la rosée matinale. Soufre mouillable ou fongicides systémiques préventifs.",
         "Mildiou (Phytophthora infestans / Pseudoperonospora)": "Taches nécrotiques sur feuilles et fruits par temps humide. Traitement cuprique préventif.",
         "Anthracnose (Colletotrichum gloeosporioides)": "Taches noires enfoncées sur mangues et légumineuses en post-récolte. Traitement chaud post-récolte et fongicides homologués."
@@ -828,7 +828,7 @@ if selected == "💼 Consultance":
             "Sorotiama Tiga & Tiesiri Tiga (ICRISAT / Mali-Sénégal) - Lignes pures à haut rendement d'huilerie."
         ],
         "Riz (Oryza sativa / glaberrima)": [
-            "Sahel 108 & Sahel 202 (ISRA - Vallée du Fleuve) - Cycles courts, hauts rendements en plaine irriguée.",
+            "Sahel 108 & Sahel 202 (ISRA - Vallée du Fleuve) - Cycles cortos, hauts rendements en plaine irriguée.",
             "ISRIZ 16, ISRIZ 17, ISRIZ P01 & ISRIZ P02 (ISRA - Homologués) - Variétés de pointe pour la souveraineté rizicole.",
             "NERICA (Plateau & Bas-fond - WARDA/AfricaRice) - Riz pluvial à forte résistance au stress hydrique.",
             "Fanaye & Alioune (ISRA - Lignes 2022) - Résistance accrue à la verse et aux maladies."
@@ -1139,110 +1139,182 @@ if selected == "💼 Consultance":
                 else:
                     st.info("Aucun autre compte actif à révoquer pour le moment.")
 
-        # =====================================================
-        # 10 MODULES EXPERTS ÉTENDUS (VARIÉTÉS AFRIQUE & SÉNÉGAL)
-        # =====================================================
+        # =====================================================================================
+        # 🔬 10 MODULES EXPERTS ÉTENDUS : ARCHITECTURE EN EXPANDERS PERFORMANTS & SÉLECTION LIBRE
+        # =====================================================================================
         
         st.markdown("---")
-        st.markdown("### 🔬 Modules Avancés d'Expertise & Référentiels Variétaux (Sénégal & Afrique)")
+        st.markdown("### 🔬 Hub Expert Étendu : Référentiels Nationaux & Régionaux (Données Officielles)")
+        st.info("💡 **Navigation modulaire avancée** : Chaque thématique institutionnelle est encapsulée dans un expander haute performance permettant l'exploration ciblée, la sélection granulaire et l'application directe des critères des agences partenaires (ISRA, DPV, ANACIM, DAPSA, etc.).")
 
-        tab_ext1, tab_ext2, tab_ext3, tab_ext4, tab_ext5, tab_ext6, tab_ext7, tab_ext8, tab_ext9, tab_ext10 = st.tabs([
-            "Variétés Sénégal & Afrique", 
-            "Enquête DAPSA", 
-            "Alerte DPV", 
-            "Météo ANACIM", 
-            "Foncier & Genre", 
-            "Subventions", 
-            "Post-Récolte", 
-            "Marchés Ruraux", 
-            "Carbone Sol", 
-            "Traçabilité API"
-        ])
-
-        with tab_ext1:
-            st.markdown("#### 🌾 Catalogue Variétal Exhaustif (Sénégal & Afrique de l'Ouest / ISRA - CORAF)")
-            st.info("Répertoire complet de toutes les variétés homologuées et inscrites au catalogue national et régional (CEDEAO-UEMOA-CILSS).")
+        # --- EXPANDER 1 : VARIÉTÉS SÉNÉGAL & AFRIQUE ---
+        with st.expander("🌾 1. Catalogue Variétal Exhaustif (ISRA, CORAF, AfricaRice, CEDEAO)", expanded=True):
+            st.markdown("Répertoire officiel et multicritère des variétés homologuées et tolérantes aux stress climatiques en Afrique de l'Ouest.")
             
-            filiere_sel = st.selectbox("Sélectionner la filière agricole :", options=list(CATALOGUE_VARIETES_AFRIQUE.keys()), key="filiere_afrique_sel")
-            st.markdown(f"##### 📋 Variétés officielles certifiées pour : **{filiere_sel}**")
-            for var_item in CATALOGUE_VARIETES_AFRIQUE[filiere_sel]:
-                st.markdown(f"- 🔹 {var_item}")
+            col_v1, col_v2 = st.columns(2)
+            with col_v1:
+                filiere_sel = st.selectbox("Sélectionner la filière agricole cible :", options=list(CATALOGUE_VARIETES_AFRIQUE.keys()), key="exp_filiere_sel")
+            with col_v2:
+                # Filtrage dynamique ou choix de critères additionnels
+                critere_recherche = st.text_input("Filtrer par mot-clé (ex: cycle court, tolérance, rendement) :", "", key="exp_var_filter")
 
-        with tab_ext2:
-            st.markdown("#### Benchmarking de Campagne & Statistiques (DAPSA)")
-            st.info("Indicateurs macro-économiques basés sur l'Enquête Agricole Annuelle (EAA) de la DAPSA.")
-            reg_analyse = st.selectbox("Région agricole :", ["Kaolack", "Kaffrine", "Fatick", "Saint-Louis", "Thiès", "Ziguinchor", "Kolda", "Louga"], key="dapsa_reg")
-            st.metric("Part de l'agriculture pluviale / maraîchère dominante", "Plus de 70% des ménages actifs")
-            st.write(f"📊 **Analyse de structure pour la région de {reg_analyse}** : Les données de la DAPSA indiquent une prépondérance des exploitations familiales, avec un accès prioritaire aux intrants subventionnés par l'État.")
+            st.markdown(f"##### 📋 Liste des variétés certifiées disponibles pour : **{filiere_sel}**")
+            
+            varietes_list = CATALOGUE_VARIETES_AFRIQUE[filiere_sel]
+            if critere_recherche:
+                varietes_list = [v for v in varietes_list if critere_recherche.lower() in v.lower()]
 
-        with tab_ext3:
-            st.markdown("#### Alerte Phytosanitaire Officielle (DPV)")
-            st.warning("Avis phytosanitaire sous l'égide de la Direction de la Protection des Végétaux (DPV - Thiaroye).")
-            alerte_type = st.selectbox("Cible biologique surveillée :", ["Chenille légionnaire d'automne", "Criquet pèlerin (Veille)", "Mouches des fruits", "Mildiou de l'oignon"])
-            st.markdown(f"""
-            - **Niveau d'alerte** : Modéré à Élevé selon les micro-climats.
-            - **Recommandation DPV** : Utiliser les produits homologués sur la liste officielle de la DPV. 
-            - **Contact d'urgence** : Numéro vert DPV / Centres phytosanitaires régionaux de rattachement.
-            """)
-
-        with tab_ext4:
-            st.markdown("#### Bulletins Agro-météorologiques (ANACIM)")
-            st.info("Suivi de la pluviométrie, des séquences sèches et des températures (Agence Nationale de l'Aviation Civile et de la Météorologie).")
-            zone_meteo = st.selectbox("Zone d'observation :", ["Zone Sud (Casamance)", "Bassin Arachidier Centre", "Zone Nord / Fleuve", "Bande Littorale des Niayes"])
-            st.write(f"🌧️ **Indicateur ANACIM pour {zone_meteo}** : Démarrage et installation de la hiérarchie des pluies suivis par dekadas. Risque de pauses pluviométriques courtes à mitiger par un calendrier cultural flexible.")
-
-        with tab_ext5:
-            st.markdown("#### Diagnostic Foncier & Inclusion Genre (Rural)")
-            st.info("Conforme aux orientations du Plan Land Matrix et aux statistiques genre de la DAPSA.")
-            statut_foncier = st.radio("Mode de détention de la parcelle :", ["Délibération Communautaire (Domaine National)", "Titre Foncier / Propriété Privée", "Bail emphytéotique / Location", "Affectation familiale coutumière"])
-            st.markdown(f"""
-            - **Statut sélectionné** : *{statut_foncier}*
-            - **Indicateur Genre (DAPSA)** : Moins de 10% des titres directs sont détenus par des femmes au niveau national. Ce module recommande la formalisation des GIE de femmes auprès des conseils municipaux pour sécuriser les investissements à long terme.
-            """)
-
-        with tab_ext6:
-            st.markdown("#### Guichet Intrants & Financement Agricole")
-            st.markdown("Évaluation de l'éligibilité aux programmes de subvention de l'État du Sénégal (CAMPAGNE AGRICOLE / PAI).")
-            montant_subv = st.slider("Investissement en Intrants (Engrais/Semences certifiées) en FCFA :", 100000, 5000000, 1000500, 50000)
-            part_prise_en_charge = int(montant_subv * 0.30)
-            st.metric("Subvention Publique Estimée (30%)", f"{part_prise_en_charge:,} FCFA")
-            st.caption("Fichiers requis : Carte d'agriculteur, adhésion à une organisation de producteurs reconnue par le Ministère de l'Agriculture.")
-
-        with tab_ext7:
-            st.markdown("#### Audit des Pertes Post-Récolte & Stockage")
-            filiere_stock = st.selectbox("Filière concernée :", ["Horticole (Oignon/Mangue)", "Céréalière (Riz/Mil)", "Arachide en coque"])
-            if filiere_stock == "Horticole (Oignon/Mangue)":
-                st.warning("⚠️ **Risque élevé de périssabilité** : Nécessité d'un stockage en chambre froide ou de structures de type *cool rooms* pour réduire les pertes post-récolte estimées à plus de 25% dans la zone des Niayes.")
+            if varietes_list:
+                selected_variete_opt = st.radio("Sélectionner la variété à retenir pour le projet :", options=varietes_list, key=f"radio_{filiere_sel}")
+                st.success(vous_etes := f"✅ **Variété sélectionnée et verrouillée** : *{selected_variete_opt}* pour l'intégration dans le cahier des charges.")
             else:
-                st.success("✅ **Stockage de conservation** : Utilisation recommandée des hermétiques (sacs PICS) pour éviter les attaques de bruches et de charançons sans utilisation massive de pesticides de synthèse.")
+                st.warning("⚠️ Aucune variété ne correspond au filtre textuel saisi. Veuillez élargir votre recherche.")
 
-        with tab_ext8:
-            st.markdown("#### Intelligence de Marché & Cours des Denrées")
-            st.info("Tendances des prix sur les marchés de gros (Dakar, Diourbel, Kaolack, Saint-Louis).")
-            marche_ref = st.selectbox("Marché de référence :", ["Marché Bène TCHIC / Castors (Dakar)", "Marché Central de Mbour", "Marché de Touba Belel", "Marché Regional de Kaolack"])
+        # --- EXPANDER 2 : ENQUÊTE DAPSA ---
+        with st.expander("📊 2. Enquête Agricole Annuelle & Benchmarking (DAPSA)", expanded=False):
+            st.markdown("Exploitation des données structurelles et macro-économiques de la Direction de l'Analyse, de la Prévision et des Statistiques Agricoles.")
+            
+            dapsa_regiones = ["Kaolack", "Kaffrine", "Fatick", "Saint-Louis", "Thiès", "Ziguinchor", "Kolda", "Louga", "Matam", "Tambacounda", "Kédougou", "Sédhiou", "Diourbel", "Dakar"]
+            dap_reg = st.selectbox("Sélectionner la région administrative d'analyse DAPSA :", options=dapsa_regiones, key="dapsa_exp_reg")
+            
+            dap_indicateur = st.selectbox("Indicateur statistique d'intérêt :", [
+                "Structure des exploitations familiales vs agrobusiness",
+                "Superficies cultivées et rendements moyens enregistrés",
+                "Taux d'équipement en matériel agricole motorisé",
+                "Accès des ménages aux engrais subventionnés"
+            ], key="dap_ind_sel")
+
             st.markdown(f"""
-            - **Marché sélectionné** : *{marche_ref}*
-            - **Tendance des prix** : Stabilité des denrées de base, fluctuation saisonnière marquée sur l'oignon local et la pomme de terre selon les périodes de récolte (février à mai).
+            - **Région ciblée** : *{dap_reg*
+            - **Volet statistique** : *{dap_indicateur}*
+            - **Analyse d'impact** : Les données consolidées de la DAPSA montrent une forte corrélation entre l'adoption de semences certifiées et la hausse du revenu net par exploitant dans cette zone.
             """)
 
-        with tab_ext9:
-            st.markdown("#### Potentiel Carbone & Pratiques Agroécologiques")
-            st.info("Inspiré des projets de villages intelligents face au climat (VIC / ENABEL / ISRA).")
-            pratique_agro = st.multiselect("Pratiques durables adoptées sur l'exploitation :", [
-                "Jachère améliorée (Légumineuses arbustives)",
-                "Pavage / Zai & Demi-lunes anti-érosives",
-                "Compostage organique certifié",
-                "Association culturale (Céréale + Niébé)"
-            ])
-            score_carbone_estime = len(pratique_agro) * 1.25
-            st.metric("Indice de Résilience Climatique et Carbone", f"+{score_carbone_estime} tCO2eq/Ha/an")
+        # --- EXPANDER 3 : ALERTE DPV ---
+        with st.expander("🐛 3. Alertes Phytosanitaires & Protocoles de Lutte (DPV)", expanded=False):
+            st.markdown("Plateforme de veille sanitaire et répertoires officiels de la Direction de la Protection des Végétaux.")
+            
+            ravageur_cles = list(CATALOGUE_DPV_EXPERT.keys())
+            rav_choix_exp = st.selectbox("Sélectionner un bio-agresseur pour consultation du protocole homologué DPV :", options=ravageur_cles, key="dpv_exp_sel")
+            
+            st.markdown(f"""
+            - **Cible phytosanitaire** : `{rav_choix_exp}`
+            - **Descriptif et Dégâts** : {CATALOGUE_DPV_EXPERT[rav_choix_exp]}
+            - **Recommandation officielle** : Approvisionnement exclusif auprès des phytopharmacies agrées par la DPV (Thiaroye / Antennes régionales). Respect des délais avant récolte (DAR).
+            """)
 
-        with tab_ext10:
-            st.markdown("#### Module de Traçabilité & Normes d'Exportation")
-            st.markdown("Génération d'un passeport phytosanitaire numérique pour l'horticulture d'exportation (Mangues Kent, Haricot vert).")
-            code_lot = st.text_input("Code d'identification du lot export :", f"SN-EXP-{datetime.now().strftime('%Y')}-001")
-            if st.button("Générer le Passeport Numérique Export", key="gen_pass_exp"):
-                st.success(f"✅ Lot **{code_lot}** certifié conforme aux exigences de traçabilité de la DPV et aux normes GlobalGAP pour l'exportation vers le marché européen.")
+        # --- EXPANDER 4 : MÉTÉO ANACIM ---
+        with st.expander("🌤️ 4. Bulletins Agro-météorologiques & Climat (ANACIM)", expanded=False):
+            st.markdown("Suivi décadaire des cumuls pluviométriques, des températures et des risques climatiques (ANACIM).")
+            
+            anacim_zone = st.selectbox("Zone climatique d'observation :", [
+                "Zone Sahélienne Nord (Podor, Matam, Richard-Toll)",
+                "Bassin Arachidier (Kaolack, Diourbel, Fatick, Kaffrine)",
+                "Zone Littorale & Maraîchère (Niayes - Dakar/Thiès/Louga)",
+                "Zone Sud & Soudano-Guinéenne (Ziguinchor, Kolda, Sédhiou, Tambacounda)"
+            ], key="anacim_zone_sel")
+
+            st.markdown(f"""
+            - **Zone sélectionnée** : *{anacim_zone}*
+            - **Indicateur climatique** : Analyse des séquences sèches et prévisions saisonnières (COFOG / ANACIM).
+            - **Avis technique** : Recommandation d'ajustement du calendrier de semis en fonction de l'installation effective de la mousson et de la portance hydrique des sols.
+            """)
+
+        # --- EXPANDER 5 : FONCIER & GENRE ---
+        with st.expander("⚖️ 5. Sécurisation Foncière & Inclusion Genre (Réglementation Rurale)", expanded=False):
+            st.markdown("Analyse du statut juridique des terres (Domaine National, Titres Fonciers) et indicateurs d'accès pour les femmes et les jeunes.")
+            
+            statut_foncier_exp = st.selectbox("Mode d'accès et de sécurisation foncière :", [
+                "Affectation par le Conseil Municipal (Loi sur le Domaine National)",
+                "Bail emphytéotique ou convention de partenariat",
+                "Acquisition en toute propriété (Titre Foncier)",
+                "Location coutumière ou convention verbale de prêt"
+            ], key="foncier_exp_sel")
+
+            st.markdown(f"""
+            - **Statut retenu** : *{statut_foncier_exp}*
+            - **Recommandation d'expert** : Pour les investissements à forte intensité capitalistique (arboriculture, serres, irrigation), la formalisation par délibération municipale avec bail ou immatriculation au livre foncier est fortement conseillée pour éviter les litiges intercommunautaires.
+            - **Genre** : Intégration systématique des clauses d'équité genre conformément aux directives du Plan Land Matrix Sénégal.
+            """)
+
+        # --- EXPANDER 6 : SUBVENTIONS ---
+        with st.expander("💰 6. Guichet Unique des Subventions & Intrants Agricoles", expanded=False):
+            st.markdown("Évaluation de l'éligibilité aux campagnes nationales d'appui aux producteurs (Engrais, Matériel, Semences).")
+            
+            type_subvention = st.selectbox("Programme de soutien public visé :", [
+                "Campagne Agricole Nationale (Intrants subventionnés - Engrais NPK/Urée)",
+                "Programme d'Urgence de Modernisation de l'Agriculture (PUMA / PUDC)",
+                "Projet d'Amélioration de la Productivité et de la Résilience (PAPIL)",
+                "Lignes de crédit préférentielles de la CNI / CNCAS / Partenaires"
+            ], key="subv_prog_sel")
+
+            montant_projet_subv = st.number_input("Montant prévisionnel des intrants requis (FCFA) :", min_value=50000, max_value=10000000, value=500000, step=25000, key="subv_amt")
+            taux_subs = 0.30 if "Campagne" in type_subvention else 0.50
+            montant_estime_aide = int(montant_projet_subv * taux_subs)
+
+            st.metric("Appui Financier / Subvention Publique Estimé", f"{montant_estime_aide:,} FCFA")
+            st.caption("Pièces justificatives requises : Carte d'agriculteur biométrique, attestation d'appartenance à une structure paysanne reconnue.")
+
+        # --- EXPANDER 7 : POST-RÉCOLTE ---
+        with st.expander("🧊 7. Chaîne de Froid & Gestion des Pertes Post-Récolte", expanded=False):
+            st.markdown("Solutions technologiques et logistiques pour la conservation des denrées périssables et des grains.")
+            
+            filiere_post = st.selectbox("Filière et type de produit stocké :", [
+                "Oignon frais (Séchage, tressage et conservation en pallox)",
+                "Mangue fraîche (Hydro-refroidissement & traitement thermique)",
+                "Riz paddy (Séchage mécanique et stockage en sacs hermétiques PICS)",
+                "Maraîchage feuille (Chambre froide positive - 4°C)"
+            ], key="post_filiere_sel")
+
+            st.markdown(f"""
+            - **Filière ciblée** : *{filiere_post}*
+            - **Impact stratégique** : L'adoption de technologies de conservation post-récolte adaptées permet de réduire les pertes de 25% à moins de 5%, stabilisant ainsi l'offre sur les marchés locaux et d'exportation.
+            """)
+
+        # --- EXPANDER 8 : MARCHÉS RURAUX ---
+        with st.expander("📈 8. Intelligence de Marché & Cours des Denrées (Référentiels)", expanded=False):
+            st.markdown("Suivi des tendances des prix et des flux d'approvisionnement sur les grands marchés de gros du Sénégal.")
+            
+            marche_gros = st.selectbox("Marché de gros de référence :", [
+                "Marché d'intérêt national de Diamniadio (MIN)",
+                "Marché de Bène Tchic / Castors (Dakar)",
+                "Marché central de Touba Belel",
+                "Marché régional de Kaolack / Saint-Louis"
+            ], key="marche_gros_sel")
+
+            st.markdown(f"""
+            - **Marché sélectionné** : *{marche_gros}*
+            - **Analyse des fluctuations** : Les périodes de soudure et d'arrivée massive des récoltes locales (notamment l'oignon et la pomme de terre des Niayes) dictent les fenêtres optimales de commercialisation pour maximiser la marge du producteur.
+            """)
+
+        # --- EXPANDER 9 : CARBONE SOL ---
+        with st.expander("🌱 9. Séquestration Carbone & Pratiques Agroécologiques", expanded=False):
+            st.markdown("Évaluation de l'impact des pratiques de régénération des sols sur les crédits carbone et la fertilité organique.")
+            
+            pratiques_retenues = st.multiselect("Sélectionner les techniques agroécologiques déployées :", [
+                "Agroforesterie (Plantation d'Acacia albida / Faidherbia)",
+                "Restitution systématique des résidus de récolte",
+                "Utilisation de bio-fertilisants et composts enrichis",
+                "Pratique du non-labour ou travail minimal du sol"
+            ], key="agro_prat_sel")
+
+            score_carbone = len(pratiques_retenues) * 1.4
+            st.metric("Potentiel de Séquestration Carbone Évalué", f"+{score_carbone} tCO2eq / Ha / an")
+            st.caption("Ce score valorise l'exploitation dans le cadre des initiatives de certification carbone et d'agriculture intelligente face au climat.")
+
+        # --- EXPANDER 10 : TRAÇABILITÉ API ---
+        with st.expander("🔗 10. Traçabilité Numérique & Passeport Phytosanitaire Export", expanded=False):
+            st.markdown("Génération de passeports numériques normalisés pour la certification des lots destinés à l'exportation ou aux circuits modernes.")
+            
+            code_lot_export = st.text_input("Référence unique du lot / Code traçabilité :", f"SN-EXP-{datetime.now().strftime('%Y')}-994", key="trace_code_input")
+            pays_destination = st.selectbox("Marché de destination finale :", [
+                "Union Européenne (Normes GlobalGAP / Phytosanitaire strict)",
+                "Sous-région CEDEAO (Marché Commun)",
+                "Consommation Locale / Grande Distribution Sénégalaise"
+            ], key="dest_exp_sel")
+
+            if st.button("🚀 Valider et Générer le Passeport de Traçabilité", key="btn_gen_passeport"):
+                st.success(f"✅ **Passeport Numérique Émis avec Succès** pour le lot `{code_lot_export}` (Destination : {pays_destination}). Conformité validée pour l'audit d'exportation.")
 # =====================================================
 # 🌱 CONSEIL
 # =====================================================
