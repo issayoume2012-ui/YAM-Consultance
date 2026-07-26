@@ -1556,4 +1556,4 @@ elif selected == "📞 Contact":
             </div>
         </a>
         """, unsafe_allow_html=True)
-```[cite: 4]
+
