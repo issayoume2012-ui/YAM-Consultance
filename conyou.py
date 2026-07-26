@@ -893,7 +893,7 @@ if selected == "💼 Consultance":
                 area += xy[i][0] * xy[j][1] - xy[j][0] * xy[i][1]
             return round(abs(area) / 20000.0, 2)
 
-        # --- FONCTION DE GÉNÉRATION DU PDF 6 PAGES PLEINES (COMPLÈTE AVEC CARTE) ---
+        # --- FONCTION DE GÉNÉRATION DU PDF 6 PAGES PLEINES (STRUCTURÉE & CARTE VISIBLE) ---
         def generate_expert_pdf_pro(producer, zone, sol, crop, surface, user_info, ravageur, budget_total, rentabilite, map_image_path=None):
             buffer = io.BytesIO()
             doc = SimpleDocTemplate(buffer, pagesize=letter, leftMargin=36, rightMargin=36, topMargin=36, bottomMargin=36)
@@ -901,16 +901,17 @@ if selected == "💼 Consultance":
             p_color = colors.HexColor("#064e3b")
             s_color = colors.HexColor("#15803d")
             
-            t_style = ParagraphStyle('T', parent=styles['Heading1'], fontName='Helvetica-Bold', fontSize=13, textColor=p_color, alignment=1, spaceAfter=4)
-            h_style = ParagraphStyle('H', parent=styles['Heading2'], fontName='Helvetica-Bold', fontSize=10, textColor=s_color, spaceBefore=4, spaceAfter=2)
-            b_style = ParagraphStyle('B', parent=styles['Normal'], fontName='Helvetica', fontSize=8, leading=10, textColor=colors.HexColor("#1e293b"))
+            # Styles agrandis et optimisés pour une excellente lisibilité
+            t_style = ParagraphStyle('T', parent=styles['Heading1'], fontName='Helvetica-Bold', fontSize=15, textColor=p_color, alignment=1, spaceAfter=6)
+            h_style = ParagraphStyle('H', parent=styles['Heading2'], fontName='Helvetica-Bold', fontSize=11.5, textColor=s_color, spaceBefore=6, spaceAfter=4)
+            b_style = ParagraphStyle('B', parent=styles['Normal'], fontName='Helvetica', fontSize=9.5, leading=13, textColor=colors.HexColor("#1e293b"))
 
             story = []
 
             # ================= PAGE 1 =================
             story.append(Paragraph("📋 RAPPORT D'EXPERTISE & FAISABILITÉ DE PROJET AGRICOLE (360°)", t_style))
             story.append(Paragraph(f"<b>Réf Dossier :</b> PROJ-EXP-{datetime.now().strftime('%Y%m%d')} | <b>Date :</b> {datetime.now().strftime('%d/%m/%Y')}", ParagraphStyle('Sub', parent=b_style, alignment=1, textColor=colors.gray)))
-            story.append(HRFlowable(width="100%", thickness=1, color=p_color, spaceBefore=2, spaceAfter=4))
+            story.append(HRFlowable(width="100%", thickness=1.5, color=p_color, spaceBefore=4, spaceAfter=6))
             
             story.append(Paragraph("PAGE 1 : Paramétrage Stratégique & Cadre Géo-Pédologique", h_style))
             story.append(Paragraph("<b>1. Identification du Projet & Promotrices/Promoteurs</b>", b_style))
@@ -918,7 +919,7 @@ if selected == "💼 Consultance":
             story.append(Paragraph(f"• <b>Spéculation / Culture :</b> {crop}", b_style))
             story.append(Paragraph("• <b>Objectif Stratégique :</b> Agriculture Commerciale Intensive orientée vers l'exportation et la transformation locale.", b_style))
             story.append(Paragraph(f"• <b>Expert Auditeur :</b> {user_info.get('nom')} (Cabinet YouAgronoMe — Sénégal).", b_style))
-            story.append(Spacer(1, 4))
+            story.append(Spacer(1, 6))
             
             story.append(Paragraph("<b>2. Cartographie GPS & Caractéristiques Pédologiques (12 Types FAO/ORSTOM)</b>", b_style))
             story.append(Paragraph(f"• <b>Superficie Exploitable :</b> {surface} Ha délimités par géolocalisation haute précision.", b_style))
@@ -926,27 +927,27 @@ if selected == "💼 Consultance":
             story.append(Paragraph(f"• <b>Type de Sol Référentiel :</b> {sol}", b_style))
             story.append(Paragraph("• <b>Paramètres Physico-Chimiques :</b> pH mesuré, taux de matière organique et texture du sol intégrés automatiquement via le référentiel pédologique national.", b_style))
             
-            # Insertion dynamique de la carte géographique si le chemin est fourni
+            # Insertion visible et agrandie de la carte géographique
             if map_image_path:
+                story.append(Spacer(1, 6))
+                story.append(Paragraph("<b>3. Visualisation Satellitaire & Délimitation de la Parcelle (GPS)</b>", b_style))
                 story.append(Spacer(1, 4))
-                story.append(Paragraph("• <b>Visualisation Satellitaire & Délimitation de la Parcelle :</b>", b_style))
-                story.append(Spacer(1, 2))
                 try:
-                    story.append(Image(map_image_path, width=400, height=180))
+                    story.append(Image(map_image_path, width=460, height=220))
                 except Exception:
-                    story.append(Paragraph("<i>[Aperçu cartographique non disponible pour cette session]</i>", b_style))
+                    story.append(Paragraph("<i>[Aperçu cartographique non disponible ou format d'image non pris en charge]</i>", b_style))
 
             story.append(PageBreak())
 
             # ================= PAGE 2 =================
             story.append(Paragraph("PAGE 2 : Plan d'Investissement Prévisionnel & Analyse Financière", t_style))
-            story.append(HRFlowable(width="100%", thickness=1, color=p_color, spaceBefore=2, spaceAfter=4))
+            story.append(HRFlowable(width="100%", thickness=1.5, color=p_color, spaceBefore=4, spaceAfter=6))
             
             story.append(Paragraph("<b>1. Structure des Coûts & Investissements</b>", b_style))
             story.append(Paragraph(f"• <b>Intrants & Amendements certifiés (ISRA) [40%] :</b> {int(budget_total * 0.4):,} FCFA pour l'optimisation ciblée des rendements.", b_style))
             story.append(Paragraph(f"• <b>Système d'Irrigation & Énergie (DGPRE) [35%] :</b> {int(budget_total * 0.35):,} FCFA pour garantir l'autonomie hydrique.", b_style))
             story.append(Paragraph(f"• <b>Main-d'œuvre & Suivi Sanitaire (DPV) [25%] :</b> {int(budget_total * 0.25):,} FCFA pour la sécurité phytosanitaire.", b_style))
-            story.append(Spacer(1, 4))
+            story.append(Spacer(1, 6))
 
             story.append(Paragraph("<b>2. Indicateurs de Rentabilité (Business Plan)</b>", b_style))
             story.append(Paragraph(f"• <b>Budget Total du Projet :</b> {budget_total:,} FCFA (calculé selon le coût à l'hectare et la superficie GPS).", b_style))
@@ -956,13 +957,13 @@ if selected == "💼 Consultance":
 
             # ================= PAGE 3 =================
             story.append(Paragraph("PAGE 3 : Diagnostic Sanitaire Exhaustif & Intelligence Artificielle", t_style))
-            story.append(HRFlowable(width="100%", thickness=1, color=p_color, spaceBefore=2, spaceAfter=4))
+            story.append(HRFlowable(width="100%", thickness=1.5, color=p_color, spaceBefore=4, spaceAfter=6))
             
             story.append(Paragraph("<b>1. Veille Phytosanitaire & Catalogue DPV Intégral</b>", b_style))
             story.append(Paragraph(f"• <b>Bio-agresseur ciblé :</b> <i>{ravageur}</i>", b_style))
             story.append(Paragraph("• <b>Couverture Sanitaire :</b> Répertoire exhaustif des ravageurs souterrains, aériens, piqueurs-suceurs et pathogènes fongiques.", b_style))
             story.append(Paragraph("• <b>Protocoles de Lutte :</b> Application stricte des traitements homologués par la Direction de la Protection des Végétaux (DPV).", b_style))
-            story.append(Spacer(1, 4))
+            story.append(Spacer(1, 6))
 
             story.append(Paragraph("<b>2. Module de Vision par Ordinateur & IA</b>", b_style))
             story.append(Paragraph("• <b>Analyse d'images :</b> Importation de clichés de cultures pour un diagnostic instantané par réseau de neurones avec un taux de confiance > 98%.", b_style))
@@ -971,7 +972,7 @@ if selected == "💼 Consultance":
 
             # ================= PAGE 4 =================
             story.append(Paragraph("PAGE 4 : Référentiels Nationaux & Hub Expert (Modules 1 à 5)", t_style))
-            story.append(HRFlowable(width="100%", thickness=1, color=p_color, spaceBefore=2, spaceAfter=4))
+            story.append(HRFlowable(width="100%", thickness=1.5, color=p_color, spaceBefore=4, spaceAfter=6))
             
             story.append(Paragraph("<b>1. Catalogue Variétal (ISRA, CORAF, AfricaRice, CEDEAO)</b>", b_style))
             story.append(Paragraph("• Sélection multicritère par filière (Arachide Jambaar/Tosset, Riz Sahel/ISRIZ, Mil Souna/Taaw, Sorgho Darou, Niébé Pakau, Maraîchage) avec filtres textuels dynamiques pour le choix des semences certifiées.", b_style))
@@ -987,7 +988,7 @@ if selected == "💼 Consultance":
 
             # ================= PAGE 5 =================
             story.append(Paragraph("PAGE 5 : Hub Expert Étendu (Modules 6 à 10)", t_style))
-            story.append(HRFlowable(width="100%", thickness=1, color=p_color, spaceBefore=2, spaceAfter=4))
+            story.append(HRFlowable(width="100%", thickness=1.5, color=p_color, spaceBefore=4, spaceAfter=6))
             
             story.append(Paragraph("<b>1. Subventions & Intrants (Guichet Unique)</b>", b_style))
             story.append(Paragraph("• Évaluation de l'éligibilité aux campagnes nationales d'engrais et de matériel agricole subventionné avec estimation des aides publiques.", b_style))
@@ -1003,21 +1004,21 @@ if selected == "💼 Consultance":
 
             # ================= PAGE 6 =================
             story.append(Paragraph("PAGE 6 : Administration, Sécurité & Validation Finale", t_style))
-            story.append(HRFlowable(width="100%", thickness=1, color=p_color, spaceBefore=2, spaceAfter=4))
+            story.append(HRFlowable(width="100%", thickness=1.5, color=p_color, spaceBefore=4, spaceAfter=6))
             
             story.append(Paragraph("<b>1. Gestion de la Whitelist & Contrôle d'Accès</b>", b_style))
             story.append(Paragraph("• Authentification sécurisée par e-mail et mot de passe pour les administrateurs et techniciens terrain.", b_style))
             story.append(Paragraph("• Interface de configuration pour l'ajout de nouveaux experts et la révocation des accès inactifs.", b_style))
-            story.append(Spacer(1, 4))
+            story.append(Spacer(1, 6))
 
             story.append(Paragraph("<b>2. Intégration Panier & E-commerce Agricole</b>", b_style))
             story.append(Paragraph("• Transfert direct des packs d'intrants personnalisés vers le panier d'achat global de la plateforme.", b_style))
-            story.append(Spacer(1, 4))
+            story.append(Spacer(1, 6))
 
             story.append(Paragraph("<b>3. Validation et Signature du Bureau d'Études</b>", b_style))
             story.append(Paragraph(f"• <b>Expert Référent :</b> {user_info.get('nom')} ({user_info.get('role')})", b_style))
             story.append(Paragraph("• <b>Cabinet d'Expertise :</b> YouAgronoMe — Sénégal", b_style))
-            story.append(Spacer(1, 10))
+            story.append(Spacer(1, 15))
             story.append(Paragraph("<b>Cachet et Signature de l'Expert :</b><br/><br/>________________________________________", b_style))
 
             doc.build(story)
