@@ -687,102 +687,6 @@ elif selected == "📊 Tableau de Bord":
             use_container_width=True, hide_index=True
         )
 
-    st.markdown("<div class='db-section-title'>📄 Rapport Officiel d'Évaluation Inter-Institutionnelle</div>", unsafe_allow_html=True)
-    rapport_ia_multi = f"""SOUVERAINETÉ ALIMENTAIRE DU SÉNÉGAL - RAPPORT BIANNUEL INTER-AGENCES (2026)
-====================================================================================================
-Territoire d'analyse : {region_choisie}
-Année de simulation : {annee_choisie}
-Scénario retenu : {scenario}
-----------------------------------------------------------------------------------------------------
-1. BILAN DES PRODUCTIONS PAR FILIÈRE (DAPSA, SAED, SODAGRI, DHORT, SODEFITEX)
-   - Riz (Irrigué & Pluvial) : {df_filtre['SAED/SODAGRI - Riz Irrigué & Pluvial (Tonnes)'].sum():,} Tonnes.
-   - Céréales Sèches (Mil, Sorgho, Maïs, Fonio) : {df_filtre['DAPSA - Mil & Sorgho (Tonnes)'].sum() + df_filtre['DAPSA - Maïs & Fonio (Tonnes)'].sum():,} Tonnes.
-   - Oléagineux & Légumineuses (Arachide, Niébé, Sésame) : {df_filtre['DAPSA - Arachide (Tonnes)'].sum() + df_filtre['DAPSA - Niébé & Sésame (Tonnes)'].sum():,} Tonnes.
-   - Horticulture (Oignon, Pomme de terre, Tomate industrielle) : {df_filtre['ARM/DHORT - Oignon & Pomme de Terre (Tonnes)'].sum() + df_filtre['ARM/DHORT - Tomate Industrielle & Legumes (Tonnes)'].sum():,} Tonnes.
-   - Tubercules & Racines (Manioc) : {df_filtre['DAPSA - Manioc & Tubercules (Tonnes)'].sum():,} Tonnes.
-   - Cultures Industrielles (Coton & Anacarde) : {df_filtre['SODEFITEX/DAPSA - Coton & Anacarde (Tonnes)'].sum():,} Tonnes.
-
-2. FINANCEMENT & LOGISTIQUE (LA BANQUE AGRICOLE, DER/FJ, ARM, ITA)
-   - Financements bancaires octroyés (La Banque Agricole) : {df_filtre['La Banque Agricole - Financements Octroyés (Mio FCFA)'].sum():,} Millions FCFA.
-   - Agropreneurs accompagnés par la DER/FJ : {df_filtre['DER/FJ - Agropreneurs & TPE Financés (Nombre)'].sum():,} porteurs de projets.
-   - Capacité de stockage sous régulation (ARM) : {df_filtre['ARM - Capacité de Stockage/Régulation (Tonnes)'].sum():,} Tonnes.
-   - Taux de transformation industrielle locale (ITA) : {df_filtre['ITA - Taux de Transformation Agroalimentaire (%)'].mean():.1f}%.
-
-3. RÉSILIENCE CLIMATIQUE & CONSERVATION DES SOLS (DGPRE, CSE, INP, ANACIM)
-   - Prélèvements d'eau mobilisés pour l'irrigation (DGPRE) : {df_filtre['DGPRE - Eau Irrigation Mobilisée (Mio m³)'].sum():,.1f} Millions m³.
-   - Biomasse pastorale disponible (CSE) : {df_filtre['CSE - Biomasse Pastorale Disponible (kg MS/ha)'].mean():.0f} kg MS/ha.
-   - Terres salines restaurées au gypse (INP) : {df_filtre['INP - Terres Salines Restaurées au Gypse (Ha)'].sum():,} Ha.
-   - Couverture d'alerte météo SMS (ANACIM) : {df_filtre['ANACIM - Abonnés Alertes Agrométéo SMS'].sum():,} producteurs.
-
-4. CAPITAL HUMAIN & ENCADREMENT (ANCAR, MEPA, 3FPT)
-   - Taux d'encadrement technique agricole (ANCAR) : {df_filtre["Taux d'Encadrement Technique ANCAR (%)"].mean():.1f}%.
-   - Couverture vaccinale du cheptel (MEPA) : {df_filtre['Taux Couverture Vaccinale Cheptel MEPA (%)'].mean():.1f}%.
-   - Acteurs ruraux formés en agribusiness (3FPT/ONFP) : {df_filtre['3FPT/ONFP - Acteurs Formés en Agribusiness'].sum():,} personnes.
-====================================================================================================
-"""
-
-    with st.container(border=True):
-        st.markdown(f"<div class='ai-box'><pre style='white-space: pre-wrap; font-family: inherit; font-size: 12px;'>{rapport_ia_multi}</pre></div>", unsafe_allow_html=True)
-
-        def generer_excel_multi_agences(df, rapport_texte):
-            output = io.BytesIO()
-            wb = openpyxl.Workbook()
-            ws1 = wb.active
-            ws1.title = "Matrice Filières Agences"
-            
-            ws1.merge_cells("A1:N1")
-            title_cell = ws1["A1"]
-            title_cell.value = "🇸🇳 DONNÉES RÉELLES CONSOLIDÉES DES FILIÈRES & AGENCES AGRICOLES DU SÉNÉGAL"
-            title_cell.font = Font(name="Calibri", size=14, bold=True, color="FFFFFF")
-            title_cell.fill = PatternFill(start_color="1B5E20", end_color="1B5E20", fill_type="solid")
-            title_cell.alignment = Alignment(horizontal="center", vertical="center")
-            ws1.row_dimensions[1].height = 35
-            
-            headers = [
-                "Région", "Riz (T)", "Mil & Sorgho (T)", "Maïs & Fonio (T)", 
-                "Arachide (T)", "Niébé & Sésame (T)", "Oignon/P.Terre (T)", "Tomate/Légumes (T)",
-                "Manioc (T)", "Crédit LBA (Mio)", "DER/FJ (Bénéf.)", "Eau DGPRE (Mio m³)",
-                "SMS ANACIM", "Encadrement ANCAR (%)"
-            ]
-            for c_idx, h in enumerate(headers, 1):
-                cell = ws1.cell(row=3, column=c_idx)
-                cell.value = h
-                cell.font = Font(name="Calibri", size=10, bold=True, color="FFFFFF")
-                cell.fill = PatternFill(start_color="0D2310", end_color="0D2310", fill_type="solid")
-                cell.alignment = Alignment(horizontal="center", vertical="center")
-
-            cols_export = [
-                "Région", "SAED/SODAGRI - Riz Irrigué & Pluvial (Tonnes)", "DAPSA - Mil & Sorgho (Tonnes)",
-                "DAPSA - Maïs & Fonio (Tonnes)", "DAPSA - Arachide (Tonnes)", "DAPSA - Niébé & Sésame (Tonnes)",
-                "ARM/DHORT - Oignon & Pomme de Terre (Tonnes)", "ARM/DHORT - Tomate Industrielle & Legumes (Tonnes)",
-                "DAPSA - Manioc & Tubercules (Tonnes)", "La Banque Agricole - Financements Octroyés (Mio FCFA)",
-                "DER/FJ - Agropreneurs & TPE Financés (Nombre)", "DGPRE - Eau Irrigation Mobilisée (Mio m³)",
-                "ANACIM - Abonnés Alertes Agrométéo SMS", "Taux d'Encadrement Technique ANCAR (%)"
-            ]
-            
-            df_sub = df[cols_export]
-            for r_idx, row in enumerate(df_sub.itertuples(index=False), 4):
-                for c_idx, val in enumerate(row, 1):
-                    ws1.cell(row=r_idx, column=c_idx, value=val)
-
-            ws2 = wb.create_sheet(title="Synthèse Institutionnelle")
-            ws2.column_dimensions['A'].width = 110
-            for idx, line in enumerate(rapport_texte.split('\n'), 1):
-                ws2.cell(row=idx, column=1, value=line)
-                
-            wb.save(output)
-            output.seek(0)
-            return output
-
-        excel_multi = generer_excel_multi_agences(df_filtre, rapport_ia_multi)
-        st.download_button(
-            label="📥 Télécharger la Matrice Officielle Inter-Agences (.xlsx)",
-            data=excel_multi,
-            file_name=f"Matrice_Agences_Filieres_Senegal_{region_choisie.replace(' ', '_')}_{annee_choisie}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            key="btn_export_multi_agences_v3"
-        )
-
 
 # =====================================================
 # 💼 CONSULTANCE
@@ -930,7 +834,7 @@ elif selected == "💼 Consultance":
         st.sidebar.error("❌ **Adresse e-mail non autorisée**")
 
     if not is_authorized:
-        st.warning("⚠️ **Accès restreint** : Veuillez saisir votre mot de passe dans le panneau latéral pour déverrouiller l'accès.")
+        st.warning("⚠️ **Accès restreint** : Veuillez saisir votre mot de passe dans le panneau latéral pour déverrouiller l'accès aux outils de consultance.")
     else:
         def calculate_polygon_area_ha(coords):
             if not coords or len(coords) < 3:
@@ -1011,11 +915,11 @@ elif selected == "💼 Consultance":
             story.append(t_fert)
             story.append(Spacer(1, 10))
 
-            story.append(Paragraph("💧 3. Plan d'Irrigation & Suivi Institutionnel (DGPRE / SAED / ANACIM)", h2_style))
+            story.append(Paragraph("💧 3. Plan d'Irrigation & Suivi Sanitaire (DGPRE / SAED / DPV)", h2_style))
             vol_eau = surface * 4500
             story.append(Paragraph(f"• <b>Besoin hydrique estimé (DGPRE) :</b> {vol_eau:,.0f} m³ d'eau par cycle pour la surface de {surface} Ha.", body_style))
             story.append(Paragraph(f"• <b>Alerte Agrométéo (ANACIM) :</b> Suivi des décadaires pluviales et des températures maximales pour prévenir le stress hydrique.", body_style))
-            story.append(Paragraph(f"• <b>Statut Sanitaire (DPV) :</b> {dpv_status}", body_style))
+            story.append(Paragraph(f"• <b>Statut Sanitaire & Entomologique (DPV) :</b> {dpv_status}", body_style))
             story.append(Spacer(1, 15))
 
             story.append(Paragraph("✍️ Signature de l'Expert & Validation Technique", ParagraphStyle('Sign', parent=body_style, fontName='Helvetica-Bold')))
@@ -1030,7 +934,7 @@ elif selected == "💼 Consultance":
         # INTERFACE DE CONSULTANCE & DÉLIMITATION SYNCHRONISÉE
         # =====================================================
         st.markdown("### 🗺️ Délimitation de Parcelle & Diagnostic Agro-Pédologique Synchronisé")
-        st.info("💡 **Synchronisation active** : Dessinez ou ajustez votre polygone sur la carte interactive ci-dessous pour actualiser dynamiquement la superficie, les besoins en engrais et les volumes d'eau requis.")
+        st.info("💡 **Synchronisation active** : Dessinez ou ajustez votre polygone sur la carte interactive ci-dessous pour actualiser dynamiquement la superficie, les besoins en engrais, la fertilisation et les volumes d'eau requis.")
 
         col_cfg1, col_cfg2, col_cfg3 = st.columns(3)
         with col_cfg1:
@@ -1059,7 +963,6 @@ elif selected == "💼 Consultance":
         if HAS_FOLIUM:
             m = folium.Map(location=[st.session_state["consult_gps"]["lat"], st.session_state["consult_gps"]["lon"]], zoom_start=14)
             
-            # Ajout des outils de dessin Folium pour permettre de délimiter ou modifier la zone d'études
             draw = Draw(
                 export=False,
                 position="topleft",
@@ -1088,7 +991,6 @@ elif selected == "💼 Consultance":
 
             map_data = st_folium(m, width=700, height=450, key="folium_parcelle_map")
 
-            # Récupération dynamique des dessins réalisés sur la carte
             if map_data and isinstance(map_data, dict):
                 last_active_drawing = map_data.get("last_active_drawing")
                 if last_active_drawing and isinstance(last_active_drawing, dict):
@@ -1170,6 +1072,59 @@ elif selected == "💼 Consultance":
             """, unsafe_allow_html=True)
 
         st.write("")
+        st.markdown("### 🐛 Suivi Entomologique & Sanitaire (DPV)")
+        with st.container(border=True):
+            col_ent1, col_ent2 = st.columns(2)
+            with col_ent1:
+                ravageur_observe = st.selectbox("Ravageur / Maladie détecté(e) :", ["Aucun", "Chenille Légionnaire d'Automne (Spodoptera frugiperda)", "Sidan / Pucerons", "Mouche blanche", "Helminthosporiose"])
+            with col_ent2:
+                niveau_infestation = st.select_slider("Niveau de pression parasitaire :", options=["Faible", "Modéré", "Sévère / Alerte"])
+            
+            if ravageur_observe != "Aucun":
+                st.warning(f"⚠️ **Alerte Sanitaire DPV** : Présence de {ravageur_observe} (Pression : {niveau_infestation}). Traitement biologique ou homologué recommandé selon les protocoles de la Direction de la Protection des Végétaux.")
+            else:
+                st.success("✅ **Statut Sanitaire DPV** : Cultures sous surveillance. Aucune attaque majeure signalée.")
+
+        # Section Whitelist & Administration (Accessible si Administrateur)
+        if is_admin:
+            st.write("")
+            st.markdown("### 👥 Gestion de la Liste Blanche & des Techniciens (Admin)")
+            with st.container(border=True):
+                st.write("Gestion des accès aux outils de consultance et de diagnostic de terrain.")
+                
+                new_wl_email = st.text_input("Nouvel e-mail à autoriser :", key="new_wl_email").strip().lower()
+                new_wl_nom = st.text_input("Nom complet du technicien/expert :", key="new_wl_nom")
+                new_wl_role = st.selectbox("Rôle assigné :", ["Technicien Terrain", "Expert DPV", "Agronome Conseil", "Administrateur"], key="new_wl_role")
+                
+                if st.button("➕ Ajouter à la Liste Blanche", key="btn_add_whitelist"):
+                    if new_wl_email and new_wl_nom:
+                        exists = False
+                        for u in db["whitelist"]:
+                            if str(u.get("email")).lower() == new_wl_email:
+                                exists = True
+                                break
+                        if not exists:
+                            db["whitelist"].append({
+                                "email": new_wl_email,
+                                "password": "issayoume2026", # Mot de passe par défaut
+                                "nom": new_wl_nom,
+                                "role": new_wl_role,
+                                "zone": st.session_state["farm_zone"],
+                                "statut": "Actif"
+                            })
+                            save_db(db)
+                            st.success(f"✅ L'e-mail {new_wl_email} a été ajouté avec succès à la liste blanche !")
+                            st.rerun()
+                        else:
+                            st.error("⚠️ Cet e-mail est déjà présent dans la liste blanche.")
+                    else:
+                        st.error("⚠️ Veuillez remplir l'e-mail et le nom.")
+
+                st.markdown("#### 📋 Liste des Utilisateurs Autorisés actuels :")
+                for u in db["whitelist"]:
+                    st.caption(f"• **{u.get('nom')}** ({u.get('email')}) — Rôle : *{u.get('role')}* — Statut : **{u.get('statut')}**")
+
+        st.write("")
         col_dl1, col_dl2 = st.columns(2)
         with col_dl1:
             if HAS_REPORTLAB:
@@ -1183,7 +1138,7 @@ elif selected == "💼 Consultance":
                     mo=st.session_state["farm_mo"],
                     coords=st.session_state["draw_coords"],
                     user_info=current_user,
-                    dpv_status="Conforme - Aucun ravageur signalé"
+                    dpv_status=f"Ravageur: {ravageur_observe} (Niveau: {niveau_infestation})"
                 )
                 st.download_button(
                     label="📥 Télécharger le Rapport d'Expertise Complet (.pdf)",
@@ -1219,7 +1174,7 @@ elif selected == "🌱 Conseil":
     """, unsafe_allow_html=True)
 
     catalogue_produits = [
-        {"nom": "Semences de Riz Sahélien Certifiées (ISRA/SAED)", "categorie": "Semences", "prix": "25 000 FCFA / 50kg", "desc": "Variété à haut rendement, tolérante à la salinité et aux altees hydriques."},
+        {"nom": "Semences de Riz Sahélien Certifiées (ISRA/SAED)", "categorie": "Semences", "prix": "25 000 FCFA / 50kg", "desc": "Variété à haut rendement, tolérante à la salinité et aux alees hydriques."},
         {"nom": "Engrais de Fond DAP (14-23-14)", "categorie": "Intrants", "prix": "22 500 FCFA / 50kg", "desc": "Formule homologuée pour le démarrage racinaire des céréales et cultures maraîchères."},
         {"nom": "Engrais de Couverture Urée (46% N)", "categorie": "Intrants", "prix": "20 000 FCFA / 50kg", "desc": "Azote hautement assimilable pour la phase de montaison et tallage."},
         {"nom": "Kit d'Irrigation Goutte-à-Goutte (1 Hectare)", "categorie": "Équipement", "prix": "450 000 FCFA / Kit", "desc": "Économie d'eau de 50% par rapport à l'aspersion, validé par la DGPRE."}
