@@ -982,9 +982,9 @@ elif selected == "💼 Consultance":
             ]
             
             data_id = [
-                [Paragraph("<b>Producteur / Organisation :</b>", body_style), Paragraph(producer, body_style), Paragraph("<b>Superficie Totale :</b>", body_style), Paragraph(f"{surface} Ha", body_bold)],
-                [Paragraph("<b>Zone Ecogéographique :</b>", body_style), Paragraph(zone, body_style), Paragraph("<b>Culture Déclarée :</b>", body_style), Paragraph(crop, body_bold)],
-                [Paragraph("<b>Expert Référent :</b>", body_style), Paragraph(f"{user_info.get('nom', 'N/A')}", body_style), Paragraph("<b>Rôle Expert :</b>", body_style), Paragraph(f"{user_info.get('role', 'N/A')}", body_style)]
+                [Paragraph("<b>Producteur / Organisation :</b>", body_style), Paragraph(str(producer), body_style), Paragraph("<b>Superficie Totale :</b>", body_style), Paragraph(f"{surface} Ha", body_bold)],
+                [Paragraph("<b>Zone Ecogéographique :</b>", body_style), Paragraph(str(zone), body_style), Paragraph("<b>Culture Déclarée :</b>", body_style), Paragraph(str(crop), body_bold)],
+                [Paragraph("<b>Expert Référent :</b>", body_style), Paragraph(f"{str(user_info.get('nom', 'N/A'))}", body_style), Paragraph("<b>Rôle Expert :</b>", body_style), Paragraph(f"{str(user_info.get('role', 'N/A'))}", body_style)]
             ]
             t_id = Table(data_id, colWidths=[130, 140, 130, 140])
             t_id.setStyle(TableStyle([('BACKGROUND', (0,0), (-1,-1), accent_bg), ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor("#bbf7d0")), ('PADDING', (0,0), (-1,-1), 6)]))
@@ -999,11 +999,11 @@ elif selected == "💼 Consultance":
             sol_details = BASE_SOLS_INP_FULL.get(zone, {}).get(sol, {})
             data_sol = [
                 ["Indicateur Pédologique", "Valeur Mesurée / Estimée", "Seuil Optimal / Standard", "Interprétation Agonomique"],
-                ["Type Typologique Sol", sol, "-", "Référentiel National INP Sénégal"],
+                ["Type Typologique Sol", str(sol), "-", "Référentiel National INP Sénégal"],
                 ["pH (Potentiel Hydrogène)", f"{ph:.2f}", "6.0 - 7.2", "Favorable / Neutre" if 6.0 <= ph <= 7.2 else ("Acide" if ph < 6.0 else "Alcalin")],
                 ["Matière Organique (MO)", f"{mo:.2f} %", "> 2.0 %", "Satisfaisant" if mo >= 1.5 else "Déficitaire (Apport compost requis)"],
-                ["Capacité de Rétention", sol_details.get("Rétention", "Moyenne"), "Moyenne - Forte", "Bonne gestion du stress hydrique"],
-                ["Qualité du Drainage", sol_details.get("Drainage", "Bon"), "Bon / Modéré", "Infiltration régulière"]
+                ["Capacité de Rétention", str(sol_details.get("Rétention", "Moyenne")), "Moyenne - Forte", "Bonne gestion du stress hydrique"],
+                ["Qualité du Drainage", str(sol_details.get("Drainage", "Bon")), "Bon / Modéré", "Infiltration régulière"]
             ]
             t_sol = Table(data_sol, colWidths=[140, 110, 110, 180])
             t_sol.setStyle(TableStyle([('BACKGROUND', (0,0), (-1,0), primary_color), ('TEXTCOLOR', (0,0), (-1,0), colors.white), ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor("#cbd5e1")), ('PADDING', (0,0), (-1,-1), 5), ('ALIGN', (1,1), (2,-1), 'CENTER')]))
@@ -1030,7 +1030,7 @@ elif selected == "💼 Consultance":
             
             data_entomo = [
                 ["Paramètre Sanitaire", "Résultat Diagnostic IA"],
-                ["Statut de la Transmission DPV", Paragraph(dpv_txt, body_style)],
+                ["Statut de la Transmission DPV", Paragraph(str(dpv_txt), body_style)],
                 ["Ravageur Détecté (Vision IA)", "Chenille Légionnaire d'Automne (Spodoptera frugiperda)"],
                 ["Indice de Confiance IA", "96.2 % (Détection Haute Précision)"],
                 ["Seuil d'Intervention", "Atteint (> 5% des plants affectés)"],
@@ -1062,7 +1062,7 @@ elif selected == "💼 Consultance":
             
             data_sign = [
                 [Paragraph("<b>Signature du Technicien Référent :</b>", body_style), Paragraph("<b>Cachet Officiel & Validation Expert :</b>", body_style)],
-                [Paragraph(f"<br/><br/><b>{user_info.get('nom', 'Agent')}</b><br/>Expert Agronome", body_style), Paragraph("<br/><br/><i>Validé par le Système Agro-IA 360° Sénégal</i>", body_style)]
+                [Paragraph(f"<br/><br/><b>{str(user_info.get('nom', 'Agent'))}</b><br/>Expert Agronome", body_style), Paragraph("<br/><br/><i>Validé par le Système Agro-IA 360° Sénégal</i>", body_style)]
             ]
             t_sign = Table(data_sign, colWidths=[270, 270])
             t_sign.setStyle(TableStyle([('PADDING', (0,0), (-1,-1), 0)]))
@@ -1142,13 +1142,11 @@ elif selected == "💼 Consultance":
 
             with col_m1:
                 if HAS_FOLIUM:
-                    # Initialisation de la carte avec centrage dynamique
-                    center_lat = st.session_state["consult_gps"]["lat"]
-                    center_lon = st.session_state["consult_gps"]["lon"]
+                    center_lat = float(st.session_state["consult_gps"]["lat"])
+                    center_lon = float(st.session_state["consult_gps"]["lon"])
                     m = folium.Map(location=[center_lat, center_lon], zoom_start=13)
 
-                    # Fond Satellite Esri ArcGIS (Par défaut)
-                    esri_sat = folium.TileLayer(
+                    folium.TileLayer(
                         tiles='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
                         attr='Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community',
                         name='Satellite Esri ArcGIS',
@@ -1156,24 +1154,22 @@ elif selected == "💼 Consultance":
                         control=True
                     ).add_to(m)
 
-                    # Plan Standard (OSM)
                     folium.TileLayer('openstreetmap', name='Plan Standard (OSM)').add_to(m)
 
-                    # Groupe pour stocker les dessins de parcelles
                     drawn_items = folium.FeatureGroup(name="Parcelles Dessinées").add_to(m)
 
-                    # Affichage du polygone déjà enregistré si présent
                     if st.session_state["draw_coords"]:
                         for idx, pt in enumerate(st.session_state["draw_coords"]):
                             folium.Marker(
-                                pt, 
-                                popup=f"Sommet P{idx+1}: {pt}", 
+                                [float(pt[0]), float(pt[1])], 
+                                popup=str(f"Sommet P{idx+1}: {pt}"), 
                                 icon=folium.Icon(color="green", icon="info-sign")
                             ).add_to(drawn_items)
                             
                         if len(st.session_state["draw_coords"]) >= 3:
+                            clean_poly_coords = [[float(p[0]), float(p[1])] for p in st.session_state["draw_coords"]]
                             folium.Polygon(
-                                st.session_state["draw_coords"], 
+                                clean_poly_coords, 
                                 color="#16a34a", 
                                 weight=3, 
                                 fill=True, 
@@ -1181,7 +1177,6 @@ elif selected == "💼 Consultance":
                                 fill_opacity=0.4
                             ).add_to(drawn_items)
 
-                    # Intégration des outils Leaflet.Draw complets
                     from folium.plugins import Draw
                     draw_control = Draw(
                         export=True,
@@ -1208,10 +1203,8 @@ elif selected == "💼 Consultance":
                     draw_control.add_to(m)
                     folium.LayerControl().add_to(m)
 
-                    # Rendu interactif via streamlit-folium
                     st_map = st_folium(m, height=520, width="100%", key="sig_map_sync_draw")
 
-                    # Synchronisation dynamique lors du tracé ou des clics sur la carte
                     if st_map:
                         if st_map.get("all_drawings") and len(st_map["all_drawings"]) > 0:
                             last_draw = st_map["all_drawings"][-1]
@@ -1219,7 +1212,7 @@ elif selected == "💼 Consultance":
                             raw_coords = last_draw.get("geometry", {}).get("coordinates", [])
 
                             if geom_type == "Polygon" and raw_coords:
-                                extracted_coords = [(c[1], c[0]) for c in raw_coords[0]]
+                                extracted_coords = [(float(c[1]), float(c[0])) for c in raw_coords[0]]
                                 st.session_state["draw_coords"] = extracted_coords
                                 auto_surf = calculate_polygon_area_ha(extracted_coords)
                                 if auto_surf > 0:
@@ -1227,13 +1220,13 @@ elif selected == "💼 Consultance":
 
                         elif st_map.get("last_clicked"):
                             clk = st_map["last_clicked"]
-                            st.session_state["consult_gps"] = {"lat": clk["lat"], "lon": clk["lng"]}
+                            st.session_state["consult_gps"] = {"lat": float(clk["lat"]), "lon": float(clk["lng"])}
 
         with tabs_main[1]:
             st.subheader("🧪 Paramètres Pédologiques & Plan de Nutrition")
             col_d1, col_d2, col_d3 = st.columns(3)
             with col_d1:
-                st.session_state["farm_producer"] = st.text_input("Producteur / Exploitation :", value=st.session_state["farm_producer"], key="p_name_sync")
+                st.session_state["farm_producer"] = st.text_input("Producteur / Exploitation :", value=str(st.session_state["farm_producer"]), key="p_name_sync")
                 zones_keys = list(BASE_SOLS_INP_FULL.keys())
                 z_idx = zones_keys.index(st.session_state["farm_zone"]) if st.session_state["farm_zone"] in zones_keys else 0
                 selected_zone = st.selectbox("Zone Écogéographique :", zones_keys, index=z_idx, key="p_zone_sync")
@@ -1318,14 +1311,14 @@ elif selected == "💼 Consultance":
 
         with tabs_main[3]:
             st.subheader("🤖 Diagnostic Synthétique Intégré")
-            prod_val = st.session_state["farm_producer"]
-            zone_val = st.session_state["farm_zone"]
-            sol_val = st.session_state["farm_sol"]
-            crop_val = st.session_state["farm_crop"]
-            stade_val = st.session_state["farm_stade"]
-            surf_val = st.session_state["active_surface_ha"]
-            ph_val = st.session_state["farm_ph"]
-            mo_val = st.session_state["farm_mo"]
+            prod_val = str(st.session_state["farm_producer"])
+            zone_val = str(st.session_state["farm_zone"])
+            sol_val = str(st.session_state["farm_sol"])
+            crop_val = str(st.session_state["farm_crop"])
+            stade_val = str(st.session_state["farm_stade"])
+            surf_val = float(st.session_state["active_surface_ha"])
+            ph_val = float(st.session_state["farm_ph"])
+            mo_val = float(st.session_state["farm_mo"])
 
             dap_h, ure_h, kcl_h = BAREMES_ISRA.get(crop_val, (150, 150, 50))
             dap_tot = int(dap_h * surf_val)
@@ -1351,8 +1344,8 @@ elif selected == "💼 Consultance":
 
         with tabs_main[4]:
             st.subheader("🌿 Suivi Satellitaire (NDVI) & Bilan Hydrique")
-            surf_val = st.session_state["active_surface_ha"]
-            crop_val = st.session_state["farm_crop"]
+            surf_val = float(st.session_state["active_surface_ha"])
+            crop_val = str(st.session_state["farm_crop"])
             col_n1, col_n2 = st.columns(2)
             with col_n1:
                 st.markdown("#### 🛰️ Vigueur Végétale")
@@ -1375,13 +1368,13 @@ elif selected == "💼 Consultance":
                 if HAS_REPORTLAB:
                     try:
                         pdf_bytes = generate_3page_pdf(
-                            producer=st.session_state["farm_producer"], zone=st.session_state["farm_zone"],
-                            sol=st.session_state["farm_sol"], crop=st.session_state["farm_crop"],
-                            surface=st.session_state["active_surface_ha"], ph=st.session_state["farm_ph"],
-                            mo=st.session_state["farm_mo"], coords=st.session_state["draw_coords"],
+                            producer=str(st.session_state["farm_producer"]), zone=str(st.session_state["farm_zone"]),
+                            sol=str(st.session_state["farm_sol"]), crop=str(st.session_state["farm_crop"]),
+                            surface=float(st.session_state["active_surface_ha"]), ph=float(st.session_state["farm_ph"]),
+                            mo=float(st.session_state["farm_mo"]), coords=st.session_state["draw_coords"],
                             user_info=current_user, dpv_status=st.session_state["dpv_alert_sent"]
                         )
-                        filename = f"Rapport_Expertise_{st.session_state['farm_producer'].replace(' ', '_')}.pdf"
+                        filename = f"Rapport_Expertise_{str(st.session_state['farm_producer']).replace(' ', '_')}.pdf"
                         st.download_button(
                             label="📥 Télécharger le Rapport PDF (3 Pages Dense)",
                             data=pdf_bytes, file_name=filename, mime="application/pdf",
@@ -1398,14 +1391,14 @@ elif selected == "💼 Consultance":
                     new_entry = {
                         "id": len(db.get("historique", [])) + 1,
                         "date": datetime.now().strftime("%Y-%m-%d %H:%M"),
-                        "agent": current_user.get('nom', 'N/A'),
-                        "producteur": st.session_state["farm_producer"],
-                        "culture": st.session_state["farm_crop"],
-                        "superficie": st.session_state["active_surface_ha"],
-                        "zone": st.session_state["farm_zone"],
-                        "sol": st.session_state["farm_sol"],
-                        "ph": st.session_state["farm_ph"],
-                        "mo": st.session_state["farm_mo"]
+                        "agent": str(current_user.get('nom', 'N/A')),
+                        "producteur": str(st.session_state["farm_producer"]),
+                        "culture": str(st.session_state["farm_crop"]),
+                        "superficie": float(st.session_state["active_surface_ha"]),
+                        "zone": str(st.session_state["farm_zone"]),
+                        "sol": str(st.session_state["farm_sol"]),
+                        "ph": float(st.session_state["farm_ph"]),
+                        "mo": float(st.session_state["farm_mo"])
                     }
                     db.setdefault("historique", []).append(new_entry)
                     save_db(db)
