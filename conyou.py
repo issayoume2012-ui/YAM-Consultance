@@ -1084,7 +1084,7 @@ elif selected == "💼 Consultance":
             "🔐 7. Gestion des Accès"
         ])
 
-    with tabs_main[0]:
+        with tabs_main[0]:
             st.subheader("🗺️ Tracé Géospatial de la Parcelle sur Fond Satellite Esri ArcGIS")
             col_m1, col_m2 = st.columns([2.5, 1])
 
@@ -1093,7 +1093,6 @@ elif selected == "💼 Consultance":
                 add_lat = st.number_input("Lat :", value=float(st.session_state["consult_gps"]["lat"]), format="%.5f", key="sig_lat")
                 add_lon = st.number_input("Lon :", value=float(st.session_state["consult_gps"]["lon"]), format="%.5f", key="sig_lon")
 
-                # Boutons d'édition et de saisie
                 c_b1, c_b2 = st.columns(2)
                 with c_b1:
                     if st.button("➕ Ajouter", key="btn_add_pt", use_container_width=True):
@@ -1126,7 +1125,6 @@ elif selected == "💼 Consultance":
                 if st.button("💾 Synchroniser la Superficie", type="primary", key="btn_sync_surf", use_container_width=True):
                     st.success(f"✅ Parcelle de {st.session_state['active_surface_ha']} Ha synchronisée instantanément !")
 
-                # Tableau d'édition des sommets
                 if st.session_state["draw_coords"]:
                     with st.expander("📋 Liste des sommets (Édition)"):
                         for idx, pt in enumerate(st.session_state["draw_coords"]):
@@ -1558,3 +1556,4 @@ elif selected == "📞 Contact":
             </div>
         </a>
         """, unsafe_allow_html=True)
+```[cite: 4]
