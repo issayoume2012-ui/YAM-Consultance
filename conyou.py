@@ -1084,58 +1084,95 @@ elif selected == "💼 Consultance":
             "🔐 7. Gestion des Accès"
         ])
 
-        with tabs_main[0]:
-            st.subheader("🗺️ Tracé Géospatial de la Parcelle sur Fond Satellite Esri ArcGIS")
-            col_m1, col_m2 = st.columns([2.5, 1])
+       with tabs_main[0]:
+    st.subheader("🗺️ Tracé Géospatial de la Parcelle sur Fond Satellite Esri ArcGIS")
+    col_m1, col_m2 = st.columns([2.5, 1])
 
-            with col_m2:
-                st.markdown("#### 📐 Polygone Terrain")
-                add_lat = st.number_input("Lat :", value=float(st.session_state["consult_gps"]["lat"]), format="%.5f", key="sig_lat")
-                add_lon = st.number_input("Lon :", value=float(st.session_state["consult_gps"]["lon"]), format="%.5f", key="sig_lon")
+    with col_m2:
+        st.markdown("#### 📐 Polygone Terrain")
+        add_lat = st.number_input("Lat :", value=float(st.session_state["consult_gps"]["lat"]), format="%.5f", key="sig_lat")
+        add_lon = st.number_input("Lon :", value=float(st.session_state["consult_gps"]["lon"]), format="%.5f", key="sig_lon")
 
-                if st.button("➕ Ajouter ce Sommet", key="btn_add_pt"):
-                    st.session_state["draw_coords"].append((add_lat, add_lon))
-                    calc_ha = calculate_polygon_area_ha(st.session_state["draw_coords"])
-                    if calc_ha > 0:
-                        st.session_state["active_surface_ha"] = calc_ha
-                    st.rerun()
-
-                if st.button("🗑️ Effacer le Polygone", key="btn_clear_pts"):
-                    st.session_state["draw_coords"] = []
-                    st.session_state["active_surface_ha"] = 1.0
-                    st.rerun()
-
+        # Boutons d'édition et de saisie
+        c_b1, c_b2 = st.columns(2)
+        with c_b1:
+            if st.button("➕ Ajouter", key="btn_add_pt", use_container_width=True):
+                st.session_state["draw_coords"].append((add_lat, add_lon))
                 calc_ha = calculate_polygon_area_ha(st.session_state["draw_coords"])
                 if calc_ha > 0:
                     st.session_state["active_surface_ha"] = calc_ha
+                st.rerun()
+        with c_b2:
+            if st.button("↩️ Ann. sommet", key="btn_undo_pt", use_container_width=True):
+                if st.session_state["draw_coords"]:
+                    st.session_state["draw_coords"].pop()
+                    calc_ha = calculate_polygon_area_ha(st.session_state["draw_coords"])
+                    st.session_state["active_surface_ha"] = calc_ha if calc_ha > 0 else 1.0
+                    st.rerun()
 
-                st.metric("Superficie Calculée", f"{st.session_state['active_surface_ha']} Ha")
+        if st.button("🗑️ Effacer tout le Polygone", key="btn_clear_pts", use_container_width=True):
+            st.session_state["draw_coords"] = []
+            st.session_state["active_surface_ha"] = 1.0
+            st.rerun()
 
-                if st.button("💾 Synchroniser la Superficie", type="primary", key="btn_sync_surf"):
-                    st.success(f"✅ Parcelle de {st.session_state['active_surface_ha']} Ha synchronisée instantanément !")
+        # Gestion interactive alternative : Cliquer sur la carte ajoute directement le sommet (style ArcGIS / Create Features)
+        st.info("💡 **Astuce :** Vous pouvez aussi cliquer directement sur la carte pour capturer des coordonnées.")
 
-            with col_m1:
-                if HAS_FOLIUM:
-                    m = folium.Map(location=[st.session_state["consult_gps"]["lat"], st.session_state["consult_gps"]["lon"]], zoom_start=15)
-                    folium.TileLayer(
-                        tiles='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-                        attr='Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community',
-                        name='Esri Satellite', overlay=False, control=True
+        calc_ha = calculate_polygon_area_ha(st.session_state["draw_coords"])
+        if calc_ha > 0:
+            st.session_state["active_surface_ha"] = calc_ha
+
+        st.metric("Superficie Calculée", f"{st.session_state['active_surface_ha']} Ha")
+
+        if st.button("💾 Synchroniser la Superficie", type="primary", key="btn_sync_surf", use_container_width=True):
+            st.success(f"✅ Parcelle de {st.session_state['active_surface_ha']} Ha synchronisée instantanément !")
+
+        # Tableau d'édition des sommets (Équivalent de la table attributaire / liste des vertices)
+        if st.session_state["draw_coords"]:
+            with st.expander("📋 Liste des sommets (Édition)"):
+                for idx, pt in enumerate(st.session_state["draw_coords"]):
+                    c_vert1, c_vert2 = st.columns([3, 1])
+                    c_vert1.text(f"P{idx+1}: {pt[0]:.4f}, {pt[1]:.4f}")
+                    if c_vert2.button("❌", key=f"del_vert_{idx}"):
+                        st.session_state["draw_coords"].pop(idx)
+                        st.rerun()
+
+    with col_m1:
+        if HAS_FOLIUM:
+            m = folium.Map(location=[st.session_state["consult_gps"]["lat"], st.session_state["consult_gps"]["lon"]], zoom_start=15)
+            folium.TileLayer(
+                tiles='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+                attr='Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community',
+                name='Esri Satellite', overlay=False, control=True
+            ).add_to(m)
+
+            if st.session_state["draw_coords"]:
+                for idx, pt in enumerate(st.session_state["draw_coords"]):
+                    folium.Marker(
+                        pt, 
+                        popup=f"Sommet P{idx+1}: {pt}", 
+                        icon=folium.Icon(color="green", icon="info-sign")
                     ).add_to(m)
+                    
+                if len(st.session_state["draw_coords"]) >= 3:
+                    # Affichage du polygone fermé avec style ArcGIS
+                    folium.Polygon(
+                        st.session_state["draw_coords"], 
+                        color="#16a34a", 
+                        weight=3, 
+                        fill=True, 
+                        fill_color="#22c55e", 
+                        fill_opacity=0.4
+                    ).add_to(m)
+                elif len(st.session_state["draw_coords"]) == 2:
+                    folium.PolyLine(st.session_state["draw_coords"], color="blue", weight=3).add_to(m)
 
-                    if st.session_state["draw_coords"]:
-                        for idx, pt in enumerate(st.session_state["draw_coords"]):
-                            folium.Marker(pt, popup=f"Sommet P{idx+1}: {pt}", icon=folium.Icon(color="green", icon="info-sign")).add_to(m)
-                        if len(st.session_state["draw_coords"]) >= 3:
-                            folium.Polygon(st.session_state["draw_coords"], color="#16a34a", fill=True, fill_color="#22c55e", fill_opacity=0.4).add_to(m)
-                        elif len(st.session_state["draw_coords"]) == 2:
-                            folium.PolyLine(st.session_state["draw_coords"], color="blue", weight=3).add_to(m)
-
-                    st_map = st_folium(m, height=450, width="100%", key="sig_map_sync")
-                    if st_map and st_map.get("last_clicked"):
-                        clk = st_map["last_clicked"]
-                        if not st.session_state["draw_coords"] or st.session_state["draw_coords"][-1] != (clk["lat"], clk["lng"]):
-                            st.session_state["consult_gps"] = {"lat": clk["lat"], "lon": clk["lng"]}
+            st_map = st_folium(m, height=480, width="100%", key="sig_map_sync")
+            
+            # Si l'utilisateur clique sur la carte, on met à jour les champs de saisie ou l'on ajoute le point
+            if st_map and st_map.get("last_clicked"):
+                clk = st_map["last_clicked"]
+                st.session_state["consult_gps"] = {"lat": clk["lat"], "lon": clk["lng"]}
 
         with tabs_main[1]:
             st.subheader("🧪 Paramètres Pédologiques & Plan de Nutrition")
