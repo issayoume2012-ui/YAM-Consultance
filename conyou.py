@@ -758,7 +758,7 @@ if selected == "💼 Consultance":
 
     db = load_db()
 
-    # --- BASE PÉDOLOGIQUE COMPLÈTE DU SÉNÉGAR (12 Grands Types - FAO / ORSTOM / CPCS) ---
+    # --- BASE PÉDOLOGIQUE COMPLÈTE DU SÉNÉGAL (12 Grands Types - FAO / ORSTOM / CPCS) ---
     BASE_SOLS_INP_EXPERT = {
         "Vallée du Fleuve Sénégal (Saint-Louis, Matam, Bakel)": {
             "Sol Deck (Fluvisol Hydromorphe Argileux)": {"pH": 6.8, "MO": 2.1, "N": 0.12, "P": 18, "K": 210, "Rétention": "Très forte (>140mm/m)", "Drainage": "Lent", "Texture": "Argilo-limoneux"},
@@ -828,7 +828,7 @@ if selected == "💼 Consultance":
             "Sorotiama Tiga & Tiesiri Tiga (ICRISAT / Mali-Sénégal) - Lignes pures à haut rendement d'huilerie."
         ],
         "Riz (Oryza sativa / glaberrima)": [
-            "Sahel 108 & Sahel 202 (ISRA - Vallée du Fleuve) - Cycles cortos, hauts rendements en plaine irriguée.",
+            "Sahel 108 & Sahel 202 (ISRA - Vallée du Fleuve) - Cycles courts, hauts rendements en plaine irriguée.",
             "ISRIZ 16, ISRIZ 17, ISRIZ P01 & ISRIZ P02 (ISRA - Homologués) - Variétés de pointe pour la souveraineté rizicole.",
             "NERICA (Plateau & Bas-fond - WARDA/AfricaRice) - Riz pluvial à forte résistance au stress hydrique.",
             "Fanaye & Alioune (ISRA - Lignes 2022) - Résistance accrue à la verse et aux maladies."
@@ -1155,7 +1155,6 @@ if selected == "💼 Consultance":
             with col_v1:
                 filiere_sel = st.selectbox("Sélectionner la filière agricole cible :", options=list(CATALOGUE_VARIETES_AFRIQUE.keys()), key="exp_filiere_sel")
             with col_v2:
-                # Filtrage dynamique ou choix de critères additionnels
                 critere_recherche = st.text_input("Filtrer par mot-clé (ex: cycle court, tolérance, rendement) :", "", key="exp_var_filter")
 
             st.markdown(f"##### 📋 Liste des variétés certifiées disponibles pour : **{filiere_sel}**")
@@ -1166,7 +1165,7 @@ if selected == "💼 Consultance":
 
             if varietes_list:
                 selected_variete_opt = st.radio("Sélectionner la variété à retenir pour le projet :", options=varietes_list, key=f"radio_{filiere_sel}")
-                st.success(vous_etes := f"✅ **Variété sélectionnée et verrouillée** : *{selected_variete_opt}* pour l'intégration dans le cahier des charges.")
+                st.success(f"✅ **Variété sélectionnée et verrouillée** : *{selected_variete_opt}* pour l'intégration dans le cahier des charges.")
             else:
                 st.warning("⚠️ Aucune variété ne correspond au filtre textuel saisi. Veuillez élargir votre recherche.")
 
@@ -1184,11 +1183,11 @@ if selected == "💼 Consultance":
                 "Accès des ménages aux engrais subventionnés"
             ], key="dap_ind_sel")
 
-            st.markdown(f"""
-            - **Région ciblée** : *{dap_reg*
-            - **Volet statistique** : *{dap_indicateur}*
-            - **Analyse d'impact** : Les données consolidées de la DAPSA montrent une forte corrélation entre l'adoption de semences certifiées et la hausse du revenu net par exploitant dans cette zone.
-            """)
+            st.markdown(
+                f"- **Région ciblée** : *{dap_reg}*<br>"
+                f"- **Volet statistique** : *{dap_indicateur}*<br>"
+                "- **Analyse d'impact** : Les données consolidées de la DAPSA montrent une forte corrélation entre l'adoption de semences certifiées et la hausse du revenu net par exploitant dans cette zone."
+            )
 
         # --- EXPANDER 3 : ALERTE DPV ---
         with st.expander("🐛 3. Alertes Phytosanitaires & Protocoles de Lutte (DPV)", expanded=False):
@@ -1197,11 +1196,11 @@ if selected == "💼 Consultance":
             ravageur_cles = list(CATALOGUE_DPV_EXPERT.keys())
             rav_choix_exp = st.selectbox("Sélectionner un bio-agresseur pour consultation du protocole homologué DPV :", options=ravageur_cles, key="dpv_exp_sel")
             
-            st.markdown(f"""
-            - **Cible phytosanitaire** : `{rav_choix_exp}`
-            - **Descriptif et Dégâts** : {CATALOGUE_DPV_EXPERT[rav_choix_exp]}
-            - **Recommandation officielle** : Approvisionnement exclusif auprès des phytopharmacies agrées par la DPV (Thiaroye / Antennes régionales). Respect des délais avant récolte (DAR).
-            """)
+            st.markdown(
+                f"- **Cible phytosanitaire** : `{rav_choix_exp}`<br>"
+                f"- **Descriptif et Dégâts** : {CATALOGUE_DPV_EXPERT[rav_choix_exp]}<br>"
+                "- **Recommandation officielle** : Approvisionnement exclusif auprès des phytopharmacies agrées par la DPV (Thiaroye / Antennes régionales). Respect des délais avant récolte (DAR)."
+            )
 
         # --- EXPANDER 4 : MÉTÉO ANACIM ---
         with st.expander("🌤️ 4. Bulletins Agro-météorologiques & Climat (ANACIM)", expanded=False):
@@ -1214,7 +1213,6 @@ if selected == "💼 Consultance":
                 "Zone Sud & Soudano-Guinéenne (Ziguinchor, Kolda, Sédhiou, Tambacounda)"
             ], key="anacim_zone_sel")
 
-            # Correction de la f-string pour éviter les conflits d'accolades et de syntaxe
             zone_label = str(anacim_zone)
             st.markdown(
                 f"- **Zone sélectionnée** : *{zone_label}*<br>"
@@ -1233,11 +1231,11 @@ if selected == "💼 Consultance":
                 "Location coutumière ou convention verbale de prêt"
             ], key="foncier_exp_sel")
 
-            st.markdown(f"""
-            - **Statut retenu** : *{statut_foncier_exp}*
-            - **Recommandation d'expert** : Pour les investissements à forte intensité capitalistique (arboriculture, serres, irrigation), la formalisation par délibération municipale avec bail ou immatriculation au livre foncier est fortement conseillée pour éviter les litiges intercommunautaires.
-            - **Genre** : Intégration systématique des clauses d'équité genre conformément aux directives du Plan Land Matrix Sénégal.
-            """)
+            st.markdown(
+                f"- **Statut retenu** : *{statut_foncier_exp}*<br>"
+                "- **Recommandation d'expert** : Pour les investissements à forte intensité capitalistique (arboriculture, serres, irrigation), la formalisation par délibération municipale avec bail ou immatriculation au livre foncier est fortement conseillée pour éviter les litiges intercommunautaires.<br>"
+                "- **Genre** : Intégration systématique des clauses d'équité genre conformément aux directives du Plan Land Matrix Sénégal."
+            )
 
         # --- EXPANDER 6 : SUBVENTIONS ---
         with st.expander("💰 6. Guichet Unique des Subventions & Intrants Agricoles", expanded=False):
@@ -1268,10 +1266,10 @@ if selected == "💼 Consultance":
                 "Maraîchage feuille (Chambre froide positive - 4°C)"
             ], key="post_filiere_sel")
 
-            st.markdown(f"""
-            - **Filière ciblée** : *{filiere_post}*
-            - **Impact stratégique** : L'adoption de technologies de conservation post-récolte adaptées permet de réduire les pertes de 25% à moins de 5%, stabilisant ainsi l'offre sur les marchés locaux et d'exportation.
-            """)
+            st.markdown(
+                f"- **Filière ciblée** : *{filiere_post}*<br>"
+                "- **Impact stratégique** : L'adoption de technologies de conservation post-récolte adaptées permet de réduire les pertes de 25% à moins de 5%, stabilisant ainsi l'offre sur les marchés locaux et d'exportation."
+            )
 
         # --- EXPANDER 8 : MARCHÉS RURAUX ---
         with st.expander("📈 8. Intelligence de Marché & Cours des Denrées (Référentiels)", expanded=False):
@@ -1284,10 +1282,10 @@ if selected == "💼 Consultance":
                 "Marché régional de Kaolack / Saint-Louis"
             ], key="marche_gros_sel")
 
-            st.markdown(f"""
-            - **Marché sélectionné** : *{marche_gros}*
-            - **Analyse des fluctuations** : Les périodes de soudure et d'arrivée massive des récoltes locales (notamment l'oignon et la pomme de terre des Niayes) dictent les fenêtres optimales de commercialisation pour maximiser la marge du producteur.
-            """)
+            st.markdown(
+                f"- **Marché sélectionné** : *{marche_gros}*<br>"
+                "- **Analyse des fluctuations** : Les périodes de soudure et d'arrivée massive des récoltes locales (notamment l'oignon et la pomme de terre des Niayes) dictent les fenêtres optimales de commercialisation pour maximiser la marge du producteur."
+            )
 
         # --- EXPANDER 9 : CARBONE SOL ---
         with st.expander("🌱 9. Séquestration Carbone & Pratiques Agroécologiques", expanded=False):
