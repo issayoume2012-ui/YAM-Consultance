@@ -75,21 +75,33 @@ if "active_surface_ha" not in st.session_state:
 
 
 # =====================================================
-# 2. DESIGN DU MENU DE NAVIGATION (CSS HARMONISÉ)
+# 2. DESIGN DU MENU DE NAVIGATION (CSS HARMONISÉ & RESPONSIVE)
 # =====================================================
 st.markdown("""
 <style>
 .stAppHeader { display: none !important; }
-.main .block-container { padding-top: 15px !important; max-width: 95% !important; }
+
+/* Ajustement intelligent du conteneur selon l'écran */
+.main .block-container { 
+    padding-top: 15px !important; 
+    max-width: 100% !important; 
+    padding-left: 1rem !important;
+    padding-right: 1rem !important;
+}
+
+/* Style de base du bloc du menu */
 div[data-testid="stRadio"] {
     background: #ffffff !important;
-    padding: 10px 20px !important;
+    padding: 12px !important;
     border-radius: 16px !important;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03) !important;
     border: 1px solid #edf2f7 !important;
     margin-bottom: 25px !important;
 }
+
 div[data-testid="stRadio"] > label { display: none !important; }
+
+/* Disposition initiale : Ligne (Ordinateurs et grandes tablettes) */
 div[data-testid="stRadio"] > div[role="radiogroup"] {
     display: flex !important;
     flex-direction: row !important;
@@ -97,25 +109,31 @@ div[data-testid="stRadio"] > div[role="radiogroup"] {
     gap: 10px !important;
     flex-wrap: wrap !important;
 }
+
+/* Style des éléments du menu */
 div[data-testid="stRadio"] > div[role="radiogroup"] > label {
     background-color: #f7fafc !important;
     color: #4a5568 !important;
-    font-size: 15px !important;
+    font-size: clamp(13px, 1.2vw, 15px) !important; /* Taille de police adaptative */
     font-weight: 600 !important;
-    padding: 10px 20px !important;
+    padding: 10px 18px !important;
     margin: 0px !important;
     border-radius: 10px !important;
     border: 1px solid #e2e8f0 !important;
     cursor: pointer !important;
     transition: all 0.2s ease-in-out !important;
+    flex: 0 1 auto !important;
 }
+
 div[data-testid="stRadio"] > div[role="radiogroup"] > label > div:first-child { display: none !important; }
+
 div[data-testid="stRadio"] > div[role="radiogroup"] > label:hover {
     background-color: #f0fdf4 !important;
     color: #1b5e20 !important;
     border-color: #c8e6c9 !important;
     transform: translateY(-1px) !important;
 }
+
 div[data-testid="stRadio"] > div[role="radiogroup"] > label[data-checked="true"] {
     background: linear-gradient(135deg, #1b5e20 0%, #2e7d32 100%) !important;
     color: white !important;
@@ -123,10 +141,51 @@ div[data-testid="stRadio"] > div[role="radiogroup"] > label[data-checked="true"]
     border: none !important;
     box-shadow: 0 4px 12px rgba(27, 94, 32, 0.25) !important;
 }
-[data-testid="stMetricValue"] { font-size: 20px !important; white-space: nowrap !important; }
+
+[data-testid="stMetricValue"] { 
+    font-size: clamp(16px, 2vw, 20px) !important; 
+    white-space: nowrap !important; 
+}
+
+/* =====================================================
+   MEDIA QUERIES POUR LA RESPONSIVITÉ (TABLETTES & MOBILES)
+   ================================================     */
+
+/* Pour les tablettes et petits écrans (moins de 768px) */
+@media screen and (max-width: 768px) {
+    .main .block-container { 
+        padding-top: 10px !important; 
+        padding-left: 0.5rem !important;
+        padding-right: 0.5rem !important;
+    }
+    
+    div[data-testid="stRadio"] > div[role="radiogroup"] {
+        gap: 8px !important;
+    }
+
+    div[data-testid="stRadio"] > div[role="radiogroup"] > label {
+        padding: 8px 14px !important;
+        font-size: 14px !important;
+    }
+}
+
+/* Pour les téléphones portables (moins de 480px) */
+@media screen and (max-width: 480px) {
+    div[data-testid="stRadio"] > div[role="radiogroup"] {
+        flex-direction: column !important; /* Passe les boutons en colonne */
+        align-stretch !important;
+    }
+    
+    div[data-testid="stRadio"] > div[role="radiogroup"] > label {
+        width: 100% !important; /* Chaque bouton prend toute la largeur */
+        text-align: center !important;
+        justify-content: center !important;
+        padding: 12px !important;
+        font-size: 15px !important;
+    }
+}
 </style>
 """, unsafe_allow_html=True)
-
 
 # =====================================================
 # 3. MOTEUR DE NAVIGATION
