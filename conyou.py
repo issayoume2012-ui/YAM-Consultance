@@ -1280,54 +1280,94 @@ elif selected == "💼 Consultance":
         ])
 
         # TAB 1 : CARTOGRAPHIE & TRACÉ SIG
-        with tabs_main[0]:
-            st.subheader("🗺️ Tracé Géospatial de la Parcelle sur Fond Satellite")
-            col_m1, col_m2 = st.columns([2.5, 1])
+with tabs_main[0]:
+    st.subheader("🗺️ Tracé Géospatial de la Parcelle sur Fond Satellite Esri ArcGIS")
+    
+    # Initialisation des états nécessaires si non présents
+    if "consult_gps" not in st.session_state:
+        st.session_state["consult_gps"] = {"lat": 14.6937, "lon": -17.4441}
+    if "draw_coords" not in st.session_state:
+        st.session_state["draw_coords"] = []
+    if "active_surface_ha" not in st.session_state:
+        st.session_state["active_surface_ha"] = 1.0
 
-            with col_m2:
-                st.markdown("#### 📐 Polygone Terrain")
-                add_lat = st.number_input("Lat :", value=st.session_state["consult_gps"]["lat"], format="%.5f", key="sig_lat")
-                add_lon = st.number_input("Lon :", value=st.session_state["consult_gps"]["lon"], format="%.5f", key="sig_lon")
+    col_m1, col_m2 = st.columns([2.5, 1])
 
-                if st.button("➕ Ajouter ce Sommet", key="btn_add_pt"):
-                    st.session_state["draw_coords"].append((add_lat, add_lon))
-                    calc_ha = calculate_polygon_area_ha(st.session_state["draw_coords"])
-                    if calc_ha > 0:
-                        st.session_state["active_surface_ha"] = calc_ha
-                    st.rerun()
+    with col_m2:
+        st.markdown("#### 📐 Polygone Terrain")
+        add_lat = st.number_input("Lat :", value=float(st.session_state["consult_gps"]["lat"]), format="%.5f", key="sig_lat")
+        add_lon = st.number_input("Lon :", value=float(st.session_state["consult_gps"]["lon"]), format="%.5f", key="sig_lon")
 
-                if st.button("🗑️ Effacer le Polygone", key="btn_clear_pts"):
-                    st.session_state["draw_coords"] = []
-                    st.session_state["active_surface_ha"] = 1.0
-                    st.rerun()
+        if st.button("➕ Ajouter ce Sommet", key="btn_add_pt"):
+            st.session_state["draw_coords"].append((add_lat, add_lon))
+            calc_ha = calculate_polygon_area_ha(st.session_state["draw_coords"])
+            if calc_ha > 0:
+                st.session_state["active_surface_ha"] = calc_ha
+            st.rerun()
 
-                calc_ha = calculate_polygon_area_ha(st.session_state["draw_coords"])
-                if calc_ha > 0:
-                    st.session_state["active_surface_ha"] = calc_ha
+        if st.button("🗑️ Effacer le Polygone", key="btn_clear_pts"):
+            st.session_state["draw_coords"] = []
+            st.session_state["active_surface_ha"] = 1.0
+            st.rerun()
 
-                st.metric("Superficie Calculée", f"{st.session_state['active_surface_ha']} Ha")
+        calc_ha = calculate_polygon_area_ha(st.session_state["draw_coords"])
+        if calc_ha > 0:
+            st.session_state["active_surface_ha"] = calc_ha
 
-                if st.button("💾 Synchroniser la Superficie", type="primary", key="btn_sync_surf"):
-                    st.success(f"✅ Parcelle de {st.session_state['active_surface_ha']} Ha synchronisée instantanément !")
+        st.metric("Superficie Calculée", f"{st.session_state['active_surface_ha']} Ha")
 
-            with col_m1:
-                if HAS_FOLIUM:
-                    m = folium.Map(location=[st.session_state["consult_gps"]["lat"], st.session_state["consult_gps"]["lon"]], zoom_start=14)
-                    folium.TileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', attr='Esri', name='Satellite').add_to(m)
+        if st.button("💾 Synchroniser la Superficie", type="primary", key="btn_sync_surf"):
+            st.success(f"✅ Parcelle de {st.session_state['active_surface_ha']} Ha synchronisée instantanément !")
 
-                    if st.session_state["draw_coords"]:
-                        for idx, pt in enumerate(st.session_state["draw_coords"]):
-                            folium.Marker(pt, popup=f"P{idx+1}", icon=folium.Icon(color="green", icon="info-sign")).add_to(m)
-                        if len(st.session_state["draw_coords"]) >= 3:
-                            folium.Polygon(st.session_state["draw_coords"], color="#16a34a", fill=True, fill_color="#22c55e", fill_opacity=0.4).add_to(m)
-                        elif len(st.session_state["draw_coords"]) == 2:
-                            folium.PolyLine(st.session_state["draw_coords"], color="blue").add_to(m)
+    with col_m1:
+        if HAS_FOLIUM:
+            # Création de la carte centrée sur la position active
+            m = folium.Map(
+                location=[st.session_state["consult_gps"]["lat"], st.session_state["consult_gps"]["lon"]], 
+                zoom_start=15
+            )
+            
+            # Ajout du fond de carte Satellite Esri ArcGIS World Imagery
+            folium.TileLayer(
+                tiles='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+                attr='Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community',
+                name='Esri Satellite',
+                overlay=False,
+                control=True
+            ).add_to(m)
 
-                    st_map = st_folium(m, height=400, width="100%", key="sig_map_sync")
-                    if st_map and st_map.get("last_clicked"):
-                        clk = st_map["last_clicked"]
-                        if not st.session_state["draw_coords"] or st.session_state["draw_coords"][-1] != (clk["lat"], clk["lng"]):
-                            st.session_state["consult_gps"] = {"lat": clk["lat"], "lon": clk["lng"]}
+            # Tracé des sommets et des formes géométriques du polygone
+            if st.session_state["draw_coords"]:
+                for idx, pt in enumerate(st.session_state["draw_coords"]):
+                    folium.Marker(
+                        pt, 
+                        popup=f"Sommet P{idx+1}: {pt}", 
+                        icon=folium.Icon(color="green", icon="info-sign")
+                    ).add_to(m)
+                
+                if len(st.session_state["draw_coords"]) >= 3:
+                    folium.Polygon(
+                        st.session_state["draw_coords"], 
+                        color="#16a34a", 
+                        fill=True, 
+                        fill_color="#22c55e", 
+                        fill_opacity=0.4
+                    ).add_to(m)
+                elif len(st.session_state["draw_coords"]) == 2:
+                    folium.PolyLine(
+                        st.session_state["draw_coords"], 
+                        color="blue", 
+                        weight=3
+                    ).add_to(m)
+
+            # Rendu de la carte interactive avec Streamlit-Folium
+            st_map = st_folium(m, height=450, width="100%", key="sig_map_sync")
+            
+            # Capture dynamique du clic sur la carte pour mise à jour des coordonnées
+            if st_map and st_map.get("last_clicked"):
+                clk = st_map["last_clicked"]
+                if not st.session_state["draw_coords"] or st.session_state["draw_coords"][-1] != (clk["lat"], clk["lng"]):
+                    st.session_state["consult_gps"] = {"lat": clk["lat"], "lon": clk["lng"]}
 
         # TAB 2 : ANALYSE PÉDOLOGIQUE & FUMURE
         with tabs_main[1]:
