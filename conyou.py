@@ -16,6 +16,7 @@ import streamlit as st
 try:
     import folium
     from streamlit_folium import st_folium
+    from folium.plugins import Draw
     HAS_FOLIUM = True
 except ImportError:
     HAS_FOLIUM = False
@@ -62,7 +63,6 @@ if "consult_gps" not in st.session_state:
     st.session_state["consult_gps"] = {"lat": 14.7910, "lon": -16.0700}
 
 if "draw_coords" not in st.session_state:
-    # Polygone par défaut (carré d'environ 1 hectare dans le delta)
     st.session_state["draw_coords"] = [
         [14.7910, -16.0700],
         [14.7930, -16.0700],
@@ -872,12 +872,6 @@ elif selected == "💼 Consultance":
         }
     }
 
-    BASE_RAVAGEURS_DPV = [
-        {"Nom": "Chenille Légionnaire (Spodoptera frugiperda)", "Cibles": "Maïs, Riz, Sorgho", "Seuil": "5% plants", "Bio": "Bacillus thuringiensis / Neem", "Chimique": "Emamectine benzoate"},
-        {"Nom": "Mouche des Fruits (Bactrocera dorsalis)", "Cibles": "Mangue, Citrus", "Seuil": "2 mouches/piège/j", "Bio": "Piège Méthyl-Eugenol", "Chimique": "Appât Protéique + Spinosad"},
-        {"Nom": "Mineuse de la Tomate (Tuta absoluta)", "Cibles": "Tomate", "Seuil": "3 adultes/piège", "Bio": "Phéromones / Huile Neem", "Chimique": "Chlorantraniliprole"}
-    ]
-
     BAREMES_ISRA = {
         "Maïs Hybride": (150, 150, 50),
         "Riz (Sahel)": (150, 250, 100),
@@ -899,10 +893,6 @@ elif selected == "💼 Consultance":
         st.session_state["farm_crop"] = "Maïs Hybride"
     if "farm_stade" not in st.session_state:
         st.session_state["farm_stade"] = "Levée / Repiquage"
-    if "farm_ph" not in st.session_state:
-        st.session_state["farm_ph"] = float(BASE_SOLS_INP_FULL[st.session_state["farm_zone"]][st.session_state["farm_sol"]]["pH"])
-    if "farm_mo" not in st.session_state:
-        st.session_state["farm_mo"] = float(BASE_SOLS_INP_FULL[st.session_state["farm_zone"]][st.session_state["farm_sol"]]["MO"])
 
     st.sidebar.markdown("---")
     st.sidebar.subheader("🔒 Connexion & Authentification")
@@ -1040,7 +1030,7 @@ elif selected == "💼 Consultance":
         # INTERFACE DE CONSULTANCE & DÉLIMITATION SYNCHRONISÉE
         # =====================================================
         st.markdown("### 🗺️ Délimitation de Parcelle & Diagnostic Agro-Pédologique Synchronisé")
-        st.info("💡 **Synchronisation active** : La surface délimitée sur la carte ci-dessous met à jour en temps réel l'ensemble des besoins en fertilisants (ISRA), le volume d'eau requis (DGPRE), et le dimensionnement financier (La Banque Agricole / DER/FJ).")
+        st.info("💡 **Synchronisation active** : Dessinez ou ajustez votre polygone sur la carte interactive ci-dessous pour actualiser dynamiquement la superficie, les besoins en engrais et les volumes d'eau requis.")
 
         col_cfg1, col_cfg2, col_cfg3 = st.columns(3)
         with col_cfg1:
@@ -1052,7 +1042,6 @@ elif selected == "💼 Consultance":
                 st.session_state["farm_sol"] = sols_dispos[0]
             st.session_state["farm_sol"] = st.selectbox("Type de Sol (INP) :", options=sols_dispos, index=sols_dispos.index(st.session_state["farm_sol"]))
             
-            # Mise à jour automatique des propriétés du sol sélectionné
             sol_props = BASE_SOLS_INP_FULL[st.session_state["farm_zone"]][st.session_state["farm_sol"]]
             st.session_state["farm_ph"] = sol_props["pH"]
             st.session_state["farm_mo"] = sol_props["MO"]
@@ -1061,7 +1050,6 @@ elif selected == "💼 Consultance":
         with col_cfg3:
             st.session_state["farm_stade"] = st.selectbox("Stade Phénologique :", options=["Préparation / Semis", "Levée / Repiquage", "Tallage / Croissance", "Floraison / Maturation", "Récolte"], index=1)
             
-            # Saisie manuelle de secours pour la surface au cas où Folium ne charge pas ou pour un calage rapide
             surface_saisie = st.number_input("Superficie de la parcelle (Ha) [Ajustable ou auto via carte] :", min_value=0.10, max_value=5000.0, value=float(st.session_state["active_surface_ha"]), step=0.25, format="%.2f")
             st.session_state["active_surface_ha"] = surface_saisie
 
@@ -1071,7 +1059,22 @@ elif selected == "💼 Consultance":
         if HAS_FOLIUM:
             m = folium.Map(location=[st.session_state["consult_gps"]["lat"], st.session_state["consult_gps"]["lon"]], zoom_start=14)
             
-            # Ajout du polygone actuel s'il existe
+            # Ajout des outils de dessin Folium pour permettre de délimiter ou modifier la zone d'études
+            draw = Draw(
+                export=False,
+                position="topleft",
+                draw_options={
+                    "polyline": False,
+                    "marker": False,
+                    "circle": False,
+                    "rectangle": True,
+                    "polygon": True,
+                    "circlemarker": False,
+                },
+                edit_options={"edit": True}
+            )
+            draw.add_to(m)
+
             if st.session_state["draw_coords"] and len(st.session_state["draw_coords"]) >= 3:
                 folium.Polygon(
                     locations=st.session_state["draw_coords"],
@@ -1080,24 +1083,27 @@ elif selected == "💼 Consultance":
                     fill=True,
                     fill_color="#2e7d32",
                     fill_opacity=0.35,
-                    popup=f"Parcelle : {st.session_state['active_surface_ha']} Ha"
+                    popup=f"Parcelle active : {st.session_state['active_surface_ha']} Ha"
                 ).add_to(m)
 
-            # Utilisation de st_folium pour récupérer les interactions
             map_data = st_folium(m, width=700, height=450, key="folium_parcelle_map")
 
-            # Synchronisation robuste des clics et de la géométrie de la carte
+            # Récupération dynamique des dessins réalisés sur la carte
             if map_data and isinstance(map_data, dict):
-                # Si l'utilisateur clique sur la carte, on centre ou on ajoute un point au polygone
-                last_clicked = map_data.get("last_clicked")
-                if last_clicked and isinstance(last_clicked, dict):
-                    lat_c = last_clicked.get("lat")
-                    lon_c = last_clicked.get("lng")
-                    if lat_c and lon_c:
-                        st.session_state["consult_gps"]["lat"] = lat_c
-                        st.session_state["consult_gps"]["lon"] = lon_c
-                
-                # Vérification des objets dessinés via les draw tools si activés
+                last_active_drawing = map_data.get("last_active_drawing")
+                if last_active_drawing and isinstance(last_active_drawing, dict):
+                    geom = last_active_drawing.get("geometry")
+                    if geom and geom.get("type") == "Polygon":
+                        coords_raw = geom.get("coordinates", [])
+                        if coords_raw and len(coords_raw) > 0:
+                            new_poly = [[p[1], p[0]] for p in coords_raw[0]]
+                            if len(new_poly) >= 3 and new_poly != st.session_state["draw_coords"]:
+                                st.session_state["draw_coords"] = new_poly
+                                calc_ha = calculate_polygon_area_ha(new_poly)
+                                if calc_ha > 0:
+                                    st.session_state["active_surface_ha"] = calc_ha
+                                    st.rerun()
+
                 all_objects = map_data.get("all_drawings")
                 if all_objects and isinstance(all_objects, list) and len(all_objects) > 0:
                     last_obj = all_objects[-1]
@@ -1106,13 +1112,13 @@ elif selected == "💼 Consultance":
                         if geom.get("type") == "Polygon":
                             coords_raw = geom.get("coordinates", [])
                             if coords_raw and len(coords_raw) > 0:
-                                # Inversion longitude, latitude -> latitude, longitude pour Folium/Calculs
                                 new_poly = [[p[1], p[0]] for p in coords_raw[0]]
-                                if len(new_poly) >= 3:
+                                if len(new_poly) >= 3 and new_poly != st.session_state["draw_coords"]:
                                     st.session_state["draw_coords"] = new_poly
                                     calc_ha = calculate_polygon_area_ha(new_poly)
                                     if calc_ha > 0:
                                         st.session_state["active_surface_ha"] = calc_ha
+                                        st.rerun()
 
         else:
             st.warning("⚠️ Le module cartographique interactif (Folium) n'est pas disponible. Veuillez utiliser le champ numérique ci-dessus pour définir la superficie.")
