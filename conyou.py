@@ -1214,11 +1214,13 @@ if selected == "💼 Consultance":
                 "Zone Sud & Soudano-Guinéenne (Ziguinchor, Kolda, Sédhiou, Tambacounda)"
             ], key="anacim_zone_sel")
 
-            st.markdown(f"""
-            - **Zone sélectionnée** : *{anacim_zone}*
-            - **Indicateur climatique** : Analyse des séquences sèches et prévisions saisonnières (COFOG / ANACIM).
-            - **Avis technique** : Recommandation d'ajustement du calendrier de semis en fonction de l'installation effective de la mousson et de la portance hydrique des sols.
-            """)
+            # Correction de la f-string pour éviter les conflits d'accolades et de syntaxe
+            zone_label = str(anacim_zone)
+            st.markdown(
+                f"- **Zone sélectionnée** : *{zone_label}*<br>"
+                "- **Indicateur climatique** : Analyse des séquences sèches et prévisions saisonnières (COFOG / ANACIM).<br>"
+                "- **Avis technique** : Recommandation d'ajustement du calendrier de semis en fonction de l'installation effective de la mousson et de la portance hydrique des sols."
+            )
 
         # --- EXPANDER 5 : FONCIER & GENRE ---
         with st.expander("⚖️ 5. Sécurisation Foncière & Inclusion Genre (Réglementation Rurale)", expanded=False):
