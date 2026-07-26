@@ -43,7 +43,7 @@ except ImportError:
 # 1. INITIALISATION ET CONFIGURATION DE LA PAGE
 # =====================================================
 st.set_page_config(
-    page_title="YouAgronoMe",
+    page_title="AgriConsultSn-YAM",
     page_icon="🌾",
     layout="wide"
 )
