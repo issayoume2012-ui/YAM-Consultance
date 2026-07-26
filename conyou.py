@@ -1,41 +1,43 @@
-import streamlit as st
-import pandas as pd
-import numpy as np
-import urllib.parse
 from datetime import datetime, timedelta
-import io
-import random
-import openpyxl
-from openpyxl import Workbook
-from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
-from openpyxl.utils import get_column_letter
 import io
 import json
 import os
 import random
-from datetime import datetime
-import pandas as pd
+import urllib.parse
+
 import numpy as np
+import openpyxl
+from openpyxl import Workbook
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.utils import get_column_letter
+import pandas as pd
 import streamlit as st
 
-  try:
+try:
     import folium
     from streamlit_folium import st_folium
     HAS_FOLIUM = True
- except ImportError:
-     HAS_FOLIUM = False
+except ImportError:
+    HAS_FOLIUM = False
 
-   try:
-      from reportlab.lib.pagesizes import letter
-      from reportlab.platypus import (
-            SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak, KeepTogether, HRFlowable
-        )
-       from reportlab.lib import colors
-       from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-       from reportlab.pdfgen import canvas
-      HAS_REPORTLAB = True
-  except ImportError:
-      HAS_REPORTLAB = False
+try:
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import letter
+    from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+    from reportlab.pdfgen import canvas
+    from reportlab.platypus import (
+        HRFlowable,
+        KeepTogether,
+        PageBreak,
+        Paragraph,
+        SimpleDocTemplate,
+        Spacer,
+        Table,
+        TableStyle,
+    )
+    HAS_REPORTLAB = True
+except ImportError:
+    HAS_REPORTLAB = False
 # =====================================================
 # IMPORTATIONS DE SÉCURITÉ (À placer en haut du fichier conyou.py)
 # =====================================================
