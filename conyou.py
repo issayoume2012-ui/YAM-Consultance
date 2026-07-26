@@ -899,7 +899,6 @@ constitue le socle opérationnel pour accélérer la souveraineté alimentaire d
 # =====================================================
 elif selected == "💼 Consultance":
 
-
     # --- BASE DE DONNÉES HISTORIQUE & LISTE BLANCHE ---
     DB_FILE = "techniciens_db.json"
 
