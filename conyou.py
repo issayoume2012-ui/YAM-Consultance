@@ -692,7 +692,7 @@ elif selected == "📊 Tableau de Bord":
 # =====================================================
 # 💼 CONSULTANCE AGRONOMIQUE EXPERTE (MODULE 360° & IA)
 # =====================================================
-elif selected == "💼 Consultance":
+if selected == "💼 Consultance":
 
     DB_FILE = "techniciens_db.json"
     OWNER_EMAIL = "issayoume2012@gmail.com"
@@ -795,6 +795,8 @@ elif selected == "💼 Consultance":
         st.session_state["expert_zone"] = list(BASE_SOLS_INP_EXPERT.keys())[0]
     if "expert_custom_crop" not in st.session_state:
         st.session_state["expert_custom_crop"] = "Mangue Kent (Verger Intensif)"
+    if "panier" not in st.session_state:
+        st.session_state["panier"] = []
 
     # --- Barre latérale : Authentification & Sécurité ---
     st.sidebar.markdown("---")
@@ -901,7 +903,6 @@ elif selected == "💼 Consultance":
                 st.session_state["expert_producer"] = st.text_input("Nom du Promoteur / GIE / Entreprise :", value=st.session_state["expert_producer"])
                 st.session_state["expert_zone"] = st.selectbox("Zone Agro-écologique d'implantation :", options=list(BASE_SOLS_INP_EXPERT.keys()))
             with cp2:
-                # Saisie libre de la culture (Pas de short liste)
                 st.session_state["expert_custom_crop"] = st.text_input("Spéculation / Culture souhaitée (Saisie libre expert) :", value=st.session_state["expert_custom_crop"])
                 objectif_projet = st.selectbox("Objectif principal du projet :", ["Agriculture Commerciale Intensive", "Agriculture Familiale Résiliente", "Verger / Arboriculture Pérenne", "Maraîchage Hors-Sol / Serre", "Cultures Céréalières de Souveraineté"])
 
@@ -943,7 +944,6 @@ elif selected == "💼 Consultance":
                 st.success("Tracé réinitialisé.")
                 st.rerun()
 
-            # Remontée des sols de la base selon la zone
             sols_dispos = list(BASE_SOLS_INP_EXPERT[st.session_state["expert_zone"]].keys())
             sol_actuel = sols_dispos[0]
             sol_data = BASE_SOLS_INP_EXPERT[st.session_state["expert_zone"]][sol_actuel]
@@ -1027,7 +1027,7 @@ elif selected == "💼 Consultance":
                 })
                 st.success("✅ Pack d'intrants transféré au panier avec succès !")
 
-            # Gestion de la Whitelist pour l'administrateur (Ajout, Attribution de MDP, Révocation)
+            # Gestion de la Whitelist pour l'administrateur
             if is_admin:
                 st.markdown("---")
                 st.markdown("##### 👥 Gestion Administrative de la Liste Blanche (Whitelist)")
@@ -1063,7 +1063,7 @@ elif selected == "💼 Consultance":
                         st.rerun()
 
                 # Révocation d'accès
-                active_users_list = [u.get("email") for u in db["whitelist"] if u.get("email") != OWNER_EMAIL and u.get("statut"] == "Actif"]
+                active_users_list = [u.get("email") for u in db["whitelist"] if u.get("email") != OWNER_EMAIL and u.get("statut") == "Actif"]
                 if active_users_list:
                     rev_target = st.selectbox("Sélectionner un compte à révoquer :", options=active_users_list, key="rev_expert_sel")
                     if st.button("❌ Révoquer l'accès de ce compte"):
