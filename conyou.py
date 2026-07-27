@@ -2440,7 +2440,7 @@ def generate_expert_pdf_pro(producer, zone, sol, crop, surface, user_info, ravag
                 st.session_state["expert_custom_crop"] = st.text_input("Spéculation / Culture souhaitée (Saisie libre expert) :", value=st.session_state["expert_custom_crop"])
                 objectif_projet = st.selectbox("Objectif principal du projet :", ["Agriculture Commerciale Intensive", "Agriculture Familiale Résiliente", "Verger / Arboriculture Pérenne", "Maraîchage Hors-Sol / Serre", "Cultures Céréalières de Souveraineté"])
 
-            st.markdown(f"> **📌 Synthèse du Projet :** Implantation de **{st.session_state['expert_custom_crop']}** sous le modèle *{objectif_projet}* dans la zone de *{st.session_state['expert_zone']}*.")
+    st.markdown(f"> **📌 Synthèse du Projet :** Implantation de **{st.session_state['expert_custom_crop']}** sous le modèle *{objectif_projet}* dans la zone de *{st.session_state['expert_zone']}*.")
 
     with tab_geo:
             st.markdown("#### 🗺️ Délimitation Géospatiale & Remontée Intégrale des Sols du Sénégal")
