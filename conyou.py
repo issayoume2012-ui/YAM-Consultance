@@ -2839,7 +2839,7 @@ def generate_expert_pdf_pro(producer, zone, sol, crop, surface, user_info, ravag
             )
 
      
-        # --- EXPANDER 10 : TRAÇABILITÉ API ---
+        # --- EXPANDER 10 : TRAÇABILITÉ API 
         with st.expander("🔗 10. Traçabilité Numérique & Passeport Phytosanitaire Export", expanded=False):
             st.markdown("Génération de passeports numériques normalisés pour la certification des lots destinés à l'exportation ou aux circuits modernes.")
             
