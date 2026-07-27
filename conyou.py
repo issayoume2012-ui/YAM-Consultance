@@ -2168,14 +2168,14 @@ CATALOGUE_100_PRODUITS_SENEGAL = {
     ]
 }
     # États de session initiaux
-    if "expert_producer" not in st.session_state:
-        st.session_state["expert_producer"] = "Agro-Business Consortium Sénégal"
-    if "expert_zone" not in st.session_state:
-        st.session_state["expert_zone"] = list(BASE_SOLS_INP_EXPERT.keys())[0]
-    if "expert_custom_crop" not in st.session_state:
-        st.session_state["expert_custom_crop"] = "Mangue Kent (Verger Intensif)"
-    if "panier" not in st.session_state:
-        st.session_state["panier"] = []
+if "expert_producer" not in st.session_state:
+    st.session_state["expert_producer"] = "Agro-Business Consortium Sénégal"
+if "expert_zone" not in st.session_state:
+    st.session_state["expert_zone"] = list(BASE_SOLS_INP_EXPERT.keys())[0]
+if "expert_custom_crop" not in st.session_state:
+    st.session_state["expert_custom_crop"] = "Mangue Kent (Verger Intensif)"
+if "panier" not in st.session_state:
+    st.session_state["panier"] = []
 
     # --- Barre latérale : Authentification & Sécurité ---
     st.sidebar.markdown("---")
