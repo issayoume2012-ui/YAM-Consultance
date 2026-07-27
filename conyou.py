@@ -2430,67 +2430,67 @@ def generate_expert_pdf_pro(producer, zone, sol, crop, surface, user_info, ravag
             "📋 Rapports & Administration"
         ])
 
-        with tab_proj:
+    with tab_proj:
             st.markdown("#### 🎯 Paramétrage Stratégique du Projet Agricole")
             cp1, cp2 = st.columns(2)
-            with cp1:
+        with cp1:
                 st.session_state["expert_producer"] = st.text_input("Nom du Promoteur / GIE / Entreprise :", value=st.session_state["expert_producer"])
                 st.session_state["expert_zone"] = st.selectbox("Zone Agro-écologique d'implantation :", options=list(BASE_SOLS_INP_EXPERT.keys()))
-            with cp2:
+        with cp2:
                 st.session_state["expert_custom_crop"] = st.text_input("Spéculation / Culture souhaitée (Saisie libre expert) :", value=st.session_state["expert_custom_crop"])
                 objectif_projet = st.selectbox("Objectif principal du projet :", ["Agriculture Commerciale Intensive", "Agriculture Familiale Résiliente", "Verger / Arboriculture Pérenne", "Maraîchage Hors-Sol / Serre", "Cultures Céréalières de Souveraineté"])
 
             st.markdown(f"> **📌 Synthèse du Projet :** Implantation de **{st.session_state['expert_custom_crop']}** sous le modèle *{objectif_projet}* dans la zone de *{st.session_state['expert_zone']}*.")
 
-        with tab_geo:
+    with tab_geo:
             st.markdown("#### 🗺️ Délimitation Géospatiale & Remontée Intégrale des Sols du Sénégal")
             
-            if "expert_coords" not in st.session_state:
+        if "expert_coords" not in st.session_state:
                 st.session_state["expert_coords"] = [[14.7910, -16.0700], [14.7930, -16.0700], [14.7930, -16.0680], [14.7910, -16.0680]]
-            if "expert_surface" not in st.session_state:
+        if "expert_surface" not in st.session_state:
                 st.session_state["expert_surface"] = 2.5
 
-            if HAS_FOLIUM:
+        if HAS_FOLIUM:
                 m = folium.Map(location=[14.7910, -16.0700], zoom_start=14)
                 draw = Draw(export=False, position="topleft", draw_options={"polyline": False, "marker": False, "circle": False, "rectangle": True, "polygon": True, "circlemarker": False}, edit_options={"edit": True})
                 draw.add_to(m)
 
-                if st.session_state["expert_coords"] and len(st.session_state["expert_coords"]) >= 3:
+            if st.session_state["expert_coords"] and len(st.session_state["expert_coords"]) >= 3:
                     folium.Polygon(locations=st.session_state["expert_coords"], color="#1b5e20", weight=3, fill=True, fill_color="#2e7d32", fill_opacity=0.35).add_to(m)
 
                 map_res = st_folium(m, width=700, height=360, key="folium_expert_map")
-                if map_res and isinstance(map_res, dict):
+            if map_res and isinstance(map_res, dict):
                     last_draw = map_res.get("last_active_drawing")
-                    if last_draw and isinstance(last_draw, dict):
+                if last_draw and isinstance(last_draw, dict):
                         geom = last_draw.get("geometry")
-                        if geom and geom.get("type") == "Polygon":
+                    if geom and geom.get("type") == "Polygon":
                             raw_c = geom.get("coordinates", [])
-                            if raw_c:
+                        if raw_c:
                                 new_p = [[p[1], p[0]] for p in raw_c[0]]
-                                if len(new_p) >= 3 and new_p != st.session_state["expert_coords"]:
+                            if len(new_p) >= 3 and new_p != st.session_state["expert_coords"]:
                                     st.session_state["expert_coords"] = new_p
                                     st.session_state["expert_surface"] = calc_surface(new_p)
                                     st.rerun()
 
-            if st.button("🗑️ Réinitialiser le tracé de la parcelle", key="reset_expert_poly"):
-                st.session_state["expert_coords"] = []
-                st.session_state["expert_surface"] = 2.5
-                st.success("Tracé réinitialisé.")
-                st.rerun()
+        if st.button("🗑️ Réinitialiser le tracé de la parcelle", key="reset_expert_poly"):
+            st.session_state["expert_coords"] = []
+            st.session_state["expert_surface"] = 2.5
+            st.success("Tracé réinitialisé.")
+            st.rerun()
 
-            sols_dispos = list(BASE_SOLS_INP_EXPERT[st.session_state["expert_zone"]].keys())
-            sol_actuel = st.selectbox("Sélectionner le type de sol spécifique de la zone (Référentiel Complet) :", options=sols_dispos)
-            sol_data = BASE_SOLS_INP_EXPERT[st.session_state["expert_zone"]][sol_actuel]
+        sols_dispos = list(BASE_SOLS_INP_EXPERT[st.session_state["expert_zone"]].keys())
+        sol_actuel = st.selectbox("Sélectionner le type de sol spécifique de la zone (Référentiel Complet) :", options=sols_dispos)
+        sol_data = BASE_SOLS_INP_EXPERT[st.session_state["expert_zone"]][sol_actuel]
 
-            st.markdown(f"##### 🧪 Propriétés Pédologiques Officielles pour : *{sol_actuel}*")
+        st.markdown(f"##### 🧪 Propriétés Pédologiques Officielles pour : *{sol_actuel}*")
             gc1, gc2, gc3, gc4 = st.columns(4)
-            with gc1:
+        with gc1:
                 st.metric("Superficie GPS", f"{st.session_state['expert_surface']} Ha")
-            with gc2:
+        with gc2:
                 st.metric("pH du Sol", sol_data["pH"])
-            with gc3:
+        with gc3:
                 st.metric("Matière Organique", f"{sol_data['MO']}%")
-            with gc4:
+        with gc4:
                 st.metric("Texture", sol_data["Texture"])
 
         with tab_fin:
