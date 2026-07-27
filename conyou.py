@@ -2731,7 +2731,7 @@ def generate_expert_pdf_pro(producer, zone, sol, crop, surface, user_info, ravag
                 st.warning("⚠️ Aucune variété ne correspond au filtre textuel saisi. Veuillez élargir votre recherche.")
 
         # --- EXPANDER 2 : ENQUÊTE DAPSA ---
-        with st.expander("📊 2. Enquête Agricole Annuelle & Benchmarking (DAPSA)", expanded=False):
+    with st.expander("📊 2. Enquête Agricole Annuelle & Benchmarking (DAPSA)", expanded=False):
             st.markdown("Exploitation des données structurelles et macro-économiques de la Direction de l'Analyse, de la Prévision et des Statistiques Agricoles.")
             
             dapsa_regiones = ["Kaolack", "Kaffrine", "Fatick", "Saint-Louis", "Thiès", "Ziguinchor", "Kolda", "Louga", "Matam", "Tambacounda", "Kédougou", "Sédhiou", "Diourbel", "Dakar"]
@@ -2750,55 +2750,45 @@ def generate_expert_pdf_pro(producer, zone, sol, crop, surface, user_info, ravag
                 "- **Analyse d'impact** : Les données consolidées de la DAPSA montrent une forte corrélation entre l'adoption de semences certifiées et la hausse du revenu net par exploitant dans cette zone."
             )
 
-        # --- EXPANDER 3 : ALERTE DPV ---
-        with st.expander("🐛 3. Alertes Phytosanitaires & Protocoles de Lutte (DPV)", expanded=False):
-            st.markdown("Plateforme de veille sanitaire et répertoires officiels de la Direction de la Protection des Végétaux.")
+    with st.expander("📊 2. Enquête Agricole Annuelle & Benchmarking (DAPSA)", expanded=False):
+            st.markdown("Exploitation des données structurelles et macro-économiques de la Direction de l'Analyse, de la Prévision et des Statistiques Agricoles.")
             
-            ravageur_cles = list(CATALOGUE_DPV_EXPERT.keys())
-            rav_choix_exp = st.selectbox("Sélectionner un bio-agresseur pour consultation du protocole homologué DPV :", options=ravageur_cles, key="dpv_exp_sel")
+            dapsa_regiones = ["Kaolack", "Kaffrine", "Fatick", "Saint-Louis", "Thiès", "Ziguinchor", "Kolda", "Louga", "Matam", "Tambacounda", "Kédougou", "Sédhiou", "Diourbel", "Dakar"]
+            dap_reg = st.selectbox("Sélectionner la région administrative d'analyse DAPSA :", options=dapsa_regiones, key="dapsa_exp_reg")
             
-            st.markdown(
-                f"- **Cible phytosanitaire** : `{rav_choix_exp}`<br>"
-                f"- **Descriptif et Dégâts** : {CATALOGUE_DPV_EXPERT[rav_choix_exp]}<br>"
-                "- **Recommandation officielle** : Approvisionnement exclusif auprès des phytopharmacies agrées par la DPV (Thiaroye / Antennes régionales). Respect des délais avant récolte (DAR)."
-            )
-
-        # --- EXPANDER 4 : MÉTÉO ANACIM ---
-        with st.expander("🌤️ 4. Bulletins Agro-météorologiques & Climat (ANACIM)", expanded=False):
-            st.markdown("Suivi décadaire des cumuls pluviométriques, des températures et des risques climatiques (ANACIM).")
-            
-            anacim_zone = st.selectbox("Zone climatique d'observation :", [
-                "Zone Sahélienne Nord (Podor, Matam, Richard-Toll)",
-                "Bassin Arachidier (Kaolack, Diourbel, Fatick, Kaffrine)",
-                "Zone Littorale & Maraîchère (Niayes - Dakar/Thiès/Louga)",
-                "Zone Sud & Soudano-Guinéenne (Ziguinchor, Kolda, Sédhiou, Tambacounda)"
-            ], key="anacim_zone_sel")
-
-            zone_label = str(anacim_zone)
-            st.markdown(
-                f"- **Zone sélectionnée** : *{zone_label}*<br>"
-                "- **Indicateur climatique** : Analyse des séquences sèches et prévisions saisonnières (COFOG / ANACIM).<br>"
-                "- **Avis technique** : Recommandation d'ajustement du calendrier de semis en fonction de l'installation effective de la mousson et de la portance hydrique des sols."
-            )
-
-        # --- EXPANDER 5 : FONCIER & GENRE ---
-        with st.expander("⚖️ 5. Sécurisation Foncière & Inclusion Genre (Réglementation Rurale)", expanded=False):
-            st.markdown("Analyse du statut juridique des terres (Domaine National, Titres Fonciers) et indicateurs d'accès pour les femmes et les jeunes.")
-            
-            statut_foncier_exp = st.selectbox("Mode d'accès et de sécurisation foncière :", [
-                "Affectation par le Conseil Municipal (Loi sur le Domaine National)",
-                "Bail emphytéotique ou convention de partenariat",
-                "Acquisition en toute propriété (Titre Foncier)",
-                "Location coutumière ou convention verbale de prêt"
-            ], key="foncier_exp_sel")
+            dap_indicateur = st.selectbox("Indicateur statistique d'intérêt :", [
+                "Structure des exploitations familiales vs agrobusiness",
+                "Superficies cultivées et rendements moyens enregistrés",
+                "Taux d'équipement en matériel agricole motorisé",
+                "Accès des ménages aux engrais subventionnés"
+            ], key="dap_ind_sel")
 
             st.markdown(
-                f"- **Statut retenu** : *{statut_foncier_exp}*<br>"
-                "- **Recommandation d'expert** : Pour les investissements à forte intensité capitalistique (arboriculture, serres, irrigation), la formalisation par délibération municipale avec bail ou immatriculation au livre foncier est fortement conseillée pour éviter les litiges intercommunautaires.<br>"
-                "- **Genre** : Intégration systématique des clauses d'équité genre conformément aux directives du Plan Land Matrix Sénégal."
+                f"- **Région ciblée** : *{dap_reg}*<br>"
+                f"- **Volet statistique** : *{dap_indicateur}*<br>"
+                "- **Analyse d'impact** : Les données consolidées de la DAPSA montrent une forte corrélation entre l'adoption de semences certifiées et la hausse du revenu net par exploitant dans cette zone."
             )
 
-        # --- EXPANDER 6 : SUBVENTIONS ---
+    with st.expander("📊 2. Enquête Agricole Annuelle & Benchmarking (DAPSA)", expanded=False):
+            st.markdown("Exploitation des données structurelles et macro-économiques de la Direction de l'Analyse, de la Prévision et des Statistiques Agricoles.")
+            
+            dapsa_regiones = ["Kaolack", "Kaffrine", "Fatick", "Saint-Louis", "Thiès", "Ziguinchor", "Kolda", "Louga", "Matam", "Tambacounda", "Kédougou", "Sédhiou", "Diourbel", "Dakar"]
+            dap_reg = st.selectbox("Sélectionner la région administrative d'analyse DAPSA :", options=dapsa_regiones, key="dapsa_exp_reg")
+            
+            dap_indicateur = st.selectbox("Indicateur statistique d'intérêt :", [
+                "Structure des exploitations familiales vs agrobusiness",
+                "Superficies cultivées et rendements moyens enregistrés",
+                "Taux d'équipement en matériel agricole motorisé",
+                "Accès des ménages aux engrais subventionnés"
+            ], key="dap_ind_sel")
+
+            st.markdown(
+                f"- **Région ciblée** : *{dap_reg}*<br>"
+                f"- **Volet statistique** : *{dap_indicateur}*<br>"
+                "- **Analyse d'impact** : Les données consolidées de la DAPSA montrent une forte corrélation entre l'adoption de semences certifiées et la hausse du revenu net par exploitant dans cette zone."
+            )
+
+     # --- EXPANDER 6 : SUBVENTIONS ---
         with st.expander("💰 6. Guichet Unique des Subventions & Intrants Agricoles", expanded=False):
             st.markdown("Évaluation de l'éligibilité aux campagnes nationales d'appui aux producteurs (Engrais, Matériel, Semences).")
             
