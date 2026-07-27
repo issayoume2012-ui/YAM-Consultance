@@ -2875,7 +2875,7 @@ def generate_expert_pdf_pro(producer, zone, sol, crop, surface, user_info, ravag
 # =====================================================
 # 🌱 CONSEIL
 # =====================================================
-elif selected == "🌱 Conseil":
+    elif selected == "🌱 Conseil":
 
     st.markdown("""
     <style>
