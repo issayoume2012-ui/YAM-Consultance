@@ -2690,7 +2690,6 @@ def generate_expert_pdf_pro(producer, zone, sol, crop, surface, user_info, ravag
                         st.rerun()
                 else:
                     st.info("Aucun autre compte actif à révoquer pour le moment.")
-
         # =====================================================================================
         # 🔬 10 MODULES EXPERTS ÉTENDUS : ARCHITECTURE EN EXPANDERS PERFORMANTS & SÉLECTION LIBRE
         # =====================================================================================
