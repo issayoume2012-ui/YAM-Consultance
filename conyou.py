@@ -2422,7 +2422,7 @@ def generate_expert_pdf_pro(producer, zone, sol, crop, surface, user_info, ravag
     st.markdown("### 💼 Bureau d'Étude & Conseil Agricole Expert (Module 360°)")
     st.info("💡 **Espace Professionnel Global** : Saisissez librement votre culture cible, délimitez votre périmètre sur la carte interactive pour remonter l'intégralité des 12 types de sols du Sénégal (Classification FAO/ORSTOM), accédez au catalogue exhaustif des ravageurs DPV et des variétés certifiées d'Afrique de l'Ouest.")
 
-        tab_proj, tab_geo, tab_fin, tab_san, tab_doc = st.tabs([
+    tab_proj, tab_geo, tab_fin, tab_san, tab_doc = st.tabs([
             "🎯 Paramétrage & Culture Libre",
             "🗺️ Cartographie & Sols (12 Types)",
             "💰 Business Plan & Investissement",
