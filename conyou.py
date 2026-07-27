@@ -2789,7 +2789,7 @@ def generate_expert_pdf_pro(producer, zone, sol, crop, surface, user_info, ravag
             )
 
      # --- EXPANDER 6 : SUBVENTIONS ---
-        with st.expander("💰 6. Guichet Unique des Subventions & Intrants Agricoles", expanded=False):
+     with st.expander("💰 6. Guichet Unique des Subventions & Intrants Agricoles", expanded=False):
             st.markdown("Évaluation de l'éligibilité aux campagnes nationales d'appui aux producteurs (Engrais, Matériel, Semences).")
             
             type_subvention = st.selectbox("Programme de soutien public visé :", [
@@ -2806,8 +2806,8 @@ def generate_expert_pdf_pro(producer, zone, sol, crop, surface, user_info, ravag
             st.metric("Appui Financier / Subvention Publique Estimé", f"{montant_estime_aide:,} FCFA")
             st.caption("Pièces justificatives requises : Carte d'agriculteur biométrique, attestation d'appartenance à une structure paysanne reconnue.")
 
-        # --- EXPANDER 7 : POST-RÉCOLTE ---
-        with st.expander("🧊 7. Chaîne de Froid & Gestion des Pertes Post-Récolte", expanded=False):
+    # --- EXPANDER 7 : POST-RÉCOLTE ---
+    with st.expander("🧊 7. Chaîne de Froid & Gestion des Pertes Post-Récolte", expanded=False):
             st.markdown("Solutions technologiques et logistiques pour la conservation des denrées périssables et des grains.")
             
             filiere_post = st.selectbox("Filière et type de produit stocké :", [
@@ -2822,8 +2822,8 @@ def generate_expert_pdf_pro(producer, zone, sol, crop, surface, user_info, ravag
                 "- **Impact stratégique** : L'adoption de technologies de conservation post-récolte adaptées permet de réduire les pertes de 25% à moins de 5%, stabilisant ainsi l'offre sur les marchés locaux et d'exportation."
             )
 
-        # --- EXPANDER 8 : MARCHÉS RURAUX ---
-        with st.expander("📈 8. Intelligence de Marché & Cours des Denrées (Référentiels)", expanded=False):
+    # --- EXPANDER 8 : MARCHÉS RURAUX ---
+     with st.expander("📈 8. Intelligence de Marché & Cours des Denrées (Référentiels)", expanded=False):
             st.markdown("Suivi des tendances des prix et des flux d'approvisionnement sur les grands marchés de gros du Sénégal.")
             
             marche_gros = st.selectbox("Marché de gros de référence :", [
@@ -2838,23 +2838,9 @@ def generate_expert_pdf_pro(producer, zone, sol, crop, surface, user_info, ravag
                 "- **Analyse des fluctuations** : Les périodes de soudure et d'arrivée massive des récoltes locales (notamment l'oignon et la pomme de terre des Niayes) dictent les fenêtres optimales de commercialisation pour maximiser la marge du producteur."
             )
 
-        # --- EXPANDER 9 : CARBONE SOL ---
-        with st.expander("🌱 9. Séquestration Carbone & Pratiques Agroécologiques", expanded=False):
-            st.markdown("Évaluation de l'impact des pratiques de régénération des sols sur les crédits carbone et la fertilité organique.")
-            
-            pratiques_retenues = st.multiselect("Sélectionner les techniques agroécologiques déployées :", [
-                "Agroforesterie (Plantation d'Acacia albida / Faidherbia)",
-                "Restitution systématique des résidus de récolte",
-                "Utilisation de bio-fertilisants et composts enrichis",
-                "Pratique du non-labour ou travail minimal du sol"
-            ], key="agro_prat_sel")
-
-            score_carbone = len(pratiques_retenues) * 1.4
-            st.metric("Potentiel de Séquestration Carbone Évalué", f"+{score_carbone} tCO2eq / Ha / an")
-            st.caption("Ce score valorise l'exploitation dans le cadre des initiatives de certification carbone et d'agriculture intelligente face au climat.")
-
+     
         # --- EXPANDER 10 : TRAÇABILITÉ API ---
-        with st.expander("🔗 10. Traçabilité Numérique & Passeport Phytosanitaire Export", expanded=False):
+    with st.expander("🔗 10. Traçabilité Numérique & Passeport Phytosanitaire Export", expanded=False):
             st.markdown("Génération de passeports numériques normalisés pour la certification des lots destinés à l'exportation ou aux circuits modernes.")
             
             code_lot_export = st.text_input("Référence unique du lot / Code traçabilité :", f"SN-EXP-{datetime.now().strftime('%Y')}-994", key="trace_code_input")
