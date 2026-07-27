@@ -2881,7 +2881,7 @@ def generate_expert_pdf_pro(producer, zone, sol, crop, surface, user_info, ravag
 # =============================================================================
 # SECTION CONSEIL
 # =============================================================================
-elif selected == "🌱 Conseil":
+if selected == "🌱 Conseil":
     st.markdown("<h2 style='color: #1b5e20;'>🌱 Recommandations & Bonnes Pratiques Agricoles</h2>", unsafe_allow_html=True)
     st.write("Retrouvez ici les conseils techniques adaptés aux itinéraires techniques du Sénégal.")
 
