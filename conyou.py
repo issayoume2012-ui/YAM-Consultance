@@ -2210,7 +2210,7 @@ if "panier" not in st.session_state:
                 area += xy[i][0] * xy[j][1] - xy[j][0] * xy[i][1]
             return round(abs(area) / 20000.0, 2)
 
-       import io
+import io
 import time
 import numpy as np
 import matplotlib.pyplot as plt
