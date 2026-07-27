@@ -2871,75 +2871,27 @@ def generate_expert_pdf_pro(producer, zone, sol, crop, surface, user_info, ravag
 
         if st.button("🚀 Valider et Générer le Passeport de Traçabilité", key="btn_gen_passeport"):
             st.success(f"✅ **Passeport Numérique Émis avec Succès** pour le lot `{code_lot_export}` (Destination : {pays_destination}). Conformité validée pour l'audit d'exportation.")
-
-# =====================================================
-# 🌱 CONSEIL
-# =====================================================
+# =============================================================================
+# SECTION CONSEIL
+# =============================================================================
 elif selected == "🌱 Conseil":
+    st.markdown("<h2 style='color: #1b5e20;'>🌱 Recommandations & Bonnes Pratiques Agricoles</h2>", unsafe_allow_html=True)
+    st.write("Retrouvez ici les conseils techniques adaptés aux itinéraires techniques du Sénégal.")
 
-    st.markdown("""
-    <style>
-    .conseil-hero {
-        padding: 40px 20px;
-        border-radius: 16px;
-        text-align: center;
-        color: white;
-        background: linear-gradient(135deg, rgba(27, 94, 32, 0.95), rgba(21, 67, 96, 0.9));
-        margin-bottom: 25px;
-    }
-    .section-title {
-        color: #1b5e20;
-        font-size: 22px;
-        font-weight: 800;
-        margin-top: 25px;
-        margin-bottom: 15px;
-        border-left: 6px solid #154360;
-        padding-left: 12px;
-    }
-    </style>
-    """, unsafe_allow_html=True)
+    with st.expander("🌾 Culture du Riz Irrigué (Vallée du Fleuve)", expanded=True):
+        st.markdown("""
+        * **Préparation du sol :** Labour profond (20-25 cm) suivi d'un planage soigné pour optimiser la gestion de l'eau.
+        * **Fertilisation minérale :** Application du DAP au semis/repiquage, suivie de fractions d'Urée au tallage et à l'initiation paniculaire.
+        * **Gestion de l'eau :** Maintien d'une lame d'eau de 5 à 10 cm, avec un assèchement temporaire au milieu du tallage.
+        """)
 
-    st.markdown("""
-    <div class="conseil-hero">
-        <h1>🇸🇳 Accélérateur IA & Conseil Stratégique pour Startups</h1>
-        <p>Aide à la décision agronomique, modélisation des risques climatiques (ANACIM) et structuration des dossiers DER/FJ.</p>
-    </div>
-    """, unsafe_allow_html=True)
-
-    sub_menu = st.radio(
-        "Sélectionner votre espace d'accompagnement :",
-        ["📖 Masterclass Agroécologique", "🔬 Simulateur de Stress & Diagnostic IA", "🎯 Piliers d'Impact Startups"],
-        horizontal=True, key="sub_menu_conseil"
-    )
-
-    if "Masterclass" in sub_menu:
-        st.markdown("<div class='section-title'>📖 Directives Techniques & Systèmes Régénératifs Sahéliens</div>", unsafe_allow_html=True)
-        with st.container(border=True):
-            st.subheader("🌱 Axe I : Cinétique de Restauration des Sols du Bassin Arachidier & Niayes")
-            st.write("Régénération organique active par l'implantation obligatoire de légumineuses d'hivernage (*Niébé, Sésame*).")
-
-    elif "Stress" in sub_menu:
-        st.markdown("<div class='section-title'>🔬 Diagnostic Clinique : Indice de Stress Agroécologique (ISA)</div>", unsafe_allow_html=True)
-        with st.container(border=True):
-            terroir_geo = st.selectbox("📍 Région :", ["Zone des Niayes", "Vallée du Fleuve Sénégal", "Bassin Arachidier", "Casamance"])
-            t_mat_org = st.slider("Taux de Matière Organique (%)", 0.1, 5.0, 1.0)
-            score_base = int(t_mat_org * 20) + 20
-            st.metric("Score de Résilience", f"{score_base} / 100")
-
-    elif "Piliers" in sub_menu:
-        st.markdown("<div class='section-title'>🎯 Piliers Stratégiques d'Impact pour Jeunes Entreprises</div>", unsafe_allow_html=True)
-        st.info("Intégration des données agrométéorologiques ANACIM pour maximiser la réussite des investissements.")
-
-    st.markdown("<br><hr>", unsafe_allow_html=True)
-    st.markdown("""
-    <div style="background-color: #f4f6f7; border: 1px solid #d5dbdb; border-radius: 16px; padding: 20px; text-align: center;">
-        <h4 style="color:#154360; margin-top:0;">🌟 Structuration de Business Plans & Accompagnement</h4>
-        <a href="mailto:issayoume2012@gmail.com" style="text-decoration:none; font-weight:700; color:#1b5e20;">👉 Soumettre mon plan : issayoume2012@gmail.com</a>
-    </div>
-    """, unsafe_allow_html=True)
-
-
-# =====================================================
+    with st.expander("🥜 Culture de l'Arachide (Bassin Arachidier)"):
+        st.markdown("""
+        * **Semences :** Utiliser des semences certifiées traitées au fongicide/insecticide.
+        * **Densité :** Respecter des écartements de 40 cm entre lignes et 15 cm entre poquets.
+        * **Protection :** Surveillance renforcée contre les pucerons (vecteurs de la Rosette) dès le premier mois.
+        """)
+        # =====================================================
 # 📞 CONTACT
 # =====================================================
 elif selected == "📞 Contact":
@@ -2998,4 +2950,5 @@ elif selected == "📞 Contact":
             </div>
         </a>
         """, unsafe_allow_html=True)
+
 
