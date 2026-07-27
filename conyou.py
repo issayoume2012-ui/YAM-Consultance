@@ -2855,7 +2855,7 @@ def generate_expert_pdf_pro(producer, zone, sol, crop, surface, user_info, ravag
 # =====================================================
 # 🌱 CONSEIL
 # =====================================================
-elif selected == "🌱 Conseil":
+if selected == "🌱 Conseil":
 
     st.markdown("""
     <div style="padding: 30px; background: linear-gradient(135deg, #1b5e20 0%, #0d2310 100%); border-radius: 16px; color: white; margin-bottom: 25px; text-align: center;">
