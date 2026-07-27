@@ -28,6 +28,7 @@ try:
     from reportlab.pdfgen import canvas
     from reportlab.platypus import (
         HRFlowable,
+        Image,
         KeepTogether,
         PageBreak,
         Paragraph,
@@ -748,10 +749,9 @@ elif selected == "📊 Tableau de Bord":
 
 
 # =====================================================
-# =====================================================
 # 💼 CONSULTANCE AGRONOMIQUE EXPERTE (MODULE 360° & IA)
 # =====================================================
-if selected == "💼 Consultance":
+elif selected == "💼 Consultance":
 
     DB_FILE = "techniciens_db.json"
     OWNER_EMAIL = "issayoume2012@gmail.com"
@@ -952,15 +952,53 @@ if selected == "💼 Consultance":
                 area += xy[i][0] * xy[j][1] - xy[j][0] * xy[i][1]
             return round(abs(area) / 20000.0, 2)
 
-        # --- FONCTION DE GÉNÉRATION DU PDF 6 PAGES PLEINES (STRUCTURÉE & CARTE VISIBLE) ---
-        def generate_expert_pdf_pro(producer, zone, sol, crop, surface, user_info, ravageur, budget_total, rentabilite, map_image_path=None):
+        def generate_static_map_image(coords):
+            """Génère une image cartographique statique minimale avec le tracé GPS si pillow/matplotlib ne sont pas utilisés."""
+            try:
+                from PIL import Image as PILImage, ImageDraw
+                img = PILImage.new('RGB', (460, 220), color=(235, 243, 235))
+                draw = ImageDraw.Draw(img)
+                
+                # Grille de fond cartographique
+                for x in range(0, 460, 40):
+                    draw.line([(x, 0), (x, 220)], fill=(210, 225, 210), width=1)
+                for y in range(0, 220, 40):
+                    draw.line([(0, y), (460, y)], fill=(210, 225, 210), width=1)
+                
+                if coords and len(coords) >= 3:
+                    lats = [p[0] for p in coords]
+                    lons = [p[1] for p in coords]
+                    min_lat, max_lat = min(lats), max(lats)
+                    min_lon, max_lon = min(lons), max(lons)
+                    
+                    lat_span = (max_lat - min_lat) or 0.001
+                    lon_span = (max_lon - min_lon) or 0.001
+                    
+                    pts = []
+                    for lat, lon in coords:
+                        x = 40 + int((lon - min_lon) / lon_span * 380)
+                        y = 180 - int((lat - min_lat) / lat_span * 140)
+                        pts.append((x, y))
+                    
+                    draw.polygon(pts, fill=(200, 230, 201), outline=(27, 94, 32), width=3)
+                    for px, py in pts:
+                        draw.ellipse([px-4, py-4, px+4, py+4], fill=(225, 169, 26))
+                
+                img_byte_arr = io.BytesIO()
+                img.save(img_byte_arr, format='PNG')
+                img_byte_arr.seek(0)
+                return img_byte_arr
+            except Exception:
+                return None
+
+        # --- FONCTION DE GÉNÉRATION DU RAPPORT PDF 6 PAGES COMPLETES ET STRUCTURÉES ---
+        def generate_expert_pdf_pro(producer, zone, sol, crop, surface, user_info, ravageur, budget_total, rentabilite, map_image_stream=None):
             buffer = io.BytesIO()
             doc = SimpleDocTemplate(buffer, pagesize=letter, leftMargin=36, rightMargin=36, topMargin=36, bottomMargin=36)
             styles = getSampleStyleSheet()
             p_color = colors.HexColor("#064e3b")
             s_color = colors.HexColor("#15803d")
             
-            # Styles agrandis et optimisés pour une excellente lisibilité
             t_style = ParagraphStyle('T', parent=styles['Heading1'], fontName='Helvetica-Bold', fontSize=15, textColor=p_color, alignment=1, spaceAfter=6)
             h_style = ParagraphStyle('H', parent=styles['Heading2'], fontName='Helvetica-Bold', fontSize=11.5, textColor=s_color, spaceBefore=6, spaceAfter=4)
             b_style = ParagraphStyle('B', parent=styles['Normal'], fontName='Helvetica', fontSize=9.5, leading=13, textColor=colors.HexColor("#1e293b"))
@@ -986,15 +1024,14 @@ if selected == "💼 Consultance":
             story.append(Paragraph(f"• <b>Type de Sol Référentiel :</b> {sol}", b_style))
             story.append(Paragraph("• <b>Paramètres Physico-Chimiques :</b> pH mesuré, taux de matière organique et texture du sol intégrés automatiquement via le référentiel pédologique national.", b_style))
             
-            # Insertion visible et agrandie de la carte géographique
-            if map_image_path:
+            if map_image_stream:
                 story.append(Spacer(1, 6))
                 story.append(Paragraph("<b>3. Visualisation Satellitaire & Délimitation de la Parcelle (GPS)</b>", b_style))
                 story.append(Spacer(1, 4))
                 try:
-                    story.append(Image(map_image_path, width=460, height=220))
+                    story.append(Image(map_image_stream, width=460, height=180))
                 except Exception:
-                    story.append(Paragraph("<i>[Aperçu cartographique non disponible ou format d'image non pris en charge]</i>", b_style))
+                    story.append(Paragraph("<i>[Aperçu cartographique non disponible]</i>", b_style))
 
             story.append(PageBreak())
 
@@ -1083,6 +1120,7 @@ if selected == "💼 Consultance":
             doc.build(story)
             buffer.seek(0)
             return buffer
+
         # --- INTERFACE PRINCIPALE : BUREAU D'ÉTUDE EXPERT ---
         st.markdown("### 💼 Bureau d'Étude & Conseil Agricole Expert (Module 360°)")
         st.info("💡 **Espace Professionnel Global** : Saisissez librement votre culture cible, délimitez votre périmètre sur la carte interactive pour remonter l'intégralité des 12 types de sols du Sénégal (Classification FAO/ORSTOM), accédez au catalogue exhaustif des ravageurs DPV et des variétés certifiées d'Afrique de l'Ouest.")
@@ -1144,7 +1182,7 @@ if selected == "💼 Consultance":
                 st.rerun()
 
             sols_dispos = list(BASE_SOLS_INP_EXPERT[st.session_state["expert_zone"]].keys())
-            sol_actuel = st.selectbox("Sélectionner le type de sol spécifique de la zone (Référentiel Complet) :", options=sols_dispos)
+            sol_actuel = st.selectbox("Sélectionner le type de sol spécifique de la zone (Référentiel Complet) :", options=sols_dispos, key="sol_actuel_select")
             sol_data = BASE_SOLS_INP_EXPERT[st.session_state["expert_zone"]][sol_actuel]
 
             st.markdown(f"##### 🧪 Propriétés Pédologiques Officielles pour : *{sol_actuel}*")
@@ -1199,19 +1237,23 @@ if selected == "💼 Consultance":
             st.markdown("#### 📋 Édition de Rapport d'Expertise PDF & Administration Whitelist")
             
             if HAS_REPORTLAB:
+                sol_selected_for_pdf = st.session_state.get("sol_actuel_select", list(BASE_SOLS_INP_EXPERT[st.session_state["expert_zone"]].keys())[0])
+                map_img_bytes = generate_static_map_image(st.session_state.get("expert_coords", []))
+                
                 pdf_data = generate_expert_pdf_pro(
                     producer=st.session_state["expert_producer"],
                     zone=st.session_state["expert_zone"],
-                    sol=sol_actuel,
+                    sol=sol_selected_for_pdf,
                     crop=st.session_state["expert_custom_crop"],
                     surface=st.session_state["expert_surface"],
                     user_info=user_session,
                     ravageur=rav_choisi,
                     budget_total=budget_global,
-                    rentabilite=taux_marge
+                    rentabilite=taux_marge,
+                    map_image_stream=map_img_bytes
                 )
                 st.download_button(
-                    label="📥 Télécharger le Rapport d'Expertise PDF Complet (2 Pages)",
+                    label="📥 Télécharger le Rapport d'Expertise PDF Complet (6 Pages)",
                     data=pdf_data,
                     file_name=f"Rapport_Expertise_{st.session_state['expert_producer'].replace(' ', '_')}.pdf",
                     mime="application/pdf"
@@ -1323,7 +1365,8 @@ if selected == "💼 Consultance":
             st.markdown(
                 f"- **Région ciblée** : *{dap_reg}*<br>"
                 f"- **Volet statistique** : *{dap_indicateur}*<br>"
-                "- **Analyse d'impact** : Les données consolidées de la DAPSA montrent une forte corrélation entre l'adoption de semences certifiées et la hausse du revenu net par exploitant dans cette zone."
+                "- **Analyse d'impact** : Les données consolidées de la DAPSA montrent une forte corrélation entre l'adoption de semences certifiées et la hausse du revenu net par exploitant dans cette zone.",
+                unsafe_allow_html=True
             )
 
         # --- EXPANDER 3 : ALERTE DPV ---
@@ -1336,7 +1379,8 @@ if selected == "💼 Consultance":
             st.markdown(
                 f"- **Cible phytosanitaire** : `{rav_choix_exp}`<br>"
                 f"- **Descriptif et Dégâts** : {CATALOGUE_DPV_EXPERT[rav_choix_exp]}<br>"
-                "- **Recommandation officielle** : Approvisionnement exclusif auprès des phytopharmacies agrées par la DPV (Thiaroye / Antennes régionales). Respect des délais avant récolte (DAR)."
+                "- **Recommandation officielle** : Approvisionnement exclusif auprès des phytopharmacies agrées par la DPV (Thiaroye / Antennes régionales). Respect des délais avant récolte (DAR).",
+                unsafe_allow_html=True
             )
 
         # --- EXPANDER 4 : MÉTÉO ANACIM ---
@@ -1354,7 +1398,8 @@ if selected == "💼 Consultance":
             st.markdown(
                 f"- **Zone sélectionnée** : *{zone_label}*<br>"
                 "- **Indicateur climatique** : Analyse des séquences sèches et prévisions saisonnières (COFOG / ANACIM).<br>"
-                "- **Avis technique** : Recommandation d'ajustement du calendrier de semis en fonction de l'installation effective de la mousson et de la portance hydrique des sols."
+                "- **Avis technique** : Recommandation d'ajustement du calendrier de semis en fonction de l'installation effective de la mousson et de la portance hydrique des sols.",
+                unsafe_allow_html=True
             )
 
         # --- EXPANDER 5 : FONCIER & GENRE ---
@@ -1371,7 +1416,8 @@ if selected == "💼 Consultance":
             st.markdown(
                 f"- **Statut retenu** : *{statut_foncier_exp}*<br>"
                 "- **Recommandation d'expert** : Pour les investissements à forte intensité capitalistique (arboriculture, serres, irrigation), la formalisation par délibération municipale avec bail ou immatriculation au livre foncier est fortement conseillée pour éviter les litiges intercommunautaires.<br>"
-                "- **Genre** : Intégration systématique des clauses d'équité genre conformément aux directives du Plan Land Matrix Sénégal."
+                "- **Genre** : Intégration systématique des clauses d'équité genre conformément aux directives du Plan Land Matrix Sénégal.",
+                unsafe_allow_html=True
             )
 
         # --- EXPANDER 6 : SUBVENTIONS ---
@@ -1405,7 +1451,8 @@ if selected == "💼 Consultance":
 
             st.markdown(
                 f"- **Filière ciblée** : *{filiere_post}*<br>"
-                "- **Impact stratégique** : L'adoption de technologies de conservation post-récolte adaptées permet de réduire les pertes de 25% à moins de 5%, stabilisant ainsi l'offre sur les marchés locaux et d'exportation."
+                "- **Impact stratégique** : L'adoption de technologies de conservation post-récolte adaptées permet de réduire les pertes de 25% à moins de 5%, stabilisant ainsi l'offre sur les marchés locaux et d'exportation.",
+                unsafe_allow_html=True
             )
 
         # --- EXPANDER 8 : MARCHÉS RURAUX ---
@@ -1421,7 +1468,8 @@ if selected == "💼 Consultance":
 
             st.markdown(
                 f"- **Marché sélectionné** : *{marche_gros}*<br>"
-                "- **Analyse des fluctuations** : Les périodes de soudure et d'arrivée massive des récoltes locales (notamment l'oignon et la pomme de terre des Niayes) dictent les fenêtres optimales de commercialisation pour maximiser la marge du producteur."
+                "- **Analyse des fluctuations** : Les périodes de soudure et d'arrivée massive des récoltes locales (notamment l'oignon et la pomme de terre des Niayes) dictent les fenêtres optimales de commercialisation pour maximiser la marge du producteur.",
+                unsafe_allow_html=True
             )
 
         # --- EXPANDER 9 : CARBONE SOL ---
@@ -1436,7 +1484,7 @@ if selected == "💼 Consultance":
             ], key="agro_prat_sel")
 
             score_carbone = len(pratiques_retenues) * 1.4
-            st.metric("Potentiel de Séquestration Carbone Évalué", f"+{score_carbone} tCO2eq / Ha / an")
+            st.metric("Potentiel de Séquestration Carbone Évalué", f"+{score_carbone:.1f} tCO2eq / Ha / an")
             st.caption("Ce score valorise l'exploitation dans le cadre des initiatives de certification carbone et d'agriculture intelligente face au climat.")
 
         # --- EXPANDER 10 : TRAÇABILITÉ API ---
@@ -1452,6 +1500,8 @@ if selected == "💼 Consultance":
 
             if st.button("🚀 Valider et Générer le Passeport de Traçabilité", key="btn_gen_passeport"):
                 st.success(f"✅ **Passeport Numérique Émis avec Succès** pour le lot `{code_lot_export}` (Destination : {pays_destination}). Conformité validée pour l'audit d'exportation.")
+
+
 # =====================================================
 # 🌱 CONSEIL
 # =====================================================
