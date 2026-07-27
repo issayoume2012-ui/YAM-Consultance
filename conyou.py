@@ -2445,52 +2445,65 @@ def generate_expert_pdf_pro(producer, zone, sol, crop, surface, user_info, ravag
     with tab_geo:
             st.markdown("#### 🗺️ Délimitation Géospatiale & Remontée Intégrale des Sols du Sénégal")
             
-        if "expert_coords" not in st.session_state:
+            if "expert_coords" not in st.session_state:
                 st.session_state["expert_coords"] = [[14.7910, -16.0700], [14.7930, -16.0700], [14.7930, -16.0680], [14.7910, -16.0680]]
-        if "expert_surface" not in st.session_state:
+            if "expert_surface" not in st.session_state:
                 st.session_state["expert_surface"] = 2.5
 
-        if HAS_FOLIUM:
+            if HAS_FOLIUM:
                 m = folium.Map(location=[14.7910, -16.0700], zoom_start=14)
-                draw = Draw(export=False, position="topleft", draw_options={"polyline": False, "marker": False, "circle": False, "rectangle": True, "polygon": True, "circlemarker": False}, edit_options={"edit": True})
+                draw = Draw(
+                    export=False, 
+                    position="topleft", 
+                    draw_options={"polyline": False, "marker": False, "circle": False, "rectangle": True, "polygon": True, "circlemarker": False}, 
+                    edit_options={"edit": True}
+                )
                 draw.add_to(m)
 
-            if st.session_state["expert_coords"] and len(st.session_state["expert_coords"]) >= 3:
-                    folium.Polygon(locations=st.session_state["expert_coords"], color="#1b5e20", weight=3, fill=True, fill_color="#2e7d32", fill_opacity=0.35).add_to(m)
+                if st.session_state["expert_coords"] and len(st.session_state["expert_coords"]) >= 3:
+                    folium.Polygon(
+                        locations=st.session_state["expert_coords"], 
+                        color="#1b5e20", 
+                        weight=3, 
+                        fill=True, 
+                        fill_color="#2e7d32", 
+                        fill_opacity=0.35
+                    ).add_to(m)
 
                 map_res = st_folium(m, width=700, height=360, key="folium_expert_map")
-            if map_res and isinstance(map_res, dict):
+                
+                if map_res and isinstance(map_res, dict):
                     last_draw = map_res.get("last_active_drawing")
-                if last_draw and isinstance(last_draw, dict):
+                    if last_draw and isinstance(last_draw, dict):
                         geom = last_draw.get("geometry")
-                    if geom and geom.get("type") == "Polygon":
+                        if geom and geom.get("type") == "Polygon":
                             raw_c = geom.get("coordinates", [])
-                        if raw_c:
+                            if raw_c:
                                 new_p = [[p[1], p[0]] for p in raw_c[0]]
-                            if len(new_p) >= 3 and new_p != st.session_state["expert_coords"]:
+                                if len(new_p) >= 3 and new_p != st.session_state["expert_coords"]:
                                     st.session_state["expert_coords"] = new_p
                                     st.session_state["expert_surface"] = calc_surface(new_p)
                                     st.rerun()
 
-        if st.button("🗑️ Réinitialiser le tracé de la parcelle", key="reset_expert_poly"):
-            st.session_state["expert_coords"] = []
-            st.session_state["expert_surface"] = 2.5
-            st.success("Tracé réinitialisé.")
-            st.rerun()
+            if st.button("🗑️ Réinitialiser le tracé de la parcelle", key="reset_expert_poly"):
+                st.session_state["expert_coords"] = []
+                st.session_state["expert_surface"] = 2.5
+                st.success("Tracé réinitialisé.")
+                st.rerun()
 
-        sols_dispos = list(BASE_SOLS_INP_EXPERT[st.session_state["expert_zone"]].keys())
-        sol_actuel = st.selectbox("Sélectionner le type de sol spécifique de la zone (Référentiel Complet) :", options=sols_dispos)
-        sol_data = BASE_SOLS_INP_EXPERT[st.session_state["expert_zone"]][sol_actuel]
+            sols_dispos = list(BASE_SOLS_INP_EXPERT[st.session_state["expert_zone"]].keys())
+            sol_actuel = st.selectbox("Sélectionner le type de sol spécifique de la zone (Référentiel Complet) :", options=sols_dispos)
+            sol_data = BASE_SOLS_INP_EXPERT[st.session_state["expert_zone"]][sol_actuel]
 
-        st.markdown(f"##### 🧪 Propriétés Pédologiques Officielles pour : *{sol_actuel}*")
+            st.markdown(f"##### 🧪 Propriétés Pédologiques Officielles pour : *{sol_actuel}*")
             gc1, gc2, gc3, gc4 = st.columns(4)
-        with gc1:
+            with gc1:
                 st.metric("Superficie GPS", f"{st.session_state['expert_surface']} Ha")
-        with gc2:
+            with gc2:
                 st.metric("pH du Sol", sol_data["pH"])
-        with gc3:
+            with gc3:
                 st.metric("Matière Organique", f"{sol_data['MO']}%")
-        with gc4:
+            with gc4:
                 st.metric("Texture", sol_data["Texture"])
 
         with tab_fin:
@@ -2513,87 +2526,87 @@ def generate_expert_pdf_pro(producer, zone, sol, crop, surface, user_info, ravag
             with bc3:
                 st.metric("Bénéfice Net Attendu", f"{benefice_net:,} FCFA", delta=f"+{taux_marge}%")
 
-       with tab_san:
-    st.markdown("#### 🐛 Diagnostic Sanitaire Multi-Angles & Intelligence Artificielle")
-    
-    # 1. Sélection de la zone inspectée
-    angle_vue = st.radio(
-        "📐 **Étape 1 : Sélectionnez la zone du végétal prise en photo :**",
-        ["🍃 Vue Feuillage (Dessus/Dessous)", "🪵 Vue Tige / Collet", "🍓 Vue Fruit / Gousse", "🪴 Vue Racines / Sol"],
-        horizontal=True
-    )
-
-    # Filtrage dynamique des bio-agresseurs selon le plan sélectionné
-    ravageurs_filtres = [
-        k for k, v in CATALOGUE_DPV_EXPERT.items() 
-        if angle_vue in v["plans_sensibles"]
-    ]
-    
-    col_sel1, col_sel2 = st.columns([1.5, 1])
-    with col_sel1:
-        rav_choisi = st.selectbox(
-            "🔍 **Étape 2 : Cible identifiée ou suspectée (Répertoire DPV) :**",
-            options=ravageurs_filtres if ravageurs_filtres else list(CATALOGUE_DPV_EXPERT.keys())
-        )
-    with col_sel2:
-        st.caption("ℹ️ *La liste s'ajuste automatiquement selon la partie du végétal sélectionnée.*")
-
-    st.markdown("---")
-    
-    # 2. Zone d'importation de cliché
-    img_file = st.file_uploader(
-        "📸 **Étape 3 : Indiquez ou chargez le cliché pour l'analyse IA :**", 
-        type=["jpg", "png", "jpeg"], 
-        key="exp_img_upload"
-    )
-
-    if img_file is not None:
-        col_img, col_diag = st.columns([1, 1.2])
-        
-        with col_img:
-            st.image(img_file, caption=f"Analyse HD — Cadre : {angle_vue}", use_container_width=True)
-
-        with col_diag:
-            st.markdown("##### ⚙️ Scanner Vision Convolutif YouAgronoMe")
+        with tab_san:
+            st.markdown("#### 🐛 Diagnostic Sanitaire Multi-Angles & Intelligence Artificielle")
             
-            # Animation de progression simulée
-            progress_bar = st.progress(0)
-            status_text = st.empty()
-            
-            steps = [
-                f"Isolement de la région d'intérêt ({angle_vue.split()[1]})...",
-                "Extraction des motifs de nécrose & galeries d'insectes...",
-                "Indexation taxonomique avec le registre national DPV...",
-                "Diagnostic phytosanitaire certifié !"
+            # 1. Sélection de la zone inspectée
+            angle_vue = st.radio(
+                "📐 **Étape 1 : Sélectionnez la zone du végétal prise en photo :**",
+                ["🍃 Vue Feuillage (Dessus/Dessous)", "🪵 Vue Tige / Collet", "🍓 Vue Fruit / Gousse", "🪴 Vue Racines / Sol"],
+                horizontal=True
+            )
+
+            # Filtrage dynamique des bio-agresseurs selon le plan sélectionné
+            ravageurs_filtres = [
+                k for k, v in CATALOGUE_DPV_EXPERT.items() 
+                if angle_vue in v["plans_sensibles"]
             ]
             
-            for i, step in enumerate(steps):
-                status_text.text(step)
-                progress_bar.progress((i + 1) * 25)
-                time.sleep(0.25)
-            
-            st.success("✅ **Diagnostic IA Validé**")
-            
-            # Récupération des informations sur l'insecte
-            info_rav = CATALOGUE_DPV_EXPERT[rav_choisi]
-            confiance = round(random.uniform(97.5, 99.6), 1)
+            col_sel1, col_sel2 = st.columns([1.5, 1])
+            with col_sel1:
+                rav_choisi = st.selectbox(
+                    "🔍 **Étape 2 : Cible identifiée ou suspectée (Répertoire DPV) :**",
+                    options=ravageurs_filtres if ravageurs_filtres else list(CATALOGUE_DPV_EXPERT.keys())
+                )
+            with col_sel2:
+                st.caption("ℹ️ *La liste s'ajuste automatiquement selon la partie du végétal sélectionnée.*")
 
-            st.metric(
-                label="🐛 Agent / Insecte Responsable", 
-                value=rav_choisi.split('(')[0].strip(), 
-                delta=f"Indice de confiance : {confiance}%"
+            st.markdown("---")
+            
+            # 2. Zone d'importation de cliché
+            img_file = st.file_uploader(
+                "📸 **Étape 3 : Indiquez ou chargez le cliché pour l'analyse IA :**", 
+                type=["jpg", "png", "jpeg"], 
+                key="exp_img_upload"
             )
-            
-            st.markdown(f"""
-            * **Mode d'attaque :** {info_rav['mecanisme']}
-            * **Symptômes caractéristiques :** {info_rav['symptomes_visuels']}
-            """)
 
-        # Alerte et Protocole DPV
-        st.error(f"🚨 **PROTOCOLE DE LUTTE ET TRAITEMENT DPV** : {info_rav['traitement']}")
+            if img_file is not None:
+                col_img, col_diag = st.columns([1, 1.2])
+                
+                with col_img:
+                    st.image(img_file, caption=f"Analyse HD — Cadre : {angle_vue}", use_container_width=True)
 
-    else:
-        st.info("💡 **Mode d'emploi :** Sélectionnez l'organe végétal (Feuille, Tige, Fruit, Racine), déposez un cliché net et le réseau de neurones identifiera précisément l'insecte responsable et son traitement DPV.")
+                with col_diag:
+                    st.markdown("##### ⚙️ Scanner Vision Convolutif YouAgronoMe")
+                    
+                    # Animation de progression simulée
+                    progress_bar = st.progress(0)
+                    status_text = st.empty()
+                    
+                    steps = [
+                        f"Isolement de la région d'intérêt ({angle_vue.split()[1]})...",
+                        "Extraction des motifs de nécrose & galeries d'insectes...",
+                        "Indexation taxonomique avec le registre national DPV...",
+                        "Diagnostic phytosanitaire certifié !"
+                    ]
+                    
+                    for i, step in enumerate(steps):
+                        status_text.text(step)
+                        progress_bar.progress((i + 1) * 25)
+                        time.sleep(0.25)
+                    
+                    st.success("✅ **Diagnostic IA Validé**")
+                    
+                    # Récupération des informations sur l'insecte
+                    info_rav = CATALOGUE_DPV_EXPERT[rav_choisi]
+                    confiance = round(random.uniform(97.5, 99.6), 1)
+
+                    st.metric(
+                        label="🐛 Agent / Insecte Responsable", 
+                        value=rav_choisi.split('(')[0].strip(), 
+                        delta=f"Indice de confiance : {confiance}%"
+                    )
+                    
+                    st.markdown(f"""
+                    * **Mode d'attaque :** {info_rav['mecanisme']}
+                    * **Symptômes caractéristiques :** {info_rav['symptomes_visuels']}
+                    """)
+
+                # Alerte et Protocole DPV
+                st.error(f"🚨 **PROTOCOLE DE LUTTE ET TRAITEMENT DPV** : {info_rav['traitement']}")
+
+            else:
+                st.info("💡 **Mode d'emploi :** Sélectionnez l'organe végétal (Feuille, Tige, Fruit, Racine), déposez un cliché net et le réseau de neurones identifiera précisément l'insecte responsable et son traitement DPV.")
 
             st.success("🌤️ **Veille Météorologique ANACIM** : Paramètres climatiques stables. Indice de stress hydrique faible.")
 
@@ -2854,8 +2867,6 @@ def generate_expert_pdf_pro(producer, zone, sol, crop, surface, user_info, ravag
 
             if st.button("🚀 Valider et Générer le Passeport de Traçabilité", key="btn_gen_passeport"):
                 st.success(f"✅ **Passeport Numérique Émis avec Succès** pour le lot `{code_lot_export}` (Destination : {pays_destination}). Conformité validée pour l'audit d'exportation.")
-
-
 # =====================================================
 # 🌱 CONSEIL
 # =====================================================
