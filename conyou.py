@@ -12,6 +12,16 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 import pandas as pd
 import streamlit as st
+import io
+import time
+import numpy as np
+import matplotlib.pyplot as plt
+import streamlit as st
+from datetime import datetime
+from reportlab.lib.pagesizes import letter
+from reportlab.lib import colors
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image, HRFlowable, PageBreak, Table, TableStyle
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
 try:
     import folium
@@ -2209,18 +2219,6 @@ if "panier" not in st.session_state:
                 j = (i + 1) % n
                 area += xy[i][0] * xy[j][1] - xy[j][0] * xy[i][1]
             return round(abs(area) / 20000.0, 2)
-
-import io
-import time
-import numpy as np
-import matplotlib.pyplot as plt
-import streamlit as st
-from datetime import datetime
-from reportlab.lib.pagesizes import letter
-from reportlab.lib import colors
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image, HRFlowable, PageBreak, Table, TableStyle
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-
 # --- FONCTION AUXILIAIRE : GÉNÉRATION DES GRAPHIQUES POUR LE PDF ---
 def generate_pdf_charts(budget_total, rentabilite):
     """Génère des images en mémoire pour enrichir le PDF avec des graphiques visuels."""
