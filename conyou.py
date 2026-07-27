@@ -752,7 +752,10 @@ elif selected == "📊 Tableau de Bord":
 # =====================================================
 # 💼 CONSULTANCE AGRONOMIQUE EXPERTE (MODULE 360° & IA)
 # =====================================================
-elif selected == "💼 Consultance":
+# =====================================================
+# 💼 CONSULTANCE AGRONOMIQUE EXPERTE (MODULE 360° & IA)
+# =====================================================
+if selected == "💼 Consultance":
 
     DB_FILE = "techniciens_db.json"
     OWNER_EMAIL = "issayoume2012@gmail.com"
