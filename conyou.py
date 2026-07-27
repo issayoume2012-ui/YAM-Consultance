@@ -2620,7 +2620,7 @@ def generate_expert_pdf_pro(producer, zone, sol, crop, surface, user_info, ravag
 
             st.success("🌤️ **Veille Météorologique ANACIM** : Paramètres climatiques stables. Indice de stress hydrique faible.")
 
-        with tab_doc:
+    with tab_doc:
             st.markdown("#### 📋 Édition de Rapport d'Expertise PDF & Administration Whitelist")
             
             if HAS_REPORTLAB:
