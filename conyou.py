@@ -2878,56 +2878,66 @@ def generate_expert_pdf_pro(producer, zone, sol, crop, surface, user_info, ravag
 elif selected == "🌱 Conseil":
 
     st.markdown("""
-    <div style="padding: 30px; background: linear-gradient(135deg, #1b5e20 0%, #0d2310 100%); border-radius: 16px; color: white; margin-bottom: 25px; text-align: center;">
-        <h2 style="color: white; margin-bottom: 10px;">🌱 Espace Conseil & Boutique d'Intrants YouAgronoMe</h2>
-        <p style="margin: 0; opacity: 0.9; font-size: 14px;">Commandez vos engrais subventionnés, semences certifiées ISRA et équipements d'irrigation de précision adaptés à vos parcelles.</p>
+    <style>
+    .conseil-hero {
+        padding: 40px 20px;
+        border-radius: 16px;
+        text-align: center;
+        color: white;
+        background: linear-gradient(135deg, rgba(27, 94, 32, 0.95), rgba(21, 67, 96, 0.9));
+        margin-bottom: 25px;
+    }
+    .section-title {
+        color: #1b5e20;
+        font-size: 22px;
+        font-weight: 800;
+        margin-top: 25px;
+        margin-bottom: 15px;
+        border-left: 6px solid #154360;
+        padding-left: 12px;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+    st.markdown("""
+    <div class="conseil-hero">
+        <h1>🇸🇳 Accélérateur IA & Conseil Stratégique pour Startups</h1>
+        <p>Aide à la décision agronomique, modélisation des risques climatiques (ANACIM) et structuration des dossiers DER/FJ.</p>
     </div>
     """, unsafe_allow_html=True)
 
-    catalogue_produits = [
-        {"nom": "Semences de Riz Sahélien Certifiées (ISRA/SAED)", "categorie": "Semences", "prix": "25 000 FCFA / 50kg", "desc": "Variété à haut rendement, tolérante à la salinité et aux aléas hydriques."},
-        {"nom": "Engrais de Fond DAP (14-23-14)", "categorie": "Intrants", "prix": "22 500 FCFA / 50kg", "desc": "Formule homologuée pour le démarrage racinaire des céréales et cultures maraîchères."},
-        {"nom": "Engrais de Couverture Urée (46% N)", "categorie": "Intrants", "prix": "20 000 FCFA / 50kg", "desc": "Azote hautement assimilable pour la phase de montaison et tallage."},
-        {"nom": "Kit d'Irrigation Goutte-à-Goutte (1 Hectare)", "categorie": "Équipement", "prix": "450 000 FCFA / Kit", "desc": "Économie d'eau de 50% par rapport à l'aspersion, validé par la DGPRE."}
-    ]
+    sub_menu = st.radio(
+        "Sélectionner votre espace d'accompagnement :",
+        ["📖 Masterclass Agroécologique", "🔬 Simulateur de Stress & Diagnostic IA", "🎯 Piliers d'Impact Startups"],
+        horizontal=True, key="sub_menu_conseil"
+    )
 
-    col_cat1, col_cat2 = st.columns([2, 1])
-    with col_cat1:
-        st.markdown("### 🛍️ Catalogue des Intrants & Solutions Validées")
-        for p in catalogue_produits:
-            with st.container(border=True):
-                col_info, col_btn = st.columns([3, 1])
-                with col_info:
-                    st.markdown(f"#### {p['nom']}")
-                    st.caption(f"Catégorie : **{p['categorie']}** | Prix : **{p['prix']}**")
-                    st.write(p['desc'])
-                with col_btn:
-                    st.write("")
-                    if st.button("Commander", key=f"cmd_{p['nom']}"):
-                        st.session_state.panier.append({
-                            "produit": p['nom'],
-                            "details": p['desc'],
-                            "prix": p['prix'],
-                            "producteur": "Commande direct"
-                        })
-                        st.success(f"Ajouté : {p['nom']}")
+    if "Masterclass" in sub_menu:
+        st.markdown("<div class='section-title'>📖 Directives Techniques & Systèmes Régénératifs Sahéliens</div>", unsafe_allow_html=True)
+        with st.container(border=True):
+            st.subheader("🌱 Axe I : Cinétique de Restauration des Sols du Bassin Arachidier & Niayes")
+            st.write("Régénération organique active par l'implantation obligatoire de légumineuses d'hivernage (*Niébé, Sésame*).")
 
-    with col_cat2:
-        st.markdown("### 🛒 Votre Panier")
-        if not st.session_state.panier:
-            st.info("Votre panier est vide.")
-        else:
-            for idx, item in enumerate(st.session_state.panier):
-                with st.container(border=True):
-                    st.markdown(f"**{item['produit']}**")
-                    st.caption(f"Prix : {item['prix']}")
-                    if st.button("Retirer", key=f"del_{idx}"):
-                        st.session_state.panier.pop(idx)
-                        st.rerun()
-            
-            if st.button("✅ Valider la Commande (Partenariat La Banque Agricole)", type="primary", use_container_width=True):
-                st.success("🎉 Commande validée avec succès ! Un conseiller ANCAR vous contactera pour la livraison sur votre périmètre.")
-                st.session_state.panier = []
+    elif "Stress" in sub_menu:
+        st.markdown("<div class='section-title'>🔬 Diagnostic Clinique : Indice de Stress Agroécologique (ISA)</div>", unsafe_allow_html=True)
+        with st.container(border=True):
+            terroir_geo = st.selectbox("📍 Région :", ["Zone des Niayes", "Vallée du Fleuve Sénégal", "Bassin Arachidier", "Casamance"])
+            t_mat_org = st.slider("Taux de Matière Organique (%)", 0.1, 5.0, 1.0)
+            score_base = int(t_mat_org * 20) + 20
+            st.metric("Score de Résilience", f"{score_base} / 100")
+
+    elif "Piliers" in sub_menu:
+        st.markdown("<div class='section-title'>🎯 Piliers Stratégiques d'Impact pour Jeunes Entreprises</div>", unsafe_allow_html=True)
+        st.info("Intégration des données agrométéorologiques ANACIM pour maximiser la réussite des investissements.")
+
+    st.markdown("<br><hr>", unsafe_allow_html=True)
+    st.markdown("""
+    <div style="background-color: #f4f6f7; border: 1px solid #d5dbdb; border-radius: 16px; padding: 20px; text-align: center;">
+        <h4 style="color:#154360; margin-top:0;">🌟 Structuration de Business Plans & Accompagnement</h4>
+        <a href="mailto:issayoume2012@gmail.com" style="text-decoration:none; font-weight:700; color:#1b5e20;">👉 Soumettre mon plan : issayoume2012@gmail.com</a>
+    </div>
+    """, unsafe_allow_html=True)
+
 
 # =====================================================
 # 📞 CONTACT
@@ -2935,29 +2945,57 @@ elif selected == "🌱 Conseil":
 elif selected == "📞 Contact":
 
     st.markdown("""
-    <div style="padding: 35px; background: linear-gradient(135deg, #1b5e20 0%, #0d2310 100%); border-radius: 16px; color: white; text-align: center; margin-bottom: 25px;">
-        <h2 style="color: white; margin-bottom: 10px;">📞 Contact & Support Technique</h2>
-        <p style="margin: 0; opacity: 0.9; font-size: 14px;">Une question ? Un problème d'accès ? Contactez directement l'équipe d'administration du Bureau d'Études YouAgronoMe.</p>
+    <div style="text-align:center; margin-bottom: 25px;">
+        <h1 style="color: #1b5e20;">🤝 Contactez l'équipe YouAgronoMe</h1>
+        <p style="color: #4a5568;">Une question, un besoin de partenariat ou un accompagnement pour vos projets AgTech au Sénégal ?</p>
     </div>
     """, unsafe_allow_html=True)
 
-    c1, c2 = st.columns(2)
+    c1, c2, c3 = st.columns(3)
     with c1:
-        st.markdown("### 📍 Siège Social & Hub Sénégal")
-        st.write("**Adresse :** Dakar / Ziguinchor, Sénégal")
-        st.write("**E-mail :** contact@youagronome.sn")
-        st.write("**Téléphone :** +221 33 000 00 00")
-        st.write("**Assistance technique DPV / ANCAR :** 24/7 sur la plateforme")
-
+        st.metric(label="📞 Ligne Directe", value="+221 77 747 31 70")
     with c2:
-        with st.form("form_contact_support"):
-            st.markdown("### ✉️ Laissez-nous un message")
-            c_nom = st.text_input("Nom complet :")
-            c_email = st.text_input("E-mail :")
-            c_msg = st.text_area("Message / Description de la demande :")
+        st.metric(label="📍 Siège Social", value="Saint-Louis, Sénégal")
+    with c3:
+        st.metric(label="⏱ Temps de Réponse", value="< 24 Heures")
+
+    st.write("---")
+    col_form, col_FAQ = st.columns([3, 2])
+
+    with col_form:
+        st.subheader("📩 Envoyez-nous un message")
+        with st.form("contact_form", clear_on_submit=True):
+            nom = st.text_input("Votre Nom complet *")
+            email = st.text_input("Votre Adresse E-mail *")
+            telephone = st.text_input("Téléphone / WhatsApp")
+            sujet = st.selectbox(
+                "Sujet de votre demande :", 
+                ["Demande d'accompagnement DER/FJ", "Partenariat ONG/Institution", "Support Technique App", "Autre"]
+            )
+            message = st.text_area("Votre Message *", height=140)
+            submitted = st.form_submit_button("🚀 Envoyer mon Message", use_container_width=True)
             
-            if st.form_submit_button("Envoyer la demande"):
-                if c_nom and c_email and c_msg:
-                    st.success("✅ Votre message a été transmis à l'équipe technique. Une réponse vous sera apportée sous 24h.")
+            if submitted:
+                if nom and email and message:
+                    st.success("✅ Merci ! Votre message a été transmis à l'équipe YouAgronoMe. Nous vous recontacterons très vite.")
                 else:
-                    st.error("⚠️ Veuillez remplir tous les champs du formulaire.")
+                    st.error("⚠️ Veillez remplir tous les champs obligatoires (*).")
+
+    with col_FAQ:
+        st.subheader("💡 Contact Rapide & FAQ")
+        with st.expander("📍 Où sommes-nous situés ?"):
+            st.write("Notre pôle de développement principal se trouve à **Saint-Louis** (Hub de Sor), au plus près des réalités agricoles du Nord et de la Vallée du Fleuve.")
+        with st.expander("🤝 Comment devenir partenaire ?"):
+            st.write("Nous collaborons avec les GIE, les PME et les programmes nationaux. Contactez-nous directement par e-mail à `issayoume2012@gmail.com`.")
+
+        st.write("")
+        st.markdown("**📱 Échangez directement par WhatsApp :**")
+        text_wa = urllib.parse.quote("Bonjour YouAgronoMe, je souhaite échanger sur un projet agricole.")
+        st.markdown(f"""
+        <a href="https://wa.me/221777473170?text={text_wa}" target="_blank" style="text-decoration: none;">
+            <div style="background-color: #25D366; color: white; padding: 12px; border-radius: 10px; text-align: center; font-weight: bold;">
+                💬 Discuter sur WhatsApp (+221 77 747 31 70)
+            </div>
+        </a>
+        """, unsafe_allow_html=True)
+
