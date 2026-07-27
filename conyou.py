@@ -2525,7 +2525,7 @@ def generate_expert_pdf_pro(producer, zone, sol, crop, surface, user_info, ravag
             with bc3:
                 st.metric("Bénéfice Net Attendu", f"{benefice_net:,} FCFA", delta=f"+{taux_marge}%")
 
-        with tab_san:
+     with tab_san:
             st.markdown("#### 🐛 Diagnostic Sanitaire Multi-Angles & Intelligence Artificielle")
             
             # 1. Sélection de la zone inspectée
