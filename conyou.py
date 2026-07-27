@@ -2505,7 +2505,6 @@ def generate_expert_pdf_pro(producer, zone, sol, crop, surface, user_info, ravag
                 st.metric("Matière Organique", f"{sol_data['MO']}%")
             with gc4:
                 st.metric("Texture", sol_data["Texture"])
-
         with tab_fin:
             st.markdown("#### 💰 Analyse Financière, Investissement & Rentabilité (Business Plan)")
             fc1, fc2 = st.columns(2)
