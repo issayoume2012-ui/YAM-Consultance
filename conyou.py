@@ -2433,10 +2433,10 @@ def generate_expert_pdf_pro(producer, zone, sol, crop, surface, user_info, ravag
     with tab_proj:
             st.markdown("#### 🎯 Paramétrage Stratégique du Projet Agricole")
             cp1, cp2 = st.columns(2)
-        with cp1:
+    with cp1:
                 st.session_state["expert_producer"] = st.text_input("Nom du Promoteur / GIE / Entreprise :", value=st.session_state["expert_producer"])
                 st.session_state["expert_zone"] = st.selectbox("Zone Agro-écologique d'implantation :", options=list(BASE_SOLS_INP_EXPERT.keys()))
-        with cp2:
+    with cp2:
                 st.session_state["expert_custom_crop"] = st.text_input("Spéculation / Culture souhaitée (Saisie libre expert) :", value=st.session_state["expert_custom_crop"])
                 objectif_projet = st.selectbox("Objectif principal du projet :", ["Agriculture Commerciale Intensive", "Agriculture Familiale Résiliente", "Verger / Arboriculture Pérenne", "Maraîchage Hors-Sol / Serre", "Cultures Céréalières de Souveraineté"])
 
