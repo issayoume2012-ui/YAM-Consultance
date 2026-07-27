@@ -2708,8 +2708,8 @@ def generate_expert_pdf_pro(producer, zone, sol, crop, surface, user_info, ravag
     st.markdown("### 🔬 Hub Expert Étendu : Référentiels Nationaux & Régionaux (Données Officielles)")
     st.info("💡 **Navigation modulaire avancée** : Chaque thématique institutionnelle est encapsulée dans un expander haute performance permettant l'exploration ciblée, la sélection granulaire et l'application directe des critères des agences partenaires (ISRA, DPV, ANACIM, DAPSA, etc.).")
 
-    # --- EXPANDER 1 : VARIÉTÉS SÉNÉGAL & AFRIQUE ---
-        with st.expander("🌾 1. Catalogue Variétal Exhaustif (ISRA, CORAF, AfricaRice, CEDEAO)", expanded=True):
+    # --- EXPANDER 1 : VARIÉTÉS SÉNÉGAL & AFRIQUE 
+    with st.expander("🌾 1. Catalogue Variétal Exhaustif (ISRA, CORAF, AfricaRice, CEDEAO)", expanded=True):
             st.markdown("Répertoire officiel et multicritère des variétés homologuées et tolérantes aux stress climatiques en Afrique de l'Ouest.")
             
             col_v1, col_v2 = st.columns(2)
