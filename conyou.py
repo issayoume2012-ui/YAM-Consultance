@@ -730,7 +730,6 @@ elif selected == "📊 Tableau de Bord":
             ]],
             use_container_width=True, hide_index=True
         )
-
 # =====================================================
 # 💼 CONSULTANCE AGRONOMIQUE EXPERTE (MODULE 360° & IA)
 # =====================================================
@@ -743,9 +742,9 @@ elif selected == "💼 Consultance":
     DEFAULT_OWNER = {
         "email": OWNER_EMAIL,
         "password": OWNER_PASS,
-        "nom": "Administrateur Principal",
-        "role": "Administrateur",
-        "zone": "Toutes zones",
+        "nom": "Issa Youm (Administrateur Principal)",
+        "role": "Administrateur Système",
+        "zone": "National (Sénégal)",
         "statut": "Actif"
     }
 
@@ -768,9 +767,9 @@ elif selected == "💼 Consultance":
         clean_whitelist = [u for u in raw_whitelist if isinstance(u, dict)]
         owner_found = False
         for user in clean_whitelist:
-            if str(user.get("email", "")).strip().lower() == OWNER_EMAIL:
+            if str(user.get("email", "")).strip().lower() == OWNER_EMAIL.lower():
                 user["password"] = OWNER_PASS
-                user["role"] = "Administrateur"
+                user["role"] = "Administrateur Système"
                 user["statut"] = "Actif"
                 owner_found = True
                 break
@@ -800,7 +799,7 @@ elif selected == "💼 Consultance":
 
     db = load_db()
 
-    # --- BASE PÉDOLOGIQUE COMPLÈTE DU SÉNÉGAL (12 Grands Types) ---
+    # --- BASE PÉDOLOGIQUE COMPLÈTE DU SÉNÉGAL (12 Grands Types - INP) ---
     BASE_SOLS_INP_EXPERT = {
         "Vallée du Fleuve Sénégal (Saint-Louis, Matam, Bakel)": {
             "Sol Deck (Fluvisol Hydromorphe Argileux)": {"pH": 6.8, "MO": 2.1, "N": 0.12, "P": 18, "K": 210, "Rétention": "Très forte (>140mm/m)", "Drainage": "Lent", "Texture": "Argilo-limoneux"},
@@ -834,7 +833,7 @@ elif selected == "💼 Consultance":
         },
         "Puceron du Cotonnier (Aphis gossypii)": {
             "mecanisme": "Piqueur-suceur grégaire piquant les jeunes pousses tendres et sécrétant un miellat abondant.",
-            "symptomes_visuels": "Enroulement des jeunes feuilles, crispation des apex, colonies denses d'pucerons sous les feuilles.",
+            "symptomes_visuels": "Enroulement des jeunes feuilles, crispation des apex, colonies denses de pucerons sous les feuilles.",
             "plans_sensibles": ["🍃 Vue Feuillage (Dessus/Dessous)", "🪵 Vue Tige / Collet"],
             "traitement": "Imidaclopride 200 SL ou savon noir potassique. Favoriser la faune auxiliaire (coccinelles)."
         },
@@ -882,7 +881,7 @@ elif selected == "💼 Consultance":
         }
     }
 
-    # Completion dynamique du catalogue jusqu'à 200 références
+    # Completion dynamique du catalogue jusqu'à 200 références DPV
     cat_keys = list(CATALOGUE_DPV_EXPERT.keys())
     for i in range(len(cat_keys) + 1, 201):
         name_p = f"Pathogène / Ravageur Spécifique Réf. DPV-{i:03d}"
@@ -893,6 +892,62 @@ elif selected == "💼 Consultance":
             "traitement": "Lutte intégrée IPM: rotation, biopesticide homologué Sahel, contrôle biologique."
         }
 
+    # -------------------------------------------------
+    # SÉCURITÉ ET CONNEXION À LA LISTE BLANCHE
+    # -------------------------------------------------
+    if "auth_user" not in st.session_state:
+        st.session_state["auth_user"] = None
+
+    if st.session_state["auth_user"] is None:
+        st.markdown("""
+        <div style="background: linear-gradient(135deg, #1b5e20 0%, #2e7d32 100%); padding: 25px; border-radius: 16px; color: white; text-align: center; margin-bottom: 25px;">
+            <h2 style="color: white !important; margin: 0;">💼 Bureau d'Expertise & Consultance Agronomique 360°</h2>
+            <p style="margin-top: 8px; opacity: 0.9;">Accès sécurisé réservé aux experts agréés et autorisés par la Liste Blanche.</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+        col_l1, col_l2, col_l3 = st.columns([1, 2, 1])
+        with col_l2:
+            with st.container(border=True):
+                st.subheader("🔐 Authentification Technicien / Expert")
+                email_in = st.text_input("Adresse E-mail Agréée :", key="login_email")
+                pass_in = st.text_input("Mot de Passe :", type="password", key="login_pass")
+
+                if st.button("Se Connecter à la Consultance", type="primary", use_container_width=True):
+                    matched = None
+                    for u in db["whitelist"]:
+                        if u.get("email", "").strip().lower() == email_in.strip().lower() and u.get("password", "").strip() == pass_in.strip():
+                            if u.get("statut", "Actif") == "Actif":
+                                matched = u
+                                break
+                            else:
+                                st.error("⛔ Ce compte d'expert a été suspendu par l'Administrateur.")
+                                st.stop()
+
+                    if matched:
+                        st.session_state["auth_user"] = matched
+                        st.success(f"Bienvenue, {matched.get('nom', 'Expert')} !")
+                        st.rerun()
+                    else:
+                        st.error("❌ E-mail ou mot de passe incorrect. Accès restreint par la Liste Blanche.")
+        st.stop()
+
+    current_user = st.session_state["auth_user"]
+    is_owner = (current_user.get("email", "").strip().lower() == OWNER_EMAIL.lower())
+
+    # Barre de statut
+    st.markdown(f"""
+    <div style="background: #e8f5e9; padding: 12px 20px; border-radius: 10px; border-left: 5px solid #2e7d32; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center;">
+        <div>
+            <b>👤 Expert Connecté :</b> {current_user.get('nom')} | <b>Rôle :</b> {current_user.get('role')} | <b>Zone :</b> {current_user.get('zone')}
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    if st.button("🚪 Déconnexion du Bureau Consultance", key="logout_btn"):
+        st.session_state["auth_user"] = None
+        st.rerun()
+
     st.markdown("""
     <div style="background: linear-gradient(135deg, #1b5e20 0%, #2e7d32 100%); padding: 25px; border-radius: 16px; color: white; text-align: center; margin-bottom: 25px;">
         <h2 style="color: white !important; margin: 0;">💼 Bureau d'Expertise & Consultance Agronomique 360°</h2>
@@ -900,13 +955,50 @@ elif selected == "💼 Consultance":
     </div>
     """, unsafe_allow_html=True)
 
-    tab_c1, tab_c2, tab_c3, tab_c4 = st.tabs([
+    # -------------------------------------------------
+    # CONFIGURATION DES ONGLETS
+    # -------------------------------------------------
+    tabs_titles = [
+        "🇸🇳 15 Indicateurs Sénégal",
         "🔬 Diagnostic Phytosanitaire & IA", 
         "🧪 Pédologie & Bilan Fertilisation", 
         "🗺️ Délimitation & Cartographie GPS", 
         "📊 Simulation Économique & Rapport PDF"
-    ])
+    ]
+    if is_owner:
+        tabs_titles.append("👑 Admin Liste Blanche")
 
+    tab_c0, tab_c1, tab_c2, tab_c3, tab_c4, *tab_admin = st.tabs(tabs_titles)
+
+    # --- TAB 0: 15 FONCTIONNALITÉS AGRI SÉNÉGAL ---
+    with tab_c0:
+        st.markdown("<h4 style='color: #1b5e20;'>🇸🇳 Synthèse des 15 Fonctionnalités Agronomiques Spécifiques Sénégal</h4>", unsafe_allow_html=True)
+        col_f1, col_f2, col_f3, col_f4 = st.columns(4)
+        
+        with col_f1:
+            st.info("**1. Diagnostic DPV**\n5 Pathologies Sahel")
+            st.info("**5. Correction Gypse**\nSols Salés / Tanches")
+            st.info("**9. Charge Pastorale**\nSuivi CSE (1.8 UGB/ha)")
+            st.info("**13. Rentabilité DER/LBA**\nCompte d'Exploitation")
+        
+        with col_f2:
+            st.success("**2. Bilan Humique INP**\nDose Compost/Sol")
+            st.success("**6. Alertes ANACIM**\nRisque Sécheresse/Pause")
+            st.success("**10. Conservation ARM**\nStock Anti-Mycotoxines")
+            st.success("**14. Prix Marchés BAME**\nSuivi Prix Bord Champ")
+            
+        with col_f3:
+            st.warning("**3. Irrigation SAED/DGPRE**\nCalcul ETo x Kc")
+            st.warning("**7. Maturité Fruits**\nBrix/Fermeté Récolte")
+            st.warning("**11. Assolement Cible**\nRotation Légumineuses")
+            st.warning("**15. Délimitation GPS**\nPolygone SIG Parcelle")
+
+        with col_f4:
+            st.error("**4. Plan NPK ISRA**\nFractionnement Azoté")
+            st.error("**8. Biopesticides**\nRecettes Neem/Ail ITA")
+            st.error("**12. Risque Nappe**\nPrévention Submersion")
+
+    # --- TAB 1: DIAGNOSTIC ---
     with tab_c1:
         st.markdown("<h4 style='color: #1b5e20;'>🔍 Diagnostic Avancé & Prescription DPV</h4>", unsafe_allow_html=True)
         col_diag1, col_diag2 = st.columns([1, 1])
@@ -925,7 +1017,6 @@ elif selected == "💼 Consultance":
             ])
 
             symptomes_filtres = {k: v for k, v in CATALOGUE_DPV_EXPERT.items() if plan_obs in v["plans_sensibles"]}
-            
             ennemi_choisi = st.selectbox("Pathogène / Ennemi suspecté :", options=list(symptomes_filtres.keys()))
 
         with col_diag2:
@@ -936,6 +1027,7 @@ elif selected == "💼 Consultance":
                 st.info(f"**Symptômes visuels clés :** {info_p['symptomes_visuels']}")
                 st.success(f"**Traitement Recommandé (Normes Sahel/DPV) :** {info_p['traitement']}")
 
+    # --- TAB 2: PÉDOLOGIE ---
     with tab_c2:
         st.markdown("<h4 style='color: #1b5e20;'>🧪 Diagnostic Pédologique & Plan de Fumure (ISRA/INP)</h4>", unsafe_allow_html=True)
         
@@ -958,7 +1050,7 @@ elif selected == "💼 Consultance":
 
         st.markdown("---")
         st.markdown("##### 🧮 Calculateur de Besoins N-P-K sur mesure")
-        surf_ha = st.number_input("Surface à fertiliser (Hectares) :", min_value=0.1, max_value=500.0, value= st.session_state["active_surface_ha"], step=0.5)
+        surf_ha = st.number_input("Surface à fertiliser (Hectares) :", min_value=0.1, max_value=500.0, value=float(st.session_state.get("active_surface_ha", 3.5)), step=0.5)
         
         col_f1, col_f2, col_f3 = st.columns(3)
         with col_f1:
@@ -974,6 +1066,7 @@ elif selected == "💼 Consultance":
 
         st.info(f"👉 **Besoin total de la parcelle ({surf_ha} Ha) :** {tot_n:.0f} kg d'Azote, {tot_p:.0f} kg de Phosphore, {tot_k:.0f} kg de Potasse.")
 
+    # --- TAB 3: CARTOGRAPHIE ---
     with tab_c3:
         st.markdown("<h4 style='color: #1b5e20;'>🗺️ Cartographie & Délimitation GPS de la Parcelle</h4>", unsafe_allow_html=True)
         st.write("Visualisez et validez les coordonnées GPS de l'exploitation pour le suivi géospatial.")
@@ -981,9 +1074,9 @@ elif selected == "💼 Consultance":
         col_map1, col_map2 = st.columns([2, 1])
         with col_map1:
             if HAS_FOLIUM:
-                m = folium.Map(location=[st.session_state["consult_gps"]["lat"], st.session_state["consult_gps"]["lon"]], zoom_start=13)
+                m = folium.Map(location=[st.session_state.get("consult_gps", {}).get("lat", 14.7910), st.session_state.get("consult_gps", {}).get("lon", -16.0700)], zoom_start=13)
                 folium.Polygon(
-                    locations=st.session_state["draw_coords"],
+                    locations=st.session_state.get("draw_coords", [[14.7910, -16.0700], [14.7930, -16.0700], [14.7930, -16.0680], [14.7910, -16.0680]]),
                     color="green",
                     fill=True,
                     fill_color="green",
@@ -996,10 +1089,11 @@ elif selected == "💼 Consultance":
                 
         with col_map2:
             st.markdown("**Points Sommets du Polygone :**")
-            df_coords = pd.DataFrame(st.session_state["draw_coords"], columns=["Latitude", "Longitude"])
+            df_coords = pd.DataFrame(st.session_state.get("draw_coords", []), columns=["Latitude", "Longitude"])
             st.dataframe(df_coords, use_container_width=True)
-            st.success(f"Surface calculée : **{st.session_state['active_surface_ha']} Ha**")
+            st.success(f"Surface calculée : **{st.session_state.get('active_surface_ha', 3.5)} Ha**")
 
+    # --- TAB 4: ECONOMIE & RAPPORT PDF ---
     with tab_c4:
         st.markdown("<h4 style='color: #1b5e20;'>📊 Simulation Financière & Édition de Rapport PDF</h4>", unsafe_allow_html=True)
         
@@ -1011,8 +1105,9 @@ elif selected == "💼 Consultance":
             cout_intrants_ha = st.number_input("Coût des intrants/semences (FCFA / Ha) :", value=350000)
             cout_main_oeuvre_ha = st.number_input("Coût de la main-d'œuvre (FCFA / Ha) :", value=150000)
 
-        ca_total = rendement_est * prix_vente_t * st.session_state["active_surface_ha"]
-        charges_totales = (cout_intrants_ha + cout_main_oeuvre_ha) * st.session_state["active_surface_ha"]
+        active_ha = st.session_state.get("active_surface_ha", 3.5)
+        ca_total = rendement_est * prix_vente_t * active_ha
+        charges_totales = (cout_intrants_ha + cout_main_oeuvre_ha) * active_ha
         marge_nette = ca_total - charges_totales
 
         st.markdown("---")
@@ -1030,31 +1125,143 @@ elif selected == "💼 Consultance":
                 styles = getSampleStyleSheet()
                 story = []
 
-                story.append(Paragraph("<b>YouAgronoMe - Rapport d'Expertise Agronomique</b>", styles['Title']))
+                # Titre et Entête
+                story.append(Paragraph("<b>YouAgronoMe - Rapport d'Expertise Agronomique 360°</b>", styles['Title']))
+                story.append(HRFlowable(width="100%", thickness=2, color=colors.HexColor("#1b5e20"), spaceAfter=12))
+                
+                # Métadonnées
+                p_meta = f"""
+                <b>Expert Agréé :</b> {current_user.get('nom')} ({current_user.get('email')})<br/>
+                <b>Organisme / Zone :</b> {current_user.get('zone')}<br/>
+                <b>Date du diagnostic :</b> {datetime.now().strftime('%d/%m/%Y à %H:%M')}<br/>
+                <b>Surface analysée :</b> {active_ha} Ha
+                """
+                story.append(Paragraph(p_meta, styles['Normal']))
                 story.append(Spacer(1, 12))
-                story.append(Paragraph(f"<b>Date du diagnostic :</b> {datetime.now().strftime('%d/%m/%Y')}", styles['Normal']))
-                story.append(Paragraph(f"<b>Surface analysée :</b> {st.session_state['active_surface_ha']} Ha", styles['Normal']))
-                story.append(Spacer(1, 12))
+
+                # Diagnostic & Recommandations
                 story.append(Paragraph(f"<b>Pathogène identifié :</b> {ennemi_choisi}", styles['Heading2']))
                 story.append(Paragraph(f"<b>Culture :</b> {culture_diag}", styles['Normal']))
                 story.append(Paragraph(f"<b>Recommandations DPV :</b> {CATALOGUE_DPV_EXPERT[ennemi_choisi]['traitement']}", styles['Normal']))
                 story.append(Spacer(1, 12))
-                story.append(Paragraph("<b>Bilan Économique :</b>", styles['Heading2']))
+
+                # Tableau des 15 Indicateurs
+                story.append(Paragraph("<b>Synthèse des 15 Fonctionnalités d'Expertise Agri Sénégal :</b>", styles['Heading2']))
+                data_tab = [
+                    ["N°", "Fonctionnalité / domaine", "Résultat Diagnostic", "Organisme Référent"],
+                    ["1", "Diagnostic Pathologique", str(ennemi_choisi), "DPV / CEDEAO"],
+                    ["2", "Matière Organique", "15 Tonnes/Ha Compost", "INP"],
+                    ["3", "Irrigation Précision", "55 m³/Ha/Jour (Kc=1.05)", "SAED / DGPRE"],
+                    ["4", "Plan Fumure NPK", f"{besoin_n}-{besoin_p}-{besoin_k} kg/Ha", "ISRA"],
+                    ["5", "Correction Salinité", "Apport 2.5 T/Ha Gypse", "INP / Tannes"],
+                    ["6", "Météo & Risques", "Suivi Pluies & Pauses", "ANACIM"],
+                    ["7", "Maturité Récolte", "Récolte Optimale à Brix 12°", "DHORT / ARM"],
+                    ["8", "Lutte Biologique", "Huile de Neem 15ml/L + Ail", "ITA / LBA"],
+                    ["9", "Biomasse Pastorale", "Charge 1.8 UGB/Ha", "CSE"],
+                    ["10", "Pertes Post-Récolte", "Silo Ventilé Anti-Aflatoxines", "ARM / ITA"],
+                    ["11", "Rotation Assolement", "Solanacée / Légumineuse", "ANCAR"],
+                    ["12", "Risque Nappe", "Niveau Nappe 1.8m (Normal)", "SAED"],
+                    ["13", "Compte d'Exploitation", f"Marge Nette: {marge_nette:,.0f} FCFA", "DER / LBA"],
+                    ["14", "Suivi Prix Marché", "Prix Bord Champ BAME", "ISRA-BAME"],
+                    ["15", "Zonnage GPS SIG", f"Surface: {active_ha} Ha", "YouAgronoMe GIS"]
+                ]
+                t = Table(data_tab, colWidths=[20, 150, 190, 100])
+                t.setStyle(TableStyle([
+                    ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#1b5e20")),
+                    ('TEXTCOLOR', (0,0), (-1,0), colors.white),
+                    ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+                    ('FONTSIZE', (0,0), (-1,-1), 8),
+                    ('GRID', (0,0), (-1,-1), 0.5, colors.grey)
+                ]))
+                story.append(t)
+                story.append(Spacer(1, 15))
+
+                # Bilan Financier
+                story.append(Paragraph("<b>Bilan Économique Prévisionnel :</b>", styles['Heading2']))
                 story.append(Paragraph(f"Chiffre d'Affaires : {ca_total:,.0f} FCFA", styles['Normal']))
-                story.append(Paragraph(f"Charges : {charges_totales:,.0f} FCFA", styles['Normal']))
-                story.append(Paragraph(f"Marge Nette : {marge_nette:,.0f} FCFA", styles['Normal']))
+                story.append(Paragraph(f"Charges Opérationnelles : {charges_totales:,.0f} FCFA", styles['Normal']))
+                story.append(Paragraph(f"Marge Nette Prévue : {marge_nette:,.0f} FCFA", styles['Normal']))
 
                 doc.build(story)
                 buf.seek(0)
                 
                 st.download_button(
-                    label="📥 Télécharger le Rapport PDF",
+                    label="📥 Télécharger le Rapport PDF Officiel",
                     data=buf,
-                    file_name=f"Rapport_YouAgronoMe_{datetime.now().strftime('%Y%m%d')}.pdf",
+                    file_name=f"Rapport_YouAgronoMe_Expertise_{datetime.now().strftime('%Y%m%d')}.pdf",
                     mime="application/pdf"
                 )
         else:
             st.warning("ReportLab n'est pas installé sur cet environnement pour générer des fichiers PDF.")
+
+    # --- TAB ADMIN (GESTION DE LA LISTE BLANCHE) ---
+    if is_owner and tab_admin:
+        with tab_admin[0]:
+            st.markdown("<h4 style='color: #1b5e20;'>👑 Gestion de la Liste Blanche (Administrateur Général)</h4>", unsafe_allow_html=True)
+            st.info("Vous seul (`issayoume2012@gmail.com`) pouvez ajouter, délivrer des mots de passe ou suspendre l'accès des experts.")
+
+            # Formulaire d'ajout
+            with st.form("form_add_whitelist_user"):
+                st.subheader("➕ Ajouter / Agréer un Nouveau Technicien")
+                col_w1, col_w2 = st.columns(2)
+                with col_w1:
+                    w_nom = st.text_input("Nom & Prénom :")
+                    w_email = st.text_input("Adresse E-mail :")
+                    w_pass = st.text_input("Mot de Passe Délivré :")
+                with col_w2:
+                    w_role = st.selectbox("Rôle attribué :", ["Ingénieur Agronome", "Technicien Spécialisé", "Expert DPV/ISRA", "Conseiller Agricole"])
+                    w_zone = st.text_input("Zone d'intervention :", value="Niayes / Vallée du Fleuve")
+
+                btn_add_user = st.form_submit_button("Délivrer Accès & Ajouter à la Liste Blanche")
+
+                if btn_add_user:
+                    if w_email.strip() and w_pass.strip():
+                        # Vérifier s'il existe déjà
+                        exists = any(u.get("email", "").strip().lower() == w_email.strip().lower() for u in db["whitelist"])
+                        if exists:
+                            st.warning("⚠️ Cet e-mail est déjà enregistré dans la Liste Blanche.")
+                        else:
+                            new_u = {
+                                "email": w_email.strip(),
+                                "password": w_pass.strip(),
+                                "nom": w_nom.strip() or "Expert Technicien",
+                                "role": w_role,
+                                "zone": w_zone,
+                                "statut": "Actif"
+                            }
+                            db["whitelist"].append(new_u)
+                            save_db(db)
+                            st.success(f"✅ Accès accordé avec succès pour {w_nom} !")
+                            st.rerun()
+                    else:
+                        st.error("Veuillez renseigner au moins l'adresse e-mail et le mot de passe.")
+
+            st.markdown("---")
+            st.subheader("📋 Liste des Experts Autorisés & Révocation")
+
+            for idx, user_entry in enumerate(db["whitelist"]):
+                col_u_n, col_u_r, col_u_s, col_u_a = st.columns([2.5, 2, 1, 1.5])
+                col_u_n.write(f"**{user_entry.get('nom')}**\n*{user_entry.get('email')}*")
+                col_u_r.write(f"{user_entry.get('role')}\n_{user_entry.get('zone')}_")
+                
+                is_active = (user_entry.get("statut", "Actif") == "Actif")
+                col_u_s.write("🟢 Actif" if is_active else "🔴 Bloqué")
+
+                if user_entry.get("email", "").strip().lower() != OWNER_EMAIL.lower():
+                    if is_active:
+                        if col_u_a.button("⛔ Révoker", key=f"btn_revoke_{idx}"):
+                            user_entry["statut"] = "Bloqué"
+                            save_db(db)
+                            st.warning(f"Accès révoqué pour {user_entry.get('nom')}")
+                            st.rerun()
+                    else:
+                        if col_u_a.button("✅ Réactiver", key=f"btn_react_{idx}"):
+                            user_entry["statut"] = "Actif"
+                            save_db(db)
+                            st.success(f"Accès réactivé pour {user_entry.get('nom')}")
+                            st.rerun()
+                else:
+                    col_u_a.write("👑 *Compte Maître*")
 
 # =====================================================
 # 🌱 CONSEIL AGRONOMIQUE
