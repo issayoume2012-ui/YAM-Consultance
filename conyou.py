@@ -2690,9 +2690,10 @@ def generate_expert_pdf_pro(producer, zone, sol, crop, surface, user_info, ravag
                 st.info("Aucun autre compte actif à révoquer pour le moment.")
 
     # =====================================================================================
+    # =====================================================================================
     # 🔬 10 MODULES EXPERTS ÉTENDUS : ARCHITECTURE EN EXPANDERS PERFORMANTS & SÉLECTION LIBRE
     # =====================================================================================
-    
+
     st.markdown("---")
     st.markdown("### 🔬 Hub Expert Étendu : Référentiels Nationaux & Régionaux (Données Officielles)")
     st.info("💡 **Navigation modulaire avancée** : Chaque thématique institutionnelle est encapsulée dans un expander haute performance permettant l'exploration ciblée, la sélection granulaire et l'application directe des critères des agences partenaires (ISRA, DPV, ANACIM, DAPSA, etc.).")
@@ -2747,10 +2748,15 @@ def generate_expert_pdf_pro(producer, zone, sol, crop, surface, user_info, ravag
         ravageur_cles = list(CATALOGUE_DPV_EXPERT.keys())
         rav_choix_exp = st.selectbox("Sélectionner un bio-agresseur pour consultation du protocole homologué DPV :", options=ravageur_cles, key="dpv_exp_sel")
         
+        dpv_info = CATALOGUE_DPV_EXPERT.get(rav_choix_exp, {})
+        mecanisme_txt = dpv_info.get("mecanisme", "Information non disponible")
+        traitement_txt = dpv_info.get("traitement", "Contacter les services régionaux de la DPV.")
+
         st.markdown(
             f"- **Cible phytosanitaire** : `{rav_choix_exp}`<br>"
-            f"- **Descriptif et Dégâts** : {CATALOGUE_DPV_EXPERT[rav_choix_exp]}<br>"
-            "- **Recommandation officielle** : Approvisionnement exclusif auprès des phytopharmacies agrées par la DPV (Thiaroye / Antennes régionales). Respect des délais avant récolte (DAR).",
+            f"- **Descriptif et Dégâts** : {mecanisme_txt}<br>"
+            f"- **Traitement préconisé** : {traitement_txt}<br>"
+            "- **Recommandation officielle** : Approvisionnement exclusif auprès des phytopharmacies agréées par la DPV (Thiaroye / Antennes régionales). Respect des délais avant récolte (DAR).",
             unsafe_allow_html=True
         )
 
@@ -2855,14 +2861,14 @@ def generate_expert_pdf_pro(producer, zone, sol, crop, surface, user_info, ravag
         ], key="agro_prat_sel")
 
         score_carbone = len(pratiques_retenues) * 1.4
-        st.metric("Potentiel de Séquestration Carbone Évalué", f"+{score_carbone} tCO2eq / Ha / an")
+        st.metric("Potentiel de Séquestration Carbone Évalué", f"+{score_carbone:.1f} tCO2eq / Ha / an")
         st.caption("Ce score valorise l'exploitation dans le cadre des initiatives de certification carbone et d'agriculture intelligente face au climat.")
 
     # --- EXPANDER 10 : TRAÇABILITÉ API ---
     with st.expander("🔗 10. Traçabilité Numérique & Passeport Phytosanitaire Export", expanded=False):
         st.markdown("Génération de passeports numériques normalisés pour la certification des lots destinés à l'exportation ou aux circuits modernes.")
         
-        code_lot_export = st.text_input("Référence unique du lot / Code traçabilité :", f"SN-EXP-{datetime.now().strftime('%Y')}-994", key="trace_code_input")
+        code_lot_export = st.text_input("Référence unique du lot / Code traçabilité :", f"SN-EXP-2026-994", key="trace_code_input")
         pays_destination = st.selectbox("Marché de destination finale :", [
             "Union Européenne (Normes GlobalGAP / Phytosanitaire strict)",
             "Sous-région CEDEAO (Marché Commun)",
@@ -2871,6 +2877,7 @@ def generate_expert_pdf_pro(producer, zone, sol, crop, surface, user_info, ravag
 
         if st.button("🚀 Valider et Générer le Passeport de Traçabilité", key="btn_gen_passeport"):
             st.success(f"✅ **Passeport Numérique Émis avec Succès** pour le lot `{code_lot_export}` (Destination : {pays_destination}). Conformité validée pour l'audit d'exportation.")
+
 # =============================================================================
 # SECTION CONSEIL
 # =============================================================================
@@ -2891,9 +2898,10 @@ elif selected == "🌱 Conseil":
         * **Densité :** Respecter des écartements de 40 cm entre lignes et 15 cm entre poquets.
         * **Protection :** Surveillance renforcée contre les pucerons (vecteurs de la Rosette) dès le premier mois.
         """)
-        # =====================================================
-# 📞 CONTACT
-# =====================================================
+
+# =============================================================================
+# SECTION CONTACT
+# =============================================================================
 elif selected == "📞 Contact":
 
     st.markdown("""
@@ -2929,7 +2937,7 @@ elif selected == "📞 Contact":
             
             if submitted:
                 if nom and email and message:
-                    st.success("✅ Merci ! Votre message a été transmis à l'équipe YouAgronoMe. Nous vous recontacterons très vite.")
+                    st.success("✅ Merci ! Votre message a été transmitted à l'équipe YouAgronoMe. Nous vous recontacterons très vite.")
                 else:
                     st.error("⚠️ Veillez remplir tous les champs obligatoires (*).")
 
@@ -2950,5 +2958,3 @@ elif selected == "📞 Contact":
             </div>
         </a>
         """, unsafe_allow_html=True)
-
-
