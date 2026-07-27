@@ -2789,7 +2789,7 @@ def generate_expert_pdf_pro(producer, zone, sol, crop, surface, user_info, ravag
             )
 
      # --- EXPANDER 6 : SUBVENTIONS ---
-     with st.expander("💰 6. Guichet Unique des Subventions & Intrants Agricoles", expanded=False):
+    with st.expander("💰 6. Guichet Unique des Subventions & Intrants Agricoles", expanded=False):
             st.markdown("Évaluation de l'éligibilité aux campagnes nationales d'appui aux producteurs (Engrais, Matériel, Semences).")
             
             type_subvention = st.selectbox("Programme de soutien public visé :", [
