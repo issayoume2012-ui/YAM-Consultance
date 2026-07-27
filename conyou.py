@@ -750,12 +750,10 @@ elif selected == "📊 Tableau de Bord":
 
 
 # =====================================================
-# 💼 CONSULTANCE AGRONOMIQUE EXPERTE (MODULE 360° & IA)
-# =====================================================
 # =====================================================
 # 💼 CONSULTANCE AGRONOMIQUE EXPERTE (MODULE 360° & IA)
 # =====================================================
-if selected == "💼 Consultance":
+elif selected == "💼 Consultance":
 
     DB_FILE = "techniciens_db.json"
     OWNER_EMAIL = "issayoume2012@gmail.com"
@@ -2222,6 +2220,18 @@ if "panier" not in st.session_state:
                 j = (i + 1) % n
                 area += xy[i][0] * xy[j][1] - xy[j][0] * xy[i][1]
             return round(abs(area) / 20000.0, 2)
+
+import io
+import time
+import numpy as np
+import matplotlib.pyplot as plt
+import streamlit as st
+from datetime import datetime
+from reportlab.lib.pagesizes import letter
+from reportlab.lib import colors
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image, HRFlowable, PageBreak, Table, TableStyle
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+
 # --- FONCTION AUXILIAIRE : GÉNÉRATION DES GRAPHIQUES POUR LE PDF ---
 def generate_pdf_charts(budget_total, rentabilite):
     """Génère des images en mémoire pour enrichir le PDF avec des graphiques visuels."""
@@ -2403,7 +2413,7 @@ def generate_expert_pdf_pro(producer, zone, sol, crop, surface, user_info, ravag
     story.append(Paragraph("• <b>Organisme :</b> Bureau d'Étude Agrotechnique YouAgronoMe — Sénégal", b_style))
     story.append(Spacer(1, 25))
     
-   # Table d'émargement et cachet
+    # Table d'émargement et cachet
     data_sig = [
         [Paragraph("<b>Visa de l'Expert Référent</b>", b_style), Paragraph("<b>Cachet Officiel du Bureau d'Étude</b>", b_style)],
         [Paragraph("<br/><br/>____________________________________", b_style), Paragraph("<br/><br/>[ SCELLÉ ÉLECTRONIQUE YOUAGRONOME ]", b_style)]
@@ -2419,545 +2429,542 @@ def generate_expert_pdf_pro(producer, zone, sol, crop, surface, user_info, ravag
     buffer.seek(0)
     return buffer
 
-    # --- INTERFACE PRINCIPALE : BUREAU D'ÉTUDE EXPERT ---
+        # --- INTERFACE PRINCIPALE : BUREAU D'ÉTUDE EXPERT ---
     st.markdown("### 💼 Bureau d'Étude & Conseil Agricole Expert (Module 360°)")
     st.info("💡 **Espace Professionnel Global** : Saisissez librement votre culture cible, délimitez votre périmètre sur la carte interactive pour remonter l'intégralité des 12 types de sols du Sénégal (Classification FAO/ORSTOM), accédez au catalogue exhaustif des ravageurs DPV et des variétés certifiées d'Afrique de l'Ouest.")
 
     tab_proj, tab_geo, tab_fin, tab_san, tab_doc = st.tabs([
-        "🎯 Paramétrage & Culture Libre",
-        "🗺️ Cartographie & Sols (12 Types)",
-        "💰 Business Plan & Investissement",
-        "🐛 Diagnostic DPV Exhaustif & IA",
-        "📋 Rapports & Administration"
-    ])
+            "🎯 Paramétrage & Culture Libre",
+            "🗺️ Cartographie & Sols (12 Types)",
+            "💰 Business Plan & Investissement",
+            "🐛 Diagnostic DPV Exhaustif & IA",
+            "📋 Rapports & Administration"
+        ])
 
     with tab_proj:
-        st.markdown("#### 🎯 Paramétrage Stratégique du Projet Agricole")
-        cp1, cp2 = st.columns(2)
-        with cp1:
-            st.session_state["expert_producer"] = st.text_input("Nom du Promoteur / GIE / Entreprise :", value=st.session_state["expert_producer"])
-            st.session_state["expert_zone"] = st.selectbox("Zone Agro-écologique d'implantation :", options=list(BASE_SOLS_INP_EXPERT.keys()))
-        with cp2:
-            st.session_state["expert_custom_crop"] = st.text_input("Spéculation / Culture souhaitée (Saisie libre expert) :", value=st.session_state["expert_custom_crop"])
-            objectif_projet = st.selectbox("Objectif principal du projet :", ["Agriculture Commerciale Intensive", "Agriculture Familiale Résiliente", "Verger / Arboriculture Pérenne", "Maraîchage Hors-Sol / Serre", "Cultures Céréalières de Souveraineté"])
+            st.markdown("#### 🎯 Paramétrage Stratégique du Projet Agricole")
+            cp1, cp2 = st.columns(2)
+    with cp1:
+                st.session_state["expert_producer"] = st.text_input("Nom du Promoteur / GIE / Entreprise :", value=st.session_state["expert_producer"])
+                st.session_state["expert_zone"] = st.selectbox("Zone Agro-écologique d'implantation :", options=list(BASE_SOLS_INP_EXPERT.keys()))
+    with cp2:
+                st.session_state["expert_custom_crop"] = st.text_input("Spéculation / Culture souhaitée (Saisie libre expert) :", value=st.session_state["expert_custom_crop"])
+                objectif_projet = st.selectbox("Objectif principal du projet :", ["Agriculture Commerciale Intensive", "Agriculture Familiale Résiliente", "Verger / Arboriculture Pérenne", "Maraîchage Hors-Sol / Serre", "Cultures Céréalières de Souveraineté"])
 
-        st.markdown(f"> **📌 Synthèse du Projet :** Implantation de **{st.session_state['expert_custom_crop']}** sous le modèle *{objectif_projet}* dans la zone de *{st.session_state['expert_zone']}*.")
+    st.markdown(f"> **📌 Synthèse du Projet :** Implantation de **{st.session_state['expert_custom_crop']}** sous le modèle *{objectif_projet}* dans la zone de *{st.session_state['expert_zone']}*.")
 
     with tab_geo:
-        st.markdown("#### 🗺️ Délimitation Géospatiale & Remontée Intégrale des Sols du Sénégal")
-        
-        if "expert_coords" not in st.session_state:
-            st.session_state["expert_coords"] = [[14.7910, -16.0700], [14.7930, -16.0700], [14.7930, -16.0680], [14.7910, -16.0680]]
-        if "expert_surface" not in st.session_state:
-            st.session_state["expert_surface"] = 2.5
-
-        if HAS_FOLIUM:
-            m = folium.Map(location=[14.7910, -16.0700], zoom_start=14)
-            draw = Draw(
-                export=False, 
-                position="topleft", 
-                draw_options={"polyline": False, "marker": False, "circle": False, "rectangle": True, "polygon": True, "circlemarker": False}, 
-                edit_options={"edit": True}
-            )
-            draw.add_to(m)
-
-            if st.session_state["expert_coords"] and len(st.session_state["expert_coords"]) >= 3:
-                folium.Polygon(
-                    locations=st.session_state["expert_coords"], 
-                    color="#1b5e20", 
-                    weight=3, 
-                    fill=True, 
-                    fill_color="#2e7d32", 
-                    fill_opacity=0.35
-                ).add_to(m)
-
-            map_res = st_folium(m, width=700, height=360, key="folium_expert_map")
+            st.markdown("#### 🗺️ Délimitation Géospatiale & Remontée Intégrale des Sols du Sénégal")
             
-            if map_res and isinstance(map_res, dict):
-                last_draw = map_res.get("last_active_drawing")
-                if last_draw and isinstance(last_draw, dict):
-                    geom = last_draw.get("geometry")
-                    if geom and geom.get("type") == "Polygon":
-                        raw_c = geom.get("coordinates", [])
-                        if raw_c:
-                            new_p = [[p[1], p[0]] for p in raw_c[0]]
-                            if len(new_p) >= 3 and new_p != st.session_state["expert_coords"]:
-                                st.session_state["expert_coords"] = new_p
-                                st.session_state["expert_surface"] = calc_surface(new_p)
-                                st.rerun()
+            if "expert_coords" not in st.session_state:
+                st.session_state["expert_coords"] = [[14.7910, -16.0700], [14.7930, -16.0700], [14.7930, -16.0680], [14.7910, -16.0680]]
+            if "expert_surface" not in st.session_state:
+                st.session_state["expert_surface"] = 2.5
 
-        if st.button("🗑️ Réinitialiser le tracé de la parcelle", key="reset_expert_poly"):
-            st.session_state["expert_coords"] = []
-            st.session_state["expert_surface"] = 2.5
-            st.success("Tracé réinitialisé.")
-            st.rerun()
-
-        sols_dispos = list(BASE_SOLS_INP_EXPERT[st.session_state["expert_zone"]].keys())
-        sol_actuel = st.selectbox("Sélectionner le type de sol spécifique de la zone (Référentiel Complet) :", options=sols_dispos)
-        sol_data = BASE_SOLS_INP_EXPERT[st.session_state["expert_zone"]][sol_actuel]
-
-        st.markdown(f"##### 🧪 Propriétés Pédologiques Officielles pour : *{sol_actuel}*")
-        gc1, gc2, gc3, gc4 = st.columns(4)
-        with gc1:
-            st.metric("Superficie GPS", f"{st.session_state['expert_surface']} Ha")
-        with gc2:
-            st.metric("pH du Sol", sol_data["pH"])
-        with gc3:
-            st.metric("Matière Organique", f"{sol_data['MO']}%")
-        with gc4:
-            st.metric("Texture", sol_data["Texture"])
-
-    with tab_fin:
-        st.markdown("#### 💰 Analyse Financière, Investissement & Rentabilité (Business Plan)")
-        fc1, fc2 = st.columns(2)
-        with fc1:
-            cout_hectare = st.number_input("Coût d'investissement estimé par Hectare (FCFA) :", min_value=100000, max_value=10000000, value=750000, step=50000)
-        with fc2:
-            taux_marge = st.slider("Marge bénéficiaire prévisionnelle (%) :", min_value=10, max_value=150, value=45)
-
-        budget_global = int(cout_hectare * st.session_state["expert_surface"])
-        chiffre_affaires_prev = int(budget_global * (1 + taux_marge / 100))
-        benefice_net = chiffre_affaires_prev - budget_global
-
-        bc1, bc2, bc3 = st.columns(3)
-        with bc1:
-            st.metric("Investissement Total", f"{budget_global:,} FCFA")
-        with bc2:
-            st.metric("CA Prévisionnel", f"{chiffre_affaires_prev:,} FCFA")
-        with bc3:
-            st.metric("Bénéfice Net Attendu", f"{benefice_net:,} FCFA", delta=f"+{taux_marge}%")
-
-    with tab_san:
-        st.markdown("#### 🐛 Diagnostic Sanitaire Multi-Angles & Intelligence Artificielle")
-        
-        # 1. Sélection de la zone inspectée
-        angle_vue = st.radio(
-            "📐 **Étape 1 : Sélectionnez la zone du végétal prise en photo :**",
-            ["🍃 Vue Feuillage (Dessus/Dessous)", "🪵 Vue Tige / Collet", "🍓 Vue Fruit / Gousse", "🪴 Vue Racines / Sol"],
-            horizontal=True
-        )
-
-        # Filtrage dynamique des bio-agresseurs selon le plan sélectionné
-        ravageurs_filtres = [
-            k for k, v in CATALOGUE_DPV_EXPERT.items() 
-            if angle_vue in v["plans_sensibles"]
-        ]
-        
-        col_sel1, col_sel2 = st.columns([1.5, 1])
-        with col_sel1:
-            rav_choisi = st.selectbox(
-                "🔍 **Étape 2 : Cible identifiée ou suspectée (Répertoire DPV) :**",
-                options=ravageurs_filtres if ravageurs_filtres else list(CATALOGUE_DPV_EXPERT.keys())
-            )
-        with col_sel2:
-            st.caption("ℹ️ *La liste s'ajuste automatiquement selon la partie du végétal sélectionnée.*")
-
-        st.markdown("---")
-        
-        # 2. Zone d'importation de cliché
-        img_file = st.file_uploader(
-            "📸 **Étape 3 : Indiquez ou chargez le cliché pour l'analyse IA :**", 
-            type=["jpg", "png", "jpeg"], 
-            key="exp_img_upload"
-        )
-
-        if img_file is not None:
-            col_img, col_diag = st.columns([1, 1.2])
-            
-            with col_img:
-                st.image(img_file, caption=f"Analyse HD — Cadre : {angle_vue}", use_container_width=True)
-
-            with col_diag:
-                st.markdown("##### ⚙️ Scanner Vision Convolutif YouAgronoMe")
-                
-                # Animation de progression simulée
-                progress_bar = st.progress(0)
-                status_text = st.empty()
-                
-                steps = [
-                    f"Isolement de la région d'intérêt ({angle_vue.split()[1]})...",
-                    "Extraction des motifs de nécrose & galeries d'insectes...",
-                    "Indexation taxonomique avec le registre national DPV...",
-                    "Diagnostic phytosanitaire certifié !"
-                ]
-                
-                for i, step in enumerate(steps):
-                    status_text.text(step)
-                    progress_bar.progress((i + 1) * 25)
-                    time.sleep(0.25)
-                
-                st.success("✅ **Diagnostic IA Validé**")
-                
-                # Récupération des informations sur l'insecte
-                info_rav = CATALOGUE_DPV_EXPERT[rav_choisi]
-                confiance = round(random.uniform(97.5, 99.6), 1)
-
-                st.metric(
-                    label="🐛 Agent / Insecte Responsable", 
-                    value=rav_choisi.split('(')[0].strip(), 
-                    delta=f"Indice de confiance : {confiance}%"
+            if HAS_FOLIUM:
+                m = folium.Map(location=[14.7910, -16.0700], zoom_start=14)
+                draw = Draw(
+                    export=False, 
+                    position="topleft", 
+                    draw_options={"polyline": False, "marker": False, "circle": False, "rectangle": True, "polygon": True, "circlemarker": False}, 
+                    edit_options={"edit": True}
                 )
+                draw.add_to(m)
+
+                if st.session_state["expert_coords"] and len(st.session_state["expert_coords"]) >= 3:
+                    folium.Polygon(
+                        locations=st.session_state["expert_coords"], 
+                        color="#1b5e20", 
+                        weight=3, 
+                        fill=True, 
+                        fill_color="#2e7d32", 
+                        fill_opacity=0.35
+                    ).add_to(m)
+
+                map_res = st_folium(m, width=700, height=360, key="folium_expert_map")
                 
-                st.markdown(f"""
-                * **Mode d'attaque :** {info_rav['mecanisme']}
-                * **Symptômes caractéristiques :** {info_rav['symptomes_visuels']}
-                """)
+                if map_res and isinstance(map_res, dict):
+                    last_draw = map_res.get("last_active_drawing")
+                    if last_draw and isinstance(last_draw, dict):
+                        geom = last_draw.get("geometry")
+                        if geom and geom.get("type") == "Polygon":
+                            raw_c = geom.get("coordinates", [])
+                            if raw_c:
+                                new_p = [[p[1], p[0]] for p in raw_c[0]]
+                                if len(new_p) >= 3 and new_p != st.session_state["expert_coords"]:
+                                    st.session_state["expert_coords"] = new_p
+                                    st.session_state["expert_surface"] = calc_surface(new_p)
+                                    st.rerun()
 
-            # Alerte et Protocole DPV
-            st.error(f"🚨 **PROTOCOLE DE LUTTE ET TRAITEMENT DPV** : {info_rav['traitement']}")
+            if st.button("🗑️ Réinitialiser le tracé de la parcelle", key="reset_expert_poly"):
+                st.session_state["expert_coords"] = []
+                st.session_state["expert_surface"] = 2.5
+                st.success("Tracé réinitialisé.")
+                st.rerun()
 
-        else:
-            st.info("💡 **Mode d'emploi :** Sélectionnez l'organe végétal (Feuille, Tige, Fruit, Racine), déposez un cliché net et le réseau de neurones identifiera précisément l'insecte responsable et son traitement DPV.")
+            sols_dispos = list(BASE_SOLS_INP_EXPERT[st.session_state["expert_zone"]].keys())
+            sol_actuel = st.selectbox("Sélectionner le type de sol spécifique de la zone (Référentiel Complet) :", options=sols_dispos)
+            sol_data = BASE_SOLS_INP_EXPERT[st.session_state["expert_zone"]][sol_actuel]
 
-        st.success("🌤️ **Veille Météorologique ANACIM** : Paramètres climatiques stables. Indice de stress hydrique faible.")
+            st.markdown(f"##### 🧪 Propriétés Pédologiques Officielles pour : *{sol_actuel}*")
+            gc1, gc2, gc3, gc4 = st.columns(4)
+            with gc1:
+                st.metric("Superficie GPS", f"{st.session_state['expert_surface']} Ha")
+            with gc2:
+                st.metric("pH du Sol", sol_data["pH"])
+            with gc3:
+                st.metric("Matière Organique", f"{sol_data['MO']}%")
+            with gc4:
+                st.metric("Texture", sol_data["Texture"])
+    with tab_fin:
+            st.markdown("#### 💰 Analyse Financière, Investissement & Rentabilité (Business Plan)")
+            fc1, fc2 = st.columns(2)
+            with fc1:
+                cout_hectare = st.number_input("Coût d'investissement estimé par Hectare (FCFA) :", min_value=100000, max_value=10000000, value=750000, step=50000)
+            with fc2:
+                taux_marge = st.slider("Marge bénéficiaire prévisionnelle (%) :", min_value=10, max_value=150, value=45)
 
-    with tab_doc:
-        st.markdown("#### 📋 Édition de Rapport d'Expertise PDF & Administration Whitelist")
-        
-        if HAS_REPORTLAB:
-            pdf_data = generate_expert_pdf_pro(
-                producer=st.session_state["expert_producer"],
-                zone=st.session_state["expert_zone"],
-                sol=sol_actuel,
-                crop=st.session_state["expert_custom_crop"],
-                surface=st.session_state["expert_surface"],
-                user_info=user_session,
-                ravageur=rav_choisi,
-                budget_total=budget_global,
-                rentabilite=taux_marge
-            )
-            st.download_button(
-                label="📥 Télécharger le Rapport d'Expertise PDF Complet (6 Pages)",
-                data=pdf_data,
-                file_name=f"Rapport_Expertise_{st.session_state['expert_producer'].replace(' ', '_')}.pdf",
-                mime="application/pdf"
-            )
+            budget_global = int(cout_hectare * st.session_state["expert_surface"])
+            chiffre_affaires_prev = int(budget_global * (1 + taux_marge / 100))
+            benefice_net = chiffre_affaires_prev - budget_global
 
-        if st.button("🛒 Ajouter le pack d'intrants du projet au Panier", key="add_panier_expert"):
-            st.session_state.panier.append({
-                "produit": f"Pack Expert {st.session_state['expert_custom_crop']} ({st.session_state['expert_surface']} Ha)",
-                "details": f"Intrants & Suivi complet pour {budget_global:,} FCFA",
-                "prix": f"{int(budget_global * 0.4):,} FCFA",
-                "producteur": st.session_state["expert_producer"]
-            })
-            st.success("✅ Pack d'intrants transféré au panier avec succès !")
+            bc1, bc2, bc3 = st.columns(3)
+            with bc1:
+                st.metric("Investissement Total", f"{budget_global:,} FCFA")
+            with bc2:
+                st.metric("CA Prévisionnel", f"{chiffre_affaires_prev:,} FCFA")
+            with bc3:
+                st.metric("Bénéfice Net Attendu", f"{benefice_net:,} FCFA", delta=f"+{taux_marge}%")
 
-        # Gestion de la Whitelist pour l'administrateur
-        if is_admin:
-            st.markdown("---")
-            st.markdown("##### 👥 Gestion Administrative de la Liste Blanche (Whitelist)")
+     with tab_san:
+            st.markdown("#### 🐛 Diagnostic Sanitaire Multi-Angles & Intelligence Artificielle")
             
-            with st.form("form_expert_whitelist"):
-                nw_email = st.text_input("E-mail du technicien / expert :").strip().lower()
-                nw_pass = st.text_input("Mot de passe à assigner :")
-                nw_nom = st.text_input("Nom et Prénom :")
-                nw_role = st.selectbox("Rôle attribué :", ["Technicien Terrain", "Agronome Conseil", "Expert DPV", "Auditeur de Projet"])
+            # 1. Sélection de la zone inspectée
+            angle_vue = st.radio(
+                "📐 **Étape 1 : Sélectionnez la zone du végétal prise en photo :**",
+                ["🍃 Vue Feuillage (Dessus/Dessous)", "🪵 Vue Tige / Collet", "🍓 Vue Fruit / Gousse", "🪴 Vue Racines / Sol"],
+                horizontal=True
+            )
+
+            # Filtrage dynamique des bio-agresseurs selon le plan sélectionné
+            ravageurs_filtres = [
+                k for k, v in CATALOGUE_DPV_EXPERT.items() 
+                if angle_vue in v["plans_sensibles"]
+            ]
+            
+            col_sel1, col_sel2 = st.columns([1.5, 1])
+            with col_sel1:
+                rav_choisi = st.selectbox(
+                    "🔍 **Étape 2 : Cible identifiée ou suspectée (Répertoire DPV) :**",
+                    options=ravageurs_filtres if ravageurs_filtres else list(CATALOGUE_DPV_EXPERT.keys())
+                )
+            with col_sel2:
+                st.caption("ℹ️ *La liste s'ajuste automatiquement selon la partie du végétal sélectionnée.*")
+
+            st.markdown("---")
+            
+            # 2. Zone d'importation de cliché
+            img_file = st.file_uploader(
+                "📸 **Étape 3 : Indiquez ou chargez le cliché pour l'analyse IA :**", 
+                type=["jpg", "png", "jpeg"], 
+                key="exp_img_upload"
+            )
+
+            if img_file is not None:
+                col_img, col_diag = st.columns([1, 1.2])
                 
-                submitted = st.form_submit_button("➕ Enregistrer et Configurer l'Accès")
-                if submitted and nw_email and nw_pass:
-                    found_u = False
-                    for u in db["whitelist"]:
-                        if str(u.get("email")).lower() == nw_email:
-                            u["password"] = nw_pass
-                            u["nom"] = nw_nom
-                            u["role"] = nw_role
-                            u["statut"] = "Actif"
-                            found_u = True
-                            break
-                    if not found_u:
-                        db["whitelist"].append({
-                            "email": nw_email,
-                            "password": nw_pass,
-                            "nom": nw_nom,
-                            "role": nw_role,
-                            "zone": st.session_state["expert_zone"],
-                            "statut": "Actif"
-                        })
-                    save_db(db)
-                    st.success(f"✅ Compte configuré avec succès pour {nw_email} !")
-                    st.rerun()
+                with col_img:
+                    st.image(img_file, caption=f"Analyse HD — Cadre : {angle_vue}", use_container_width=True)
 
-            # Révocation d'accès
-            active_users_list = [u.get("email") for u in db["whitelist"] if u.get("email") != OWNER_EMAIL and u.get("statut") == "Actif"]
-            if active_users_list:
-                rev_target = st.selectbox("Sélectionner un compte à révoquer :", options=active_users_list, key="rev_expert_sel")
-                if st.button("❌ Révoquer l'accès de ce compte"):
-                    for u in db["whitelist"]:
-                        if str(u.get("email")).lower() == rev_target.lower():
-                            u["statut"] = "Inactif"
-                            break
-                    save_db(db)
-                    st.warning(f"⚠️ L'accès pour {rev_target} a été révoqué avec succès.")
-                    st.rerun()
+                with col_diag:
+                    st.markdown("##### ⚙️ Scanner Vision Convolutif YouAgronoMe")
+                    
+                    # Animation de progression simulée
+                    progress_bar = st.progress(0)
+                    status_text = st.empty()
+                    
+                    steps = [
+                        f"Isolement de la région d'intérêt ({angle_vue.split()[1]})...",
+                        "Extraction des motifs de nécrose & galeries d'insectes...",
+                        "Indexation taxonomique avec le registre national DPV...",
+                        "Diagnostic phytosanitaire certifié !"
+                    ]
+                    
+                    for i, step in enumerate(steps):
+                        status_text.text(step)
+                        progress_bar.progress((i + 1) * 25)
+                        time.sleep(0.25)
+                    
+                    st.success("✅ **Diagnostic IA Validé**")
+                    
+                    # Récupération des informations sur l'insecte
+                    info_rav = CATALOGUE_DPV_EXPERT[rav_choisi]
+                    confiance = round(random.uniform(97.5, 99.6), 1)
+
+                    st.metric(
+                        label="🐛 Agent / Insecte Responsable", 
+                        value=rav_choisi.split('(')[0].strip(), 
+                        delta=f"Indice de confiance : {confiance}%"
+                    )
+                    
+                    st.markdown(f"""
+                    * **Mode d'attaque :** {info_rav['mecanisme']}
+                    * **Symptômes caractéristiques :** {info_rav['symptomes_visuels']}
+                    """)
+
+                # Alerte et Protocole DPV
+                st.error(f"🚨 **PROTOCOLE DE LUTTE ET TRAITEMENT DPV** : {info_rav['traitement']}")
+
             else:
-                st.info("Aucun autre compte actif à révoquer pour le moment.")
+                st.info("💡 **Mode d'emploi :** Sélectionnez l'organe végétal (Feuille, Tige, Fruit, Racine), déposez un cliché net et le réseau de neurones identifiera précisément l'insecte responsable et son traitement DPV.")
 
-    # =====================================================================================
-    # =====================================================================================
-    # 🔬 10 MODULES EXPERTS ÉTENDUS : ARCHITECTURE EN EXPANDERS PERFORMANTS & SÉLECTION LIBRE
-    # =====================================================================================
+            st.success("🌤️ **Veille Météorologique ANACIM** : Paramètres climatiques stables. Indice de stress hydrique faible.")
 
-    st.markdown("---")
-    st.markdown("### 🔬 Hub Expert Étendu : Référentiels Nationaux & Régionaux (Données Officielles)")
-    st.info("💡 **Navigation modulaire avancée** : Chaque thématique institutionnelle est encapsulée dans un expander haute performance permettant l'exploration ciblée, la sélection granulaire et l'application directe des critères des agences partenaires (ISRA, DPV, ANACIM, DAPSA, etc.).")
+        with tab_doc:
+            st.markdown("#### 📋 Édition de Rapport d'Expertise PDF & Administration Whitelist")
+            
+            if HAS_REPORTLAB:
+                pdf_data = generate_expert_pdf_pro(
+                    producer=st.session_state["expert_producer"],
+                    zone=st.session_state["expert_zone"],
+                    sol=sol_actuel,
+                    crop=st.session_state["expert_custom_crop"],
+                    surface=st.session_state["expert_surface"],
+                    user_info=user_session,
+                    ravageur=rav_choisi,
+                    budget_total=budget_global,
+                    rentabilite=taux_marge
+                )
+                st.download_button(
+                    label="📥 Télécharger le Rapport d'Expertise PDF Complet (6 Pages)",
+                    data=pdf_data,
+                    file_name=f"Rapport_Expertise_{st.session_state['expert_producer'].replace(' ', '_')}.pdf",
+                    mime="application/pdf"
+                )
 
-    # --- EXPANDER 1 : VARIÉTÉS SÉNÉGAL & AFRIQUE ---
-    with st.expander("🌾 1. Catalogue Variétal Exhaustif (ISRA, CORAF, AfricaRice, CEDEAO)", expanded=True):
-        st.markdown("Répertoire officiel et multicritère des variétés homologuées et tolérantes aux stress climatiques en Afrique de l'Ouest.")
+            if st.button("🛒 Ajouter le pack d'intrants du projet au Panier", key="add_panier_expert"):
+                st.session_state.panier.append({
+                    "produit": f"Pack Expert {st.session_state['expert_custom_crop']} ({st.session_state['expert_surface']} Ha)",
+                    "details": f"Intrants & Suivi complet pour {budget_global:,} FCFA",
+                    "prix": f"{int(budget_global * 0.4):,} FCFA",
+                    "producteur": st.session_state["expert_producer"]
+                })
+                st.success("✅ Pack d'intrants transféré au panier avec succès !")
+
+            # Gestion de la Whitelist pour l'administrateur
+            if is_admin:
+                st.markdown("---")
+                st.markdown("##### 👥 Gestion Administrative de la Liste Blanche (Whitelist)")
+                
+                with st.form("form_expert_whitelist"):
+                    nw_email = st.text_input("E-mail du technicien / expert :").strip().lower()
+                    nw_pass = st.text_input("Mot de passe à assigner :")
+                    nw_nom = st.text_input("Nom et Prénom :")
+                    nw_role = st.selectbox("Rôle attribué :", ["Technicien Terrain", "Agronome Conseil", "Expert DPV", "Auditeur de Projet"])
+                    
+                    submitted = st.form_submit_button("➕ Enregistrer et Configurer l'Accès")
+                    if submitted and nw_email and nw_pass:
+                        found_u = False
+                        for u in db["whitelist"]:
+                            if str(u.get("email")).lower() == nw_email:
+                                u["password"] = nw_pass
+                                u["nom"] = nw_nom
+                                u["role"] = nw_role
+                                u["statut"] = "Actif"
+                                found_u = True
+                                break
+                        if not found_u:
+                            db["whitelist"].append({
+                                "email": nw_email,
+                                "password": nw_pass,
+                                "nom": nw_nom,
+                                "role": nw_role,
+                                "zone": st.session_state["expert_zone"],
+                                "statut": "Actif"
+                            })
+                        save_db(db)
+                        st.success(f"✅ Compte configuré avec succès pour {nw_email} !")
+                        st.rerun()
+
+                # Révocation d'accès
+                active_users_list = [u.get("email") for u in db["whitelist"] if u.get("email") != OWNER_EMAIL and u.get("statut") == "Actif"]
+                if active_users_list:
+                    rev_target = st.selectbox("Sélectionner un compte à révoquer :", options=active_users_list, key="rev_expert_sel")
+                    if st.button("❌ Révoquer l'accès de ce compte"):
+                        for u in db["whitelist"]:
+                            if str(u.get("email")).lower() == rev_target.lower():
+                                u["statut"] = "Inactif"
+                                break
+                        save_db(db)
+                        st.warning(f"⚠️ L'accès pour {rev_target} a été révoqué avec succès.")
+                        st.rerun()
+                else:
+                    st.info("Aucun autre compte actif à révoquer pour le moment.")
+        # =====================================================================================
+        # 🔬 10 MODULES EXPERTS ÉTENDUS : ARCHITECTURE EN EXPANDERS PERFORMANTS & SÉLECTION LIBRE
+        # =====================================================================================
         
-        col_v1, col_v2 = st.columns(2)
-        with col_v1:
-            filiere_sel = st.selectbox("Sélectionner la filière agricole cible :", options=list(CATALOGUE_VARIETES_AFRIQUE.keys()), key="exp_filiere_sel")
-        with col_v2:
-            critere_recherche = st.text_input("Filtrer par mot-clé (ex: cycle court, tolérance, rendement) :", "", key="exp_var_filter")
+        st.markdown("---")
+        st.markdown("### 🔬 Hub Expert Étendu : Référentiels Nationaux & Régionaux (Données Officielles)")
+        st.info("💡 **Navigation modulaire avancée** : Chaque thématique institutionnelle est encapsulée dans un expander haute performance permettant l'exploration ciblée, la sélection granulaire et l'application directe des critères des agences partenaires (ISRA, DPV, ANACIM, DAPSA, etc.).")
 
-        st.markdown(f"##### 📋 Liste des variétés certifiées disponibles pour : **{filiere_sel}**")
-        
-        varietes_list = CATALOGUE_VARIETES_AFRIQUE[filiere_sel]
-        if critere_recherche:
-            varietes_list = [v for v in varietes_list if critere_recherche.lower() in v.lower()]
+        # --- EXPANDER 1 : VARIÉTÉS SÉNÉGAL & AFRIQUE ---
+        with st.expander("🌾 1. Catalogue Variétal Exhaustif (ISRA, CORAF, AfricaRice, CEDEAO)", expanded=True):
+            st.markdown("Répertoire officiel et multicritère des variétés homologuées et tolérantes aux stress climatiques en Afrique de l'Ouest.")
+            
+            col_v1, col_v2 = st.columns(2)
+            with col_v1:
+                filiere_sel = st.selectbox("Sélectionner la filière agricole cible :", options=list(CATALOGUE_VARIETES_AFRIQUE.keys()), key="exp_filiere_sel")
+            with col_v2:
+                critere_recherche = st.text_input("Filtrer par mot-clé (ex: cycle court, tolérance, rendement) :", "", key="exp_var_filter")
 
-        if varietes_list:
-            selected_variete_opt = st.radio("Sélectionner la variété à retenir pour le projet :", options=varietes_list, key=f"radio_{filiere_sel}")
-            st.success(f"✅ **Variété sélectionnée et verrouillée** : *{selected_variete_opt}* pour l'intégration dans le cahier des charges.")
-        else:
-            st.warning("⚠️ Aucune variété ne correspond au filtre textuel saisi. Veuillez élargir votre recherche.")
+            st.markdown(f"##### 📋 Liste des variétés certifiées disponibles pour : **{filiere_sel}**")
+            
+            varietes_list = CATALOGUE_VARIETES_AFRIQUE[filiere_sel]
+            if critere_recherche:
+                varietes_list = [v for v in varietes_list if critere_recherche.lower() in v.lower()]
 
-    # --- EXPANDER 2 : ENQUÊTE DAPSA ---
-    with st.expander("📊 2. Enquête Agricole Annuelle & Benchmarking (DAPSA)", expanded=False):
-        st.markdown("Exploitation des données structurelles et macro-économiques de la Direction de l'Analyse, de la Prévision et des Statistiques Agricoles.")
-        
-        dapsa_regiones = ["Kaolack", "Kaffrine", "Fatick", "Saint-Louis", "Thiès", "Ziguinchor", "Kolda", "Louga", "Matam", "Tambacounda", "Kédougou", "Sédhiou", "Diourbel", "Dakar"]
-        dap_reg = st.selectbox("Sélectionner la région administrative d'analyse DAPSA :", options=dapsa_regiones, key="dapsa_exp_reg")
-        
-        dap_indicateur = st.selectbox("Indicateur statistique d'intérêt :", [
-            "Structure des exploitations familiales vs agrobusiness",
-            "Superficies cultivées et rendements moyens enregistrés",
-            "Taux d'équipement en matériel agricole motorisé",
-            "Accès des ménages aux engrais subventionnés"
-        ], key="dap_ind_sel")
+            if varietes_list:
+                selected_variete_opt = st.radio("Sélectionner la variété à retenir pour le projet :", options=varietes_list, key=f"radio_{filiere_sel}")
+                st.success(f"✅ **Variété sélectionnée et verrouillée** : *{selected_variete_opt}* pour l'intégration dans le cahier des charges.")
+            else:
+                st.warning("⚠️ Aucune variété ne correspond au filtre textuel saisi. Veuillez élargir votre recherche.")
 
-        st.markdown(
-            f"- **Région ciblée** : *{dap_reg}*<br>"
-            f"- **Volet statistique** : *{dap_indicateur}*<br>"
-            "- **Analyse d'impact** : Les données consolidées de la DAPSA montrent une forte corrélation entre l'adoption de semences certifiées et la hausse du revenu net par exploitant dans cette zone.",
-            unsafe_allow_html=True
-        )
+        # --- EXPANDER 2 : ENQUÊTE DAPSA ---
+        with st.expander("📊 2. Enquête Agricole Annuelle & Benchmarking (DAPSA)", expanded=False):
+            st.markdown("Exploitation des données structurelles et macro-économiques de la Direction de l'Analyse, de la Prévision et des Statistiques Agricoles.")
+            
+            dapsa_regiones = ["Kaolack", "Kaffrine", "Fatick", "Saint-Louis", "Thiès", "Ziguinchor", "Kolda", "Louga", "Matam", "Tambacounda", "Kédougou", "Sédhiou", "Diourbel", "Dakar"]
+            dap_reg = st.selectbox("Sélectionner la région administrative d'analyse DAPSA :", options=dapsa_regiones, key="dapsa_exp_reg")
+            
+            dap_indicateur = st.selectbox("Indicateur statistique d'intérêt :", [
+                "Structure des exploitations familiales vs agrobusiness",
+                "Superficies cultivées et rendements moyens enregistrés",
+                "Taux d'équipement en matériel agricole motorisé",
+                "Accès des ménages aux engrais subventionnés"
+            ], key="dap_ind_sel")
 
-    # --- EXPANDER 3 : ALERTE DPV ---
-    with st.expander("🐛 3. Alertes Phytosanitaires & Protocoles de Lutte (DPV)", expanded=False):
-        st.markdown("Plateforme de veille sanitaire et répertoires officiels de la Direction de la Protection des Végétaux.")
-        
-        ravageur_cles = list(CATALOGUE_DPV_EXPERT.keys())
-        rav_choix_exp = st.selectbox("Sélectionner un bio-agresseur pour consultation du protocole homologué DPV :", options=ravageur_cles, key="dpv_exp_sel")
-        
-        dpv_info = CATALOGUE_DPV_EXPERT.get(rav_choix_exp, {})
-        mecanisme_txt = dpv_info.get("mecanisme", "Information non disponible")
-        traitement_txt = dpv_info.get("traitement", "Contacter les services régionaux de la DPV.")
+            st.markdown(
+                f"- **Région ciblée** : *{dap_reg}*<br>"
+                f"- **Volet statistique** : *{dap_indicateur}*<br>"
+                "- **Analyse d'impact** : Les données consolidées de la DAPSA montrent une forte corrélation entre l'adoption de semences certifiées et la hausse du revenu net par exploitant dans cette zone."
+            )
 
-        st.markdown(
-            f"- **Cible phytosanitaire** : `{rav_choix_exp}`<br>"
-            f"- **Descriptif et Dégâts** : {mecanisme_txt}<br>"
-            f"- **Traitement préconisé** : {traitement_txt}<br>"
-            "- **Recommandation officielle** : Approvisionnement exclusif auprès des phytopharmacies agréées par la DPV (Thiaroye / Antennes régionales). Respect des délais avant récolte (DAR).",
-            unsafe_allow_html=True
-        )
+        # --- EXPANDER 3 : ALERTE DPV ---
+        with st.expander("🐛 3. Alertes Phytosanitaires & Protocoles de Lutte (DPV)", expanded=False):
+            st.markdown("Plateforme de veille sanitaire et répertoires officiels de la Direction de la Protection des Végétaux.")
+            
+            ravageur_cles = list(CATALOGUE_DPV_EXPERT.keys())
+            rav_choix_exp = st.selectbox("Sélectionner un bio-agresseur pour consultation du protocole homologué DPV :", options=ravageur_cles, key="dpv_exp_sel")
+            
+            st.markdown(
+                f"- **Cible phytosanitaire** : `{rav_choix_exp}`<br>"
+                f"- **Descriptif et Dégâts** : {CATALOGUE_DPV_EXPERT[rav_choix_exp]}<br>"
+                "- **Recommandation officielle** : Approvisionnement exclusif auprès des phytopharmacies agrées par la DPV (Thiaroye / Antennes régionales). Respect des délais avant récolte (DAR)."
+            )
 
-    # --- EXPANDER 4 : MÉTÉO ANACIM ---
-    with st.expander("🌤️ 4. Bulletins Agro-météorologiques & Climat (ANACIM)", expanded=False):
-        st.markdown("Suivi décadaire des cumuls pluviométriques, des températures et des risques climatiques (ANACIM).")
-        
-        anacim_zone = st.selectbox("Zone climatique d'observation :", [
-            "Zone Sahélienne Nord (Podor, Matam, Richard-Toll)",
-            "Bassin Arachidier (Kaolack, Diourbel, Fatick, Kaffrine)",
-            "Zone Littorale & Maraîchère (Niayes - Dakar/Thiès/Louga)",
-            "Zone Sud & Soudano-Guinéenne (Ziguinchor, Kolda, Sédhiou, Tambacounda)"
-        ], key="anacim_zone_sel")
+        # --- EXPANDER 4 : MÉTÉO ANACIM ---
+        with st.expander("🌤️ 4. Bulletins Agro-météorologiques & Climat (ANACIM)", expanded=False):
+            st.markdown("Suivi décadaire des cumuls pluviométriques, des températures et des risques climatiques (ANACIM).")
+            
+            anacim_zone = st.selectbox("Zone climatique d'observation :", [
+                "Zone Sahélienne Nord (Podor, Matam, Richard-Toll)",
+                "Bassin Arachidier (Kaolack, Diourbel, Fatick, Kaffrine)",
+                "Zone Littorale & Maraîchère (Niayes - Dakar/Thiès/Louga)",
+                "Zone Sud & Soudano-Guinéenne (Ziguinchor, Kolda, Sédhiou, Tambacounda)"
+            ], key="anacim_zone_sel")
 
-        zone_label = str(anacim_zone)
-        st.markdown(
-            f"- **Zone sélectionnée** : *{zone_label}*<br>"
-            "- **Indicateur climatique** : Analyse des séquences sèches et prévisions saisonnières (COFOG / ANACIM).<br>"
-            "- **Avis technique** : Recommandation d'ajustement du calendrier de semis en fonction de l'installation effective de la mousson et de la portance hydrique des sols.",
-            unsafe_allow_html=True
-        )
+            zone_label = str(anacim_zone)
+            st.markdown(
+                f"- **Zone sélectionnée** : *{zone_label}*<br>"
+                "- **Indicateur climatique** : Analyse des séquences sèches et prévisions saisonnières (COFOG / ANACIM).<br>"
+                "- **Avis technique** : Recommandation d'ajustement du calendrier de semis en fonction de l'installation effective de la mousson et de la portance hydrique des sols."
+            )
 
-    # --- EXPANDER 5 : FONCIER & GENRE ---
-    with st.expander("⚖️ 5. Sécurisation Foncière & Inclusion Genre (Réglementation Rurale)", expanded=False):
-        st.markdown("Analyse du statut juridique des terres (Domaine National, Titres Fonciers) et indicateurs d'accès pour les femmes et les jeunes.")
-        
-        statut_foncier_exp = st.selectbox("Mode d'accès et de sécurisation foncière :", [
-            "Affectation par le Conseil Municipal (Loi sur le Domaine National)",
-            "Bail emphytéotique ou convention de partenariat",
-            "Acquisition en toute propriété (Titre Foncier)",
-            "Location coutumière ou convention verbale de prêt"
-        ], key="foncier_exp_sel")
+        # --- EXPANDER 5 : FONCIER & GENRE ---
+        with st.expander("⚖️ 5. Sécurisation Foncière & Inclusion Genre (Réglementation Rurale)", expanded=False):
+            st.markdown("Analyse du statut juridique des terres (Domaine National, Titres Fonciers) et indicateurs d'accès pour les femmes et les jeunes.")
+            
+            statut_foncier_exp = st.selectbox("Mode d'accès et de sécurisation foncière :", [
+                "Affectation par le Conseil Municipal (Loi sur le Domaine National)",
+                "Bail emphytéotique ou convention de partenariat",
+                "Acquisition en toute propriété (Titre Foncier)",
+                "Location coutumière ou convention verbale de prêt"
+            ], key="foncier_exp_sel")
 
-        st.markdown(
-            f"- **Statut retenu** : *{statut_foncier_exp}*<br>"
-            "- **Recommandation d'expert** : Pour les investissements à forte intensité capitalistique (arboriculture, serres, irrigation), la formalisation par délibération municipale avec bail ou immatriculation au livre foncier est fortement conseillée pour éviter les litiges intercommunautaires.<br>"
-            "- **Genre** : Intégration systématique des clauses d'équité genre conformément aux directives du Plan Land Matrix Sénégal.",
-            unsafe_allow_html=True
-        )
+            st.markdown(
+                f"- **Statut retenu** : *{statut_foncier_exp}*<br>"
+                "- **Recommandation d'expert** : Pour les investissements à forte intensité capitalistique (arboriculture, serres, irrigation), la formalisation par délibération municipale avec bail ou immatriculation au livre foncier est fortement conseillée pour éviter les litiges intercommunautaires.<br>"
+                "- **Genre** : Intégration systématique des clauses d'équité genre conformément aux directives du Plan Land Matrix Sénégal."
+            )
 
-    # --- EXPANDER 6 : SUBVENTIONS ---
-    with st.expander("💰 6. Guichet Unique des Subventions & Intrants Agricoles", expanded=False):
-        st.markdown("Évaluation de l'éligibilité aux campagnes nationales d'appui aux producteurs (Engrais, Matériel, Semences).")
-        
-        type_subvention = st.selectbox("Programme de soutien public visé :", [
-            "Campagne Agricole Nationale (Intrants subventionnés - Engrais NPK/Urée)",
-            "Programme d'Urgence de Modernisation de l'Agriculture (PUMA / PUDC)",
-            "Projet d'Amélioration de la Productivité et de la Résilience (PAPIL)",
-            "Lignes de crédit préférentielles de la CNI / CNCAS / Partenaires"
-        ], key="subv_prog_sel")
+        # --- EXPANDER 6 : SUBVENTIONS ---
+        with st.expander("💰 6. Guichet Unique des Subventions & Intrants Agricoles", expanded=False):
+            st.markdown("Évaluation de l'éligibilité aux campagnes nationales d'appui aux producteurs (Engrais, Matériel, Semences).")
+            
+            type_subvention = st.selectbox("Programme de soutien public visé :", [
+                "Campagne Agricole Nationale (Intrants subventionnés - Engrais NPK/Urée)",
+                "Programme d'Urgence de Modernisation de l'Agriculture (PUMA / PUDC)",
+                "Projet d'Amélioration de la Productivité et de la Résilience (PAPIL)",
+                "Lignes de crédit préférentielles de la CNI / CNCAS / Partenaires"
+            ], key="subv_prog_sel")
 
-        montant_projet_subv = st.number_input("Montant prévisionnel des intrants requis (FCFA) :", min_value=50000, max_value=10000000, value=500000, step=25000, key="subv_amt")
-        taux_subs = 0.30 if "Campagne" in type_subvention else 0.50
-        montant_estime_aide = int(montant_projet_subv * taux_subs)
+            montant_projet_subv = st.number_input("Montant prévisionnel des intrants requis (FCFA) :", min_value=50000, max_value=10000000, value=500000, step=25000, key="subv_amt")
+            taux_subs = 0.30 if "Campagne" in type_subvention else 0.50
+            montant_estime_aide = int(montant_projet_subv * taux_subs)
 
-        st.metric("Appui Financier / Subvention Publique Estimé", f"{montant_estime_aide:,} FCFA")
-        st.caption("Pièces justificatives requises : Carte d'agriculteur biométrique, attestation d'appartenance à une structure paysanne reconnue.")
+            st.metric("Appui Financier / Subvention Publique Estimé", f"{montant_estime_aide:,} FCFA")
+            st.caption("Pièces justificatives requises : Carte d'agriculteur biométrique, attestation d'appartenance à une structure paysanne reconnue.")
 
-    # --- EXPANDER 7 : POST-RÉCOLTE ---
-    with st.expander("🧊 7. Chaîne de Froid & Gestion des Pertes Post-Récolte", expanded=False):
-        st.markdown("Solutions technologiques et logistiques pour la conservation des denrées périssables et des grains.")
-        
-        filiere_post = st.selectbox("Filière et type de produit stocké :", [
-            "Oignon frais (Séchage, tressage et conservation en pallox)",
-            "Mangue fraîche (Hydro-refroidissement & traitement thermique)",
-            "Riz paddy (Séchage mécanique et stockage en sacs hermétiques PICS)",
-            "Maraîchage feuille (Chambre froide positive - 4°C)"
-        ], key="post_filiere_sel")
+        # --- EXPANDER 7 : POST-RÉCOLTE ---
+        with st.expander("🧊 7. Chaîne de Froid & Gestion des Pertes Post-Récolte", expanded=False):
+            st.markdown("Solutions technologiques et logistiques pour la conservation des denrées périssables et des grains.")
+            
+            filiere_post = st.selectbox("Filière et type de produit stocké :", [
+                "Oignon frais (Séchage, tressage et conservation en pallox)",
+                "Mangue fraîche (Hydro-refroidissement & traitement thermique)",
+                "Riz paddy (Séchage mécanique et stockage en sacs hermétiques PICS)",
+                "Maraîchage feuille (Chambre froide positive - 4°C)"
+            ], key="post_filiere_sel")
 
-        st.markdown(
-            f"- **Filière ciblée** : *{filiere_post}*<br>"
-            "- **Impact stratégique** : L'adoption de technologies de conservation post-récolte adaptées permet de réduire les pertes de 25% à moins de 5%, stabilisant ainsi l'offre sur les marchés locaux et d'exportation.",
-            unsafe_allow_html=True
-        )
+            st.markdown(
+                f"- **Filière ciblée** : *{filiere_post}*<br>"
+                "- **Impact stratégique** : L'adoption de technologies de conservation post-récolte adaptées permet de réduire les pertes de 25% à moins de 5%, stabilisant ainsi l'offre sur les marchés locaux et d'exportation."
+            )
 
-    # --- EXPANDER 8 : MARCHÉS RURAUX ---
-    with st.expander("📈 8. Intelligence de Marché & Cours des Denrées (Référentiels)", expanded=False):
-        st.markdown("Suivi des tendances des prix et des flux d'approvisionnement sur les grands marchés de gros du Sénégal.")
-        
-        marche_gros = st.selectbox("Marché de gros de référence :", [
-            "Marché d'intérêt national de Diamniadio (MIN)",
-            "Marché de Bène Tchic / Castors (Dakar)",
-            "Marché central de Touba Belel",
-            "Marché régional de Kaolack / Saint-Louis"
-        ], key="marche_gros_sel")
+        # --- EXPANDER 8 : MARCHÉS RURAUX ---
+        with st.expander("📈 8. Intelligence de Marché & Cours des Denrées (Référentiels)", expanded=False):
+            st.markdown("Suivi des tendances des prix et des flux d'approvisionnement sur les grands marchés de gros du Sénégal.")
+            
+            marche_gros = st.selectbox("Marché de gros de référence :", [
+                "Marché d'intérêt national de Diamniadio (MIN)",
+                "Marché de Bène Tchic / Castors (Dakar)",
+                "Marché central de Touba Belel",
+                "Marché régional de Kaolack / Saint-Louis"
+            ], key="marche_gros_sel")
 
-        st.markdown(
-            f"- **Marché sélectionné** : *{marche_gros}*<br>"
-            "- **Analyse des fluctuations** : Les périodes de soudure et d'arrivée massive des récoltes locales (notamment l'oignon et la pomme de terre des Niayes) dictent les fenêtres optimales de commercialisation pour maximiser la marge du producteur.",
-            unsafe_allow_html=True
-        )
+            st.markdown(
+                f"- **Marché sélectionné** : *{marche_gros}*<br>"
+                "- **Analyse des fluctuations** : Les périodes de soudure et d'arrivée massive des récoltes locales (notamment l'oignon et la pomme de terre des Niayes) dictent les fenêtres optimales de commercialisation pour maximiser la marge du producteur."
+            )
 
-    # --- EXPANDER 9 : CARBONE SOL ---
-    with st.expander("🌱 9. Séquestration Carbone & Pratiques Agroécologiques", expanded=False):
-        st.markdown("Évaluation de l'impact des pratiques de régénération des sols sur les crédits carbone et la fertilité organique.")
-        
-        pratiques_retenues = st.multiselect("Sélectionner les techniques agroécologiques déployées :", [
-            "Agroforesterie (Plantation d'Acacia albida / Faidherbia)",
-            "Restitution systématique des résidus de récolte",
-            "Utilisation de bio-fertilisants et composts enrichis",
-            "Pratique du non-labour ou travail minimal du sol"
-        ], key="agro_prat_sel")
+        # --- EXPANDER 9 : CARBONE SOL ---
+        with st.expander("🌱 9. Séquestration Carbone & Pratiques Agroécologiques", expanded=False):
+            st.markdown("Évaluation de l'impact des pratiques de régénération des sols sur les crédits carbone et la fertilité organique.")
+            
+            pratiques_retenues = st.multiselect("Sélectionner les techniques agroécologiques déployées :", [
+                "Agroforesterie (Plantation d'Acacia albida / Faidherbia)",
+                "Restitution systématique des résidus de récolte",
+                "Utilisation de bio-fertilisants et composts enrichis",
+                "Pratique du non-labour ou travail minimal du sol"
+            ], key="agro_prat_sel")
 
-        score_carbone = len(pratiques_retenues) * 1.4
-        st.metric("Potentiel de Séquestration Carbone Évalué", f"+{score_carbone:.1f} tCO2eq / Ha / an")
-        st.caption("Ce score valorise l'exploitation dans le cadre des initiatives de certification carbone et d'agriculture intelligente face au climat.")
+            score_carbone = len(pratiques_retenues) * 1.4
+            st.metric("Potentiel de Séquestration Carbone Évalué", f"+{score_carbone} tCO2eq / Ha / an")
+            st.caption("Ce score valorise l'exploitation dans le cadre des initiatives de certification carbone et d'agriculture intelligente face au climat.")
 
-    # --- EXPANDER 10 : TRAÇABILITÉ API ---
-    with st.expander("🔗 10. Traçabilité Numérique & Passeport Phytosanitaire Export", expanded=False):
-        st.markdown("Génération de passeports numériques normalisés pour la certification des lots destinés à l'exportation ou aux circuits modernes.")
-        
-        code_lot_export = st.text_input("Référence unique du lot / Code traçabilité :", f"SN-EXP-2026-994", key="trace_code_input")
-        pays_destination = st.selectbox("Marché de destination finale :", [
-            "Union Européenne (Normes GlobalGAP / Phytosanitaire strict)",
-            "Sous-région CEDEAO (Marché Commun)",
-            "Consommation Locale / Grande Distribution Sénégalaise"
-        ], key="dest_exp_sel")
+        # --- EXPANDER 10 : TRAÇABILITÉ API ---
+        with st.expander("🔗 10. Traçabilité Numérique & Passeport Phytosanitaire Export", expanded=False):
+            st.markdown("Génération de passeports numériques normalisés pour la certification des lots destinés à l'exportation ou aux circuits modernes.")
+            
+            code_lot_export = st.text_input("Référence unique du lot / Code traçabilité :", f"SN-EXP-{datetime.now().strftime('%Y')}-994", key="trace_code_input")
+            pays_destination = st.selectbox("Marché de destination finale :", [
+                "Union Européenne (Normes GlobalGAP / Phytosanitaire strict)",
+                "Sous-région CEDEAO (Marché Commun)",
+                "Consommation Locale / Grande Distribution Sénégalaise"
+            ], key="dest_exp_sel")
 
-        if st.button("🚀 Valider et Générer le Passeport de Traçabilité", key="btn_gen_passeport"):
-            st.success(f"✅ **Passeport Numérique Émis avec Succès** pour le lot `{code_lot_export}` (Destination : {pays_destination}). Conformité validée pour l'audit d'exportation.")
-
-# =============================================================================
-# SECTION CONSEIL
-# =============================================================================
-if selected == "🌱 Conseil":
-    st.markdown("<h2 style='color: #1b5e20;'>🌱 Recommandations & Bonnes Pratiques Agricoles</h2>", unsafe_allow_html=True)
-    st.write("Retrouvez ici les conseils techniques adaptés aux itinéraires techniques du Sénégal.")
-
-    with st.expander("🌾 Culture du Riz Irrigué (Vallée du Fleuve)", expanded=True):
-        st.markdown("""
-        * **Préparation du sol :** Labour profond (20-25 cm) suivi d'un planage soigné pour optimiser la gestion de l'eau.
-        * **Fertilisation minérale :** Application du DAP au semis/repiquage, suivie de fractions d'Urée au tallage et à l'initiation paniculaire.
-        * **Gestion de l'eau :** Maintien d'une lame d'eau de 5 à 10 cm, avec un assèchement temporaire au milieu du tallage.
-        """)
-
-    with st.expander("🥜 Culture de l'Arachide (Bassin Arachidier)"):
-        st.markdown("""
-        * **Semences :** Utiliser des semences certifiées traitées au fongicide/insecticide.
-        * **Densité :** Respecter des écartements de 40 cm entre lignes et 15 cm entre poquets.
-        * **Protection :** Surveillance renforcée contre les pucerons (vecteurs de la Rosette) dès le premier mois.
-        """)
-
-# =============================================================================
-# SECTION CONTACT
-# =============================================================================
-elif selected == "📞 Contact":
+            if st.button("🚀 Valider et Générer le Passeport de Traçabilité", key="btn_gen_passeport"):
+                st.success(f"✅ **Passeport Numérique Émis avec Succès** pour le lot `{code_lot_export}` (Destination : {pays_destination}). Conformité validée pour l'audit d'exportation.")
+# =====================================================
+# 🌱 CONSEIL
+# =====================================================
+elif selected == "🌱 Conseil":
 
     st.markdown("""
-    <div style="text-align:center; margin-bottom: 25px;">
-        <h1 style="color: #1b5e20;">🤝 Contactez l'équipe YouAgronoMe</h1>
-        <p style="color: #4a5568;">Une question, un besoin de partenariat ou un accompagnement pour vos projets AgTech au Sénégal ?</p>
+    <div style="padding: 30px; background: linear-gradient(135deg, #1b5e20 0%, #0d2310 100%); border-radius: 16px; color: white; margin-bottom: 25px; text-align: center;">
+        <h2 style="color: white; margin-bottom: 10px;">🌱 Espace Conseil & Boutique d'Intrants YouAgronoMe</h2>
+        <p style="margin: 0; opacity: 0.9; font-size: 14px;">Commandez vos engrais subventionnés, semences certifiées ISRA et équipements d'irrigation de précision adaptés à vos parcelles.</p>
     </div>
     """, unsafe_allow_html=True)
 
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        st.metric(label="📞 Ligne Directe", value="+221 77 747 31 70")
-    with c2:
-        st.metric(label="📍 Siège Social", value="Saint-Louis, Sénégal")
-    with c3:
-        st.metric(label="⏱ Temps de Réponse", value="< 24 Heures")
+    catalogue_produits = [
+        {"nom": "Semences de Riz Sahélien Certifiées (ISRA/SAED)", "categorie": "Semences", "prix": "25 000 FCFA / 50kg", "desc": "Variété à haut rendement, tolérante à la salinité et aux aléas hydriques."},
+        {"nom": "Engrais de Fond DAP (14-23-14)", "categorie": "Intrants", "prix": "22 500 FCFA / 50kg", "desc": "Formule homologuée pour le démarrage racinaire des céréales et cultures maraîchères."},
+        {"nom": "Engrais de Couverture Urée (46% N)", "categorie": "Intrants", "prix": "20 000 FCFA / 50kg", "desc": "Azote hautement assimilable pour la phase de montaison et tallage."},
+        {"nom": "Kit d'Irrigation Goutte-à-Goutte (1 Hectare)", "categorie": "Équipement", "prix": "450 000 FCFA / Kit", "desc": "Économie d'eau de 50% par rapport à l'aspersion, validé par la DGPRE."}
+    ]
 
-    st.write("---")
-    col_form, col_FAQ = st.columns([3, 2])
+    col_cat1, col_cat2 = st.columns([2, 1])
+    with col_cat1:
+        st.markdown("### 🛍️ Catalogue des Intrants & Solutions Validées")
+        for p in catalogue_produits:
+            with st.container(border=True):
+                col_info, col_btn = st.columns([3, 1])
+                with col_info:
+                    st.markdown(f"#### {p['nom']}")
+                    st.caption(f"Catégorie : **{p['categorie']}** | Prix : **{p['prix']}**")
+                    st.write(p['desc'])
+                with col_btn:
+                    st.write("")
+                    if st.button("Commander", key=f"cmd_{p['nom']}"):
+                        st.session_state.panier.append({
+                            "produit": p['nom'],
+                            "details": p['desc'],
+                            "prix": p['prix'],
+                            "producteur": "Commande direct"
+                        })
+                        st.success(f"Ajouté : {p['nom']}")
 
-    with col_form:
-        st.subheader("📩 Envoyez-nous un message")
-        with st.form("contact_form", clear_on_submit=True):
-            nom = st.text_input("Votre Nom complet *")
-            email = st.text_input("Votre Adresse E-mail *")
-            telephone = st.text_input("Téléphone / WhatsApp")
-            sujet = st.selectbox(
-                "Sujet de votre demande :", 
-                ["Demande d'accompagnement DER/FJ", "Partenariat ONG/Institution", "Support Technique App", "Autre"]
-            )
-            message = st.text_area("Votre Message *", height=140)
-            submitted = st.form_submit_button("🚀 Envoyer mon Message", use_container_width=True)
+    with col_cat2:
+        st.markdown("### 🛒 Votre Panier")
+        if not st.session_state.panier:
+            st.info("Votre panier est vide.")
+        else:
+            for idx, item in enumerate(st.session_state.panier):
+                with st.container(border=True):
+                    st.markdown(f"**{item['produit']}**")
+                    st.caption(f"Prix : {item['prix']}")
+                    if st.button("Retirer", key=f"del_{idx}"):
+                        st.session_state.panier.pop(idx)
+                        st.rerun()
             
-            if submitted:
-                if nom and email and message:
-                    st.success("✅ Merci ! Votre message a été transmitted à l'équipe YouAgronoMe. Nous vous recontacterons très vite.")
+            if st.button("✅ Valider la Commande (Partenariat La Banque Agricole)", type="primary", use_container_width=True):
+                st.success("🎉 Commande validée avec succès ! Un conseiller ANCAR vous contactera pour la livraison sur votre périmètre.")
+                st.session_state.panier = []
+
+
+# =====================================================
+# 📞 CONTACT
+# =====================================================
+elif selected == "📞 Contact":
+
+    st.markdown("""
+    <div style="padding: 35px; background: linear-gradient(135deg, #1b5e20 0%, #0d2310 100%); border-radius: 16px; color: white; text-align: center; margin-bottom: 25px;">
+        <h2 style="color: white; margin-bottom: 10px;">📞 Contactez l'Équipe YouAgronoMe</h2>
+        <p style="margin: 0; opacity: 0.9; font-size: 15px;">Notre équipe technique basée à Saint-Louis (Hub de Sor) et Dakar est à votre écoute pour tout appui sur vos projets agricoles.</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    col_c1, col_c2 = st.columns(2)
+    with col_c1:
+        with st.container(border=True):
+            st.markdown("### 📍 Nos Coordonnées")
+            st.write("🏢 **Siège Social** : Hub Numérique de Sor, Saint-Louis, Sénégal")
+            st.write("📱 **Téléphone / WhatsApp** : +221 77 000 00 00")
+            st.write("✉️ **Email Officiel** : contact@youagronome.sn")
+            st.write("⏰ **Horaires** : Lundi au Vendredi, 08h00 - 18h00")
+            st.caption("🇸🇳 Startup incubée et ancrée dans l'écosystème agritech national.")
+
+    with col_c2:
+        with st.container(border=True):
+            st.markdown("### ✉️ Envoyez-nous un message")
+            nom_exp = st.text_input("Votre Nom complet :")
+            email_exp = st.text_input("Votre Adresse e-mail :")
+            msg_exp = st.text_area("Votre Message / Demande d'accompagnement :")
+            if st.button("Envoyer le message", type="primary"):
+                if nom_exp and msg_exp:
+                    st.success(f"✅ Merci {nom_exp} ! Votre message a bien été transmis à notre équipe d'experts.")
                 else:
-                    st.error("⚠️ Veillez remplir tous les champs obligatoires (*).")
+                    st.error("⚠️ Veuillez renseigner au moins votre nom et votre message.")
 
-    with col_FAQ:
-        st.subheader("💡 Contact Rapide & FAQ")
-        with st.expander("📍 Où sommes-nous situés ?"):
-            st.write("Notre pôle de développement principal se trouve à **Saint-Louis** (Hub de Sor), au plus près des réalités agricoles du Nord et de la Vallée du Fleuve.")
-        with st.expander("🤝 Comment devenir partenaire ?"):
-            st.write("Nous collaborons avec les GIE, les PME et les programmes nationaux. Contactez-nous directement par e-mail à `issayoume2012@gmail.com`.")
-
-        st.write("")
-        st.markdown("**📱 Échangez directement par WhatsApp :**")
-        text_wa = urllib.parse.quote("Bonjour YouAgronoMe, je souhaite échanger sur un projet agricole.")
-        st.markdown(f"""
-        <a href="https://wa.me/221777473170?text={text_wa}" target="_blank" style="text-decoration: none;">
-            <div style="background-color: #25D366; color: white; padding: 12px; border-radius: 10px; text-align: center; font-weight: bold;">
-                💬 Discuter sur WhatsApp (+221 77 747 31 70)
-            </div>
-        </a>
-        """, unsafe_allow_html=True)
