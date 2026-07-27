@@ -2823,7 +2823,7 @@ def generate_expert_pdf_pro(producer, zone, sol, crop, surface, user_info, ravag
             )
 
     # --- EXPANDER 8 : MARCHÉS RURAUX ---
-     with st.expander("📈 8. Intelligence de Marché & Cours des Denrées (Référentiels)", expanded=False):
+    with st.expander("📈 8. Intelligence de Marché & Cours des Denrées (Référentiels)", expanded=False):
             st.markdown("Suivi des tendances des prix et des flux d'approvisionnement sur les grands marchés de gros du Sénégal.")
             
             marche_gros = st.selectbox("Marché de gros de référence :", [
@@ -2840,7 +2840,7 @@ def generate_expert_pdf_pro(producer, zone, sol, crop, surface, user_info, ravag
 
      
         # --- EXPANDER 10 : TRAÇABILITÉ API ---
-    with st.expander("🔗 10. Traçabilité Numérique & Passeport Phytosanitaire Export", expanded=False):
+        with st.expander("🔗 10. Traçabilité Numérique & Passeport Phytosanitaire Export", expanded=False):
             st.markdown("Génération de passeports numériques normalisés pour la certification des lots destinés à l'exportation ou aux circuits modernes.")
             
             code_lot_export = st.text_input("Référence unique du lot / Code traçabilité :", f"SN-EXP-{datetime.now().strftime('%Y')}-994", key="trace_code_input")
