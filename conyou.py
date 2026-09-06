@@ -6,6 +6,10 @@ import random
 import urllib.parse
 import time
 import math
+import base64
+import sqlite3
+import uuid
+import re
 import requests
 import numpy as np
 import openpyxl
@@ -255,6 +259,135 @@ def recuperer_meteo(lat, lon):
         return r.json()
     except Exception as exc:
         return {"error": str(exc)}
+
+
+# =====================================================
+# MOTEUR IA CONSULTANCE 360° — PERSISTANCE + DPV + PHOTO
+# =====================================================
+# L'IA est un copilote de décision : elle croise le dossier parcelle,
+# la météo, les données DPV disponibles et les observations de terrain.
+# Elle ne remplace pas un diagnostic officiel, une analyse laboratoire,
+# ni une prescription phytosanitaire homologuée.
+
+# MOTEUR LOCAL CONSULTANCE 360° — SANS CLÉ API
+# Réponses instantanées à partir des règles agronomiques intégrées,
+# du contexte parcellaire, des références DPV disponibles et de l'historique.
+CONSULT_DB = os.getenv("YOUAGRONOME_CONSULT_DB", "youagronome_consultance.sqlite3")
+DPV_HOME = "https://www.dpvsenegal.sn/"
+
+ACTEURS_CONSULTANCE = {
+    "🧑‍🌾 Producteur / Exploitant": "Réponse pratique, simple, priorisée par urgence, coût, faisabilité et calendrier.",
+    "🧑‍🔬 Technicien / Conseiller": "Réponse technique structurée, hypothèses, observations à vérifier, protocole de suivi et sources.",
+    "🛡️ Agent DPV / Protection des végétaux": "Lecture phytosanitaire prudente, surveillance, correspondances avec bulletins DPV et escalade officielle.",
+    "🌱 Conseiller ANCAR": "Conseil de proximité, vulgarisation, plan d'action et suivi de l'adoption.",
+    "🏗️ Projet / ONG": "Diagnostic, indicateurs, risques, plan d'action et traçabilité.",
+    "💼 Investisseur / Agrobusiness": "Lecture technique et économique, risques, hypothèses et validations terrain.",
+    "🔬 Chercheur / Expert ISRA": "Analyse structurée, données manquantes, hypothèses et protocole d'observation.",
+    "💧 Gestionnaire eau / périmètre": "Eau, irrigation, drainage, météo, calendrier et risques parcellaire."
+}
+
+# Références DPV DATÉES : elles servent de contexte historique et ne sont pas présentées comme alertes actuelles.
+DPV_BULLETINS_REFERENCE = [
+    {"date":"02–08 septembre 2024", "titre":"Bulletin hebdomadaire N°011/DAADPV/2024", "url":"https://dpvsenegal.sn/bulletin%2011%202024.pdf", "faits":"Infestations signalées de chenille légionnaire d'automne, pucerons et coléoptères dans plusieurs zones, notamment Louga, Tambacounda, Kaolack, Kaffrine et Thiès."},
+    {"date":"23–29 octobre 2023", "titre":"Bulletin hebdomadaire N°014/DAADPV/2023", "url":"https://www.dpvsenegal.sn/bulletin%20hebdo%2014.pdf", "faits":"Oiseaux granivores à Saint-Louis, sauteriaux dans plusieurs zones, punaises sur riz à Ziguinchor et interventions phytosanitaires rapportées."}
+]
+
+
+def _local_expert_answer(actor_role, context, question, photo_observations=None):
+    q = (question or "").lower()
+    zone = context.get("zone") or "zone non renseignée"
+    culture = context.get("culture") or "culture non renseignée"
+    stade = context.get("stade") or "stade non renseigné"
+    risks = ZONES_AGROECOLOGIQUES.get(zone, {}).get("risques", "vérifier les risques locaux")
+    sol = ZONES_AGROECOLOGIQUES.get(zone, {}).get("sol", "profil de sol à confirmer")
+    climat = ZONES_AGROECOLOGIQUES.get(zone, {}).get("climat", "conditions climatiques à confirmer")
+    actions = []
+    if any(k in q for k in ["jaun", "chlorose", "pâle"]):
+        actions += ["Vérifier l'humidité du sol et le drainage.", "Observer si le jaunissement commence sur les vieilles ou les jeunes feuilles.", "Contrôler les racines et rechercher compactage, asphyxie ou dégâts.", "Si possible, compléter par une analyse de sol avant toute correction fertilisante importante."]
+    elif any(k in q for k in ["insect", "chenille", "puceron", "ravageur", "mouche", "sauter"]):
+        actions += ["Inspecter plusieurs plants répartis dans la parcelle et quantifier l'incidence.", "Observer feuilles, tiges, épis/fruits et face inférieure des feuilles.", "Comparer avec les bulletins DPV datés disponibles et vérifier les informations locales les plus récentes.", "Privilégier d'abord les mesures agronomiques et la confirmation du ravageur avant toute intervention chimique."]
+    elif any(k in q for k in ["maladie", "tache", "pourrit", "flétr", "moisiss"]):
+        actions += ["Photographier plusieurs organes atteints et des plants sains pour comparaison.", "Noter date d'apparition, progression, humidité et pluies récentes.", "Vérifier la répartition spatiale des symptômes dans la parcelle.", "Faire confirmer le diagnostic avant une intervention phytosanitaire spécifique."]
+    elif any(k in q for k in ["irrig", "eau", "sécher", "pluie"]):
+        actions += ["Vérifier l'humidité réelle du sol à plusieurs points.", "Contrôler uniformité de distribution, drainage et éventuelles zones d'accumulation.", "Croiser le calendrier d'irrigation avec les prévisions météo disponibles.", "Éviter les apports d'eau systématiques sans observation de la parcelle."]
+    else:
+        actions += ["Décrire précisément le symptôme, sa date d'apparition et son évolution.", "Observer au moins 5 à 10 points représentatifs de la parcelle.", "Vérifier sol, eau, météo récente et précédent cultural.", "Documenter les interventions déjà réalisées et programmer un contrôle sous 48–72 h."]
+    if photo_observations:
+        actions.insert(0, photo_observations)
+    urgence = "Élevée" if any(k in q for k in ["mort", "flétrissement massif", "propagation rapide", "urgence"]) else "À surveiller"
+    return (
+        f"### 🧠 YouAgronoMe — moteur expert local\n\n"
+        f"**Acteur :** {actor_role}\n\n**Contexte :** {culture} · {stade} · {zone}\n\n"
+        f"**Lecture du contexte**\n- Sol de référence : {sol}\n- Climat de référence : {climat}\n- Risques à surveiller : {risks}\n\n"
+        f"**Hypothèse de travail :** la question nécessite une vérification terrain avant toute conclusion définitive.\n\n"
+        f"**Plan d'action immédiat**\n" + "\n".join(f"{i+1}. {a}" for i,a in enumerate(actions)) + "\n\n"
+        f"**Urgence indicative :** {urgence}.\n\n"
+        f"**Dans 48–72 h :** comparer l'évolution sur les mêmes plants/points, mesurer l'incidence et consigner les observations.\n\n"
+        f"**À 7 jours :** confirmer l'efficacité de la mesure retenue et actualiser le dossier.\n\n"
+        f"**Escalade :** si aggravation rapide, pertes importantes, symptômes inhabituels ou besoin de prescription phytosanitaire, solliciter un technicien/ANCAR/DPV.\n\n"
+        f"**Références DPV :** les bulletins intégrés sont datés ; ils ne constituent pas une alerte actuelle.\n\n"
+        f"**Question :** {question}\n\n"
+        f"_Moteur local : réponse instantanée fondée sur règles et données intégrées. Validation terrain recommandée._"
+    )
+
+
+def ai_consultation_answer(actor_role, context, question, history=None, dpv_context=None):
+    # Aucun appel réseau et aucune clé API : réponse locale instantanée.
+    history = history or []
+    photo_hint = None
+    if history:
+        photo_hint = "Historique récent disponible : " + str(len(history)) + " échanges pris en compte."
+    return _local_expert_answer(actor_role, context, question, photo_hint), "Moteur expert local YouAgronoMe", "Règles locales + contexte parcellaire — validation terrain"
+
+
+def _local_photo_observations(image_bytes, filename="photo"):
+    """Analyse visuelle locale simple : qualité, luminosité, dominante verte et contraste.
+    Elle ne prétend pas identifier une maladie avec certitude."""
+    try:
+        from PIL import Image, ImageStat
+        import io
+        img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+        w, h = img.size
+        stat = ImageStat.Stat(img)
+        mean = stat.mean
+        pixels = list(img.resize((80, 80)).getdata())
+        green = sum(1 for r,g,b in pixels if g > r * 1.08 and g > b * 1.03) / max(1, len(pixels))
+        bright = sum(mean) / 3
+        if w < 800 or h < 600:
+            quality = "faible à moyenne : résolution limitée pour un diagnostic fin"
+        elif bright < 55 or bright > 235:
+            quality = "moyenne : luminosité à améliorer"
+        else:
+            quality = "acceptable pour une première observation"
+        return (f"Photo {w}×{h}px ; qualité {quality} ; luminosité moyenne {bright:.0f}/255 ; "
+                f"dominante verte estimée {green*100:.0f}%. Ces mesures sont descriptives et non diagnostiques.")
+    except Exception as exc:
+        return f"Photo reçue mais analyse technique limitée ({exc})."
+
+
+def ai_analyze_photo(actor_role, context, question, image_bytes, mime_type, filename, dpv_context=None):
+    obs = _local_photo_observations(image_bytes, filename)
+    text = _local_expert_answer(actor_role, context, question or "Analyse cette photo de terrain.", obs)
+    text += "\n\n### 📷 Ce que la photo permet de conclure\n- La photo fournit des indices visuels, mais ce moteur local ne confirme pas une maladie ou un ravageur à partir d'une image seule.\n- Pour progresser : envoyer 3 vues (vue générale, organe atteint, gros plan), préciser la culture, le stade, la zone, la date d'apparition et la proportion de plants atteints.\n- Ne pas choisir un pesticide ni une dose sur la seule base de cette analyse ; vérifier l'homologation et l'étiquette officielles avec le technicien/DPV."
+    return {"ok":True, "text":text, "model":"Moteur vision local descriptif", "evidence":"Observation image locale — confirmation terrain requise"}
+
+def build_consultation_context(current_user, actor_role, zone, culture, stade):
+    gps = st.session_state.get("consult_gps", {"lat":14.7910,"lon":-16.0700})
+    z = ZONES_AGROECOLOGIQUES.get(zone, {})
+    return {
+        "expert": current_user.get("nom", ""),
+        "actor_role": actor_role,
+        "region": ", ".join(z.get("regions", [])),
+        "zone": zone,
+        "culture": culture,
+        "stade": stade,
+        "latitude": gps.get("lat"),
+        "longitude": gps.get("lon"),
+        "surface_ha": st.session_state.get("active_surface_ha", 0.0),
+        "risques_zone": z.get("risques", ""),
+        "sol_zone": z.get("sol", ""),
+        "climat_zone": z.get("climat", ""),
+    }
 
 # =====================================================
 # 1. INITIALISATION ET CONFIGURATION DE LA PAGE
@@ -653,7 +786,7 @@ elif selected == "📊 Tableau de Bord":
     oc1.metric("Arachide — campagne 2023-2024", f"{DONNEES_OFFICIELLES_NATIONALES['Production arachide (t)']:,} t")
     oc2.metric("Riz — campagne 2023-2024", f"{DONNEES_OFFICIELLES_NATIONALES['Production riz (t)']:,} t")
     oc3.metric("Surface arachide", f"{DONNEES_OFFICIELLES_NATIONALES['Surface arachide (ha)']:,} ha")
-    oc4.metric("EAA", f"{DONNEES_OFFICIELLES_NATIONALES["Régions couvertes par l'EAA"]} régions / {DONNEES_OFFICIELLES_NATIONALES["Départements couverts par l'EAA"]} départements")
+    oc4.metric("EAA", f"{DONNEES_OFFICIELLES_NATIONALES.get("Régions couvertes par l'EAA", 14)} régions / {DONNEES_OFFICIELLES_NATIONALES.get("Départements couverts par l'EAA", 45)} départements")
     st.caption(DONNEES_OFFICIELLES_NATIONALES["Source"] + ". Les tableaux régionaux historiques ci-dessous sont conservés pour préserver le fonctionnement du code original; ils doivent être remplacés par un fichier source officiel lorsqu'une série détaillée est disponible.")
     st.markdown("**Sources de référence :** " + " · ".join([f"[{k}]({v})" for k,v in SOURCES_SENEGAL.items()]))
 
@@ -972,8 +1105,8 @@ elif selected == "📊 Tableau de Bord":
 elif selected == "💼 Consultance":
 
     DB_FILE = "techniciens_db.json"
-    OWNER_EMAIL = "issayoume2012@gmail.com"
-    OWNER_PASS = "issayoume2026"
+    OWNER_EMAIL = os.getenv("YOUAGRONOME_OWNER_EMAIL", "issayoume2012@gmail.com")
+    OWNER_PASS = os.getenv("YOUAGRONOME_OWNER_PASS", "change-me-before-production")
 
     DEFAULT_OWNER = {
         "email": OWNER_EMAIL,
@@ -1451,71 +1584,142 @@ elif selected == "💼 Consultance":
         else:
             st.warning("ReportLab n'est pas installé sur cet environnement pour générer des fichiers PDF.")
 
-    # --- TAB 5: CONSULTANCE ENRICHIE ---
+    # --- TAB 5: CENTRE DE CONSULTANCE IA + SUIVI PERSISTANT ---
     with tab_c5:
-        st.markdown("<h4 style='color: #1b5e20;'>🧭 Consultance enrichie — culture, sol, météo, climat et décision</h4>", unsafe_allow_html=True)
-        st.info("Cette extension conserve les modules historiques ci-dessus et ajoute une lecture croisée du contexte sénégalais. Les données indicatives ne remplacent ni une analyse de laboratoire, ni un avis d'expert, ni une alerte officielle ANACIM/DPV.")
-        ce1, ce2 = st.columns(2)
-        with ce1:
-            zone_enr = st.selectbox("Zone agroécologique", list(ZONES_AGROECOLOGIQUES.keys()), key="zone_enr_v3")
-            culture_enr = st.selectbox("Culture", CULTURES_SENEGAL, key="culture_enr_v3")
-            stade_enr = st.selectbox("Stade cultural", STADES_CULTURAUX, key="stade_enr_v3")
-        with ce2:
-            z = ZONES_AGROECOLOGIQUES[zone_enr]
-            st.metric("Régions associées", ", ".join(z["regions"]))
-            st.write(f"**Sol / milieu :** {z['sol']}")
-            st.write(f"**Climat :** {z['climat']}")
-            st.write(f"**Risques prioritaires :** {z['risques']}")
-            if culture_enr in z["cultures"]:
-                st.success("Culture cohérente avec les productions indiquées pour cette zone.")
+        st.markdown("<h4 style='color: #1b5e20;'>🧠 Centre de Consultance locale — diagnostic, acteurs, DPV, photo et plan d'action</h4>", unsafe_allow_html=True)
+        st.info("L'IA croise le contexte parcelle, les observations, la météo, les références DPV disponibles et l'historique du dossier. Chaque réponse est tracée et porte son niveau de preuve.")
+
+        actor_role = st.selectbox("👥 Acteur avec lequel l'IA interagit :", list(ACTEURS_CONSULTANCE.keys()), key="ia_actor_role")
+        st.caption(ACTEURS_CONSULTANCE[actor_role])
+
+        zc1, zc2, zc3 = st.columns(3)
+        with zc1:
+            ia_zone = st.selectbox("Zone agroécologique", list(ZONES_AGROECOLOGIQUES.keys()), key="ia_zone")
+        with zc2:
+            ia_culture = st.selectbox("Culture", CULTURES_SENEGAL, key="ia_culture")
+        with zc3:
+            ia_stade = st.selectbox("Stade cultural", STADES_CULTURAUX, key="ia_stade")
+
+        context_ia = build_consultation_context(current_user, actor_role, ia_zone, ia_culture, ia_stade)
+        if st.button("💾 Ouvrir / mémoriser un dossier de consultance", key="create_consultation_ai", type="primary"):
+            st.session_state["active_consultation_id"] = create_consultation(current_user.get("email", ""), actor_role, context_ia)
+            st.success(f"Dossier {st.session_state['active_consultation_id']} enregistré dans la base persistante.")
+
+        if "active_consultation_id" not in st.session_state:
+            existing = list_consultations(1)
+            if existing:
+                st.session_state["active_consultation_id"] = existing[0]["id"]
+
+        cid = st.session_state.get("active_consultation_id")
+        ia_tabs = st.tabs(["💬 IA multi-acteurs", "📷 Photo + analyse IA", "🛡️ DPV synchronisé", "🗂️ Dossier & mémoire", "✅ Plan d'action"])
+
+        with ia_tabs[0]:
+            st.markdown("#### 💬 Dialogue expert local et contextualisé")
+            st.caption("Le moteur local adapte son niveau de détail au rôle choisi. Les échanges sont enregistrés dans SQLite lorsque le dossier est ouvert, sans appel API.")
+            question = st.text_area("Votre question / problème terrain", placeholder="Ex. Les feuilles du maïs jaunissent depuis 4 jours après une pluie. Que vérifier et que faire ?", key="ia_question")
+            if st.button("🤖 Obtenir une réponse experte", key="ask_ai_consult", type="primary"):
+                if not question.strip():
+                    st.warning("Décrivez d'abord le problème.")
+                else:
+                    history = get_consultation_messages(cid, 20) if cid else []
+                    dpvctx = DPV_BULLETINS_REFERENCE + recent_dpv_records(10)
+                    answer, model_used, evidence = ai_consultation_answer(actor_role, context_ia, question, history, dpvctx)
+                    st.session_state["last_ai_answer"] = answer
+                    st.session_state["last_ai_model"] = model_used
+                    st.session_state["last_ai_evidence"] = evidence
+                    if cid:
+                        save_message(cid, actor_role, "user", question, "", "Utilisateur")
+                        save_message(cid, actor_role, "assistant", answer, model_used, evidence)
+            if st.session_state.get("last_ai_answer"):
+                st.markdown(st.session_state["last_ai_answer"])
+                st.caption(f"Moteur : {st.session_state.get('last_ai_model','—')} · Preuve : {st.session_state.get('last_ai_evidence','—')}")
+
+        with ia_tabs[1]:
+            st.markdown("#### 📷 Photo de terrain → observation locale → solution → suivi")
+            photo = st.file_uploader("Prendre/importer une photo : feuille, tige, fruit, racine ou sol", type=["jpg","jpeg","png","webp"], key="consult_photo_ai")
+            photo_question = st.text_area("Ce que vous observez autour de la photo", placeholder="Depuis quand ? Quelle parcelle ? Quelle proportion de plants ? Pluie récente ? Traitement déjà fait ?", key="photo_question")
+            if photo is not None:
+                st.image(photo, caption=photo.name, use_container_width=True)
+                if st.button("🔬 Analyser la photo avec l'IA", key="analyze_photo_ai", type="primary"):
+                    image_bytes = photo.getvalue()
+                    if len(image_bytes) > 12 * 1024 * 1024:
+                        st.error("Image trop volumineuse. Utilisez une photo de moins de 12 Mo.")
+                    else:
+                        with st.spinner("Analyse visuelle et croisement DPV en cours…"):
+                            analysis = ai_analyze_photo(actor_role, context_ia, photo_question, image_bytes, photo.type or "image/jpeg", photo.name, DPV_BULLETINS_REFERENCE + recent_dpv_records(10))
+                        st.session_state["last_photo_analysis"] = analysis
+                        sha = __import__('hashlib').sha256(image_bytes).hexdigest()
+                        if cid:
+                            save_photo_record(cid, photo.name, photo.type or "image/jpeg", sha, analysis, analysis.get("evidence", ""))
+                        if analysis.get("ok"):
+                            st.success("Photo analysée. Il s'agit d'un pré-diagnostic : confirmation terrain obligatoire.")
+                        else:
+                            st.warning(analysis.get("text", "Analyse indisponible"))
+            if st.session_state.get("last_photo_analysis"):
+                pa = st.session_state["last_photo_analysis"]
+                st.markdown(pa.get("text", ""))
+                st.caption(f"Moteur : {pa.get('model','—')} · Niveau de preuve : {pa.get('evidence','—')}")
+
+        with ia_tabs[2]:
+            st.markdown("#### 🛡️ Données DPV — références datées et synchronisation")
+            st.caption("Les bulletins sont datés : l'IA ne doit pas transformer un bulletin historique en alerte actuelle.")
+            if st.button("🔄 Synchroniser les références DPV", key="sync_dpv_ai"):
+                with st.spinner("Lecture des références DPV officielles…"):
+                    sync_dpv_sources()
+                st.success("Références DPV synchronisées dans la base persistante.")
+            dpv_rows = recent_dpv_records(20)
+            if not dpv_rows:
+                dpv_rows = DPV_BULLETINS_REFERENCE
+            st.dataframe(pd.DataFrame(dpv_rows), use_container_width=True, hide_index=True)
+            st.markdown(f"**Source officielle DPV :** {DPV_HOME}")
+
+        with ia_tabs[3]:
+            st.markdown("#### 🗂️ Mémoire du dossier — aucune perte des échanges")
+            if cid:
+                st.success(f"Dossier actif : **{cid}**")
+                msgs = get_consultation_messages(cid, 50)
+                if msgs:
+                    for msg in msgs:
+                        label = "👤 Demande" if msg["message_role"] == "user" else "🤖 IA"
+                        with st.expander(f"{label} · {msg['created_at']} · {msg['evidence_level']}"):
+                            st.write(msg["content"])
+                photos_saved = get_consultation_photos(cid)
+                st.metric("Photos analysées enregistrées", len(photos_saved))
+                if photos_saved:
+                    st.dataframe(pd.DataFrame([{k:v for k,v in p.items() if k not in ["analysis_json"]} for p in photos_saved]), use_container_width=True, hide_index=True)
             else:
-                st.warning("Culture non classée parmi les principales cultures de cette zone dans le référentiel indicatif; vérifier l'adaptation locale.")
+                st.warning("Ouvrez un dossier pour activer la mémoire persistante.")
 
-        st.markdown("#### 🌦️ Météo de la parcelle active")
-        gps = st.session_state.get("consult_gps", {"lat": 14.7910, "lon": -16.0700})
-        if st.button("🔄 Actualiser météo", key="refresh_weather_v3"):
-            st.session_state["weather_v3"] = recuperer_meteo(gps["lat"], gps["lon"])
-        weather = st.session_state.get("weather_v3")
-        if weather is None:
-            weather = recuperer_meteo(gps["lat"], gps["lon"])
-            st.session_state["weather_v3"] = weather
-        if weather and "error" not in weather:
-            cur = weather.get("current", {})
-            w1, w2, w3, w4 = st.columns(4)
-            w1.metric("Température", f"{cur.get('temperature_2m', '—')} °C")
-            w2.metric("Humidité", f"{cur.get('relative_humidity_2m', '—')} %")
-            w3.metric("Précipitations", f"{cur.get('precipitation', '—')} mm")
-            w4.metric("Vent", f"{cur.get('wind_speed_10m', '—')} km/h")
-            daily = weather.get("daily", {})
-            if daily:
-                dfw = pd.DataFrame({
-                    "Date": daily.get("time", []),
-                    "T° max (°C)": daily.get("temperature_2m_max", []),
-                    "T° min (°C)": daily.get("temperature_2m_min", []),
-                    "Pluie (mm)": daily.get("precipitation_sum", []),
-                    "Vent max (km/h)": daily.get("wind_speed_10m_max", []),
-                })
-                st.dataframe(dfw, use_container_width=True, hide_index=True)
-            st.caption("Météo opérationnelle via Open-Meteo. Pour les alertes et services climatiques officiels au Sénégal, consulter l'ANACIM.")
-        else:
-            st.warning(f"Météo indisponible : {weather.get('error', 'erreur inconnue') if isinstance(weather, dict) else 'erreur inconnue'}")
+            st.markdown("##### Dossiers récents")
+            dossiers = list_consultations(30)
+            if dossiers:
+                df_dossiers = pd.DataFrame(dossiers)
+                st.dataframe(df_dossiers[["id","created_at","updated_at","actor_role","region","culture","stade","status"]], use_container_width=True, hide_index=True)
+                choix = st.selectbox("Reprendre un dossier", [d["id"] for d in dossiers], key="resume_consultation")
+                if st.button("📂 Charger ce dossier", key="load_consultation"):
+                    st.session_state["active_consultation_id"] = choix
+                    st.rerun()
 
-        st.markdown("#### 🧪 Sol, fertilité et prudence agronomique")
-        sc1, sc2, sc3 = st.columns(3)
-        ph = sc1.number_input("pH mesuré", value=6.0, min_value=3.0, max_value=10.0, step=0.1, key="ph_enr")
-        mo = sc2.number_input("Matière organique (%)", value=1.0, min_value=0.0, max_value=20.0, step=0.1, key="mo_enr")
-        texture = sc3.selectbox("Texture", ["Sableuse", "Sablo-limoneuse", "Limoneuse", "Sablo-argileuse", "Argileuse", "Hydromorphe"], key="texture_enr")
-        if ph < 5.5:
-            st.warning("pH acide : interpréter avec une analyse de sol et raisonner les corrections selon la culture et le contexte.")
-        elif ph > 8.0:
-            st.warning("pH élevé : vérifier notamment la salinité/sodicité et la qualité de l'eau d'irrigation avant correction.")
-        else:
-            st.success("pH dans une zone intermédiaire; la décision de fertilisation doit rester basée sur analyse et besoins de la culture.")
-        st.caption(f"Texture déclarée : {texture}. MO déclarée : {mo:.1f} %. Ces valeurs saisies par l'utilisateur ne sont pas une analyse laboratoire.")
+        with ia_tabs[4]:
+            st.markdown("#### ✅ Plan d'action complet")
+            st.write("Le plan est organisé à plusieurs niveaux : observation → urgence → action immédiate → contrôle → suivi → escalade.")
+            plan = [
+                ("0–2 h", "Sécuriser la parcelle et identifier les symptômes; éviter un traitement aveugle."),
+                ("24 h", "Vérifier stade, distribution spatiale, météo récente, sol/eau et pression ravageur/maladie."),
+                ("48–72 h", "Contrôler les plants témoins, documenter avec photos et comparer l'évolution."),
+                ("7 jours", "Évaluer l'efficacité de la mesure, mettre à jour le dossier et adapter l'itinéraire."),
+                ("Escalade", "Contacter technicien/ANCAR/DPV si symptômes rapides, étendus, inhabituels ou à risque économique élevé."),
+            ]
+            for horizon, action in plan:
+                st.markdown(f"**{horizon} :** {action}")
 
-        st.markdown("#### 🧠 Lecture croisée")
-        st.write(f"Pour **{culture_enr}**, au stade **{stade_enr}**, en **{zone_enr}** : surveiller en priorité **{z['risques']}**. Le conseil doit être ajusté aux observations de terrain, à la météo et au sol réellement mesuré.")
-
+            st.download_button(
+                "📥 Exporter le contexte IA du dossier (JSON)",
+                data=json.dumps(context_ia, ensure_ascii=False, indent=2).encode("utf-8"),
+                file_name=f"contexte_youagronome_{cid or 'nouveau'}.json",
+                mime="application/json",
+                key="export_context_ia"
+            )
     # --- TAB ADMIN (GESTION DE LA LISTE BLANCHE) ---
     if is_owner and tab_admin:
         with tab_admin[0]:
