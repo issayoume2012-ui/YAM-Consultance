@@ -630,489 +630,129 @@ if selected == "🏠 Accueil":
 # 📊 TABLEAU DE BORD
 # =====================================================
 elif selected == "📊 Tableau de Bord":
-
+    # ==========================================================
+    # TABLEAU DE BORD OPÉRATIONNEL — DONNÉES TRAÇABLES
+    # ==========================================================
     st.markdown("""
     <style>
-    .dashboard-hero {
-        padding: 30px 20px;
-        border-radius: 16px;
-        text-align: center;
-        color: white;
-        background: linear-gradient(135deg, #1b5e20 0%, #0d2310 100%);
-        box-shadow: 0 8px 24px rgba(27, 94, 32, 0.15);
-        border-bottom: 4px solid #e1a91a;
-        margin-bottom: 25px;
-    }
-    .dashboard-hero h2 { font-size: 22px !important; font-weight: 800 !important; margin-bottom: 8px !important; color: #ffffff !important; }
-    .dashboard-hero p { font-size: 13px !important; opacity: 0.9; max-width: 850px; margin: 0 auto !important; color: #f8fafc; }
-    .inst-badge-db {
-        background: rgba(255, 255, 255, 0.15);
-        padding: 6px 14px;
-        border-radius: 20px;
-        font-size: 11px;
-        font-weight: 600;
-        border: 1px solid rgba(255, 255, 255, 0.25);
-        display: inline-block;
-        margin-top: 12px;
-        color: #ffffff;
-    }
-    .db-section-title {
-        color: #1b5e20;
-        font-size: 17px;
-        font-weight: 700;
-        margin-top: 20px;
-        margin-bottom: 15px;
-        border-left: 5px solid #e1a91a;
-        padding-left: 10px;
-    }
-    .clean-card {
-        background: #ffffff;
-        padding: 15px;
-        border-radius: 12px;
-        border: 1px solid #e2e8f0;
-        border-top: 4px solid #1b5e20;
-        text-align: center;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
-        height: 100%;
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
-    }
-    .clean-card-title {
-        font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; margin-bottom: 6px; letter-spacing: 0.5px;
-    }
-    .clean-card-value { font-size: 19px; font-weight: 800; color: #1b5e20; word-wrap: break-word; line-height: 1.2; }
-    .clean-card-sub { font-size: 10px; color: #94a3b8; margin-top: 4px; }
+    .dashboard-hero {padding:26px 20px;border-radius:16px;text-align:center;background:linear-gradient(135deg,#14532d,#166534);color:white;margin-bottom:18px;}
+    .dashboard-hero h2 {color:white !important;margin:0;font-weight:800;}
+    .dashboard-hero p {margin:7px auto 0;opacity:.92;max-width:950px;}
+    .source-note {font-size:.82rem;color:#64748b;padding:8px 10px;background:#f8fafc;border-radius:8px;border-left:4px solid #16a34a;}
     </style>
-    """, unsafe_allow_html=True)
-
-    st.markdown("""
     <div class="dashboard-hero">
-        <h2>🇸🇳 Observatoire Multidimensionnel de la Souveraineté Alimentaire du Sénégal</h2>
-        <p>Système décisionnel aligné sur les données officielles des bilans de campagne (DAPSA, SAED, SODAGRI, ISRA, ARM, DHORT, CSE, ANACIM, LBA, DER/FJ, DGPRE).</p>
-        <span class="inst-badge-db">Filières Suivies : Riz (Irrigué/Pluvial) • Arachide • Mil • Maïs • Sorgho • Niébé • Oignon • Pomme de Terre • Tomate • Coton • Sésame • Manioc • Anacarde</span>
+      <h2>📊 Tableau de Bord Agricole Sénégal — Pilotage & Prise en charge</h2>
+      <p>Données officielles séparées des données terrain, indicateurs calculés et alertes opérationnelles. Chaque indicateur affiche sa source et sa date.</p>
     </div>
     """, unsafe_allow_html=True)
 
-    @st.cache_data
-    def charger_donnees_consolidees_senegal():
-        data = {
-            "Région": [
-                "Dakar", "Thiès", "Diourbel", "Saint-Louis", "Kaolack", 
-                "Ziguinchor", "Louga", "Tambacounda", "Kolda", "Matam", 
-                "Fatick", "Kaffrine", "Kédougou", "Sédhiou"
-            ],
-            "Type de Sol Dominant (INP)": [
-                "Urbain / Sables fins", "Sols Dior (Sableux)", "Sols Deck-Dior", "Sols Hollaldé (Argileux)", "Sols Deck (Sablo-argileux)",
-                "Sols Sulfatés Acides / Fluviaux", "Sols Dior (Sableux / Élevage)", "Sols Ferrugineux Tropicaux", "Sols Ferrallitiques / Argileux", "Sols Vertisols / Alluviaux",
-                "Sols Halomorphes (Salins)", "Sols Deck-Dior (Céréaliers)", "Sols Lithosols / Rocheux", "Sols Hydromorphes / Rizicoles"
-            ],
-            "DGPRE - Eau Irrigation Mobilisée (Mio m³)": [
-                12.5, 45.0, 18.2, 1420.0, 32.0, 85.0, 14.5, 65.0, 92.0, 680.0, 22.0, 28.0, 15.0, 78.0
-            ],
-            "SAED/SODAGRI - Riz Irrigué & Pluvial (Tonnes)": [
-                0, 1200, 0, 850000, 15000, 95000, 500, 28000, 145000, 180000, 12000, 8500, 18000, 110000
-            ],
-            "DAPSA - Mil & Sorgho (Tonnes)": [
-                200, 32000, 98000, 5000, 185000, 12000, 42000, 110000, 85000, 15000, 140000, 260000, 18000, 45000
-            ],
-            "DAPSA - Maïs & Fonio (Tonnes)": [
-                100, 8500, 12000, 2000, 68000, 28000, 4500, 125000, 142000, 8000, 38000, 115000, 24000, 62000
-            ],
-            "DAPSA - Arachide (Tonnes)": [
-                0, 35000, 82000, 1500, 240000, 800, 22000, 85000, 98000, 500, 125000, 310000, 2500, 48000
-            ],
-            "DAPSA - Niébé & Sésame (Tonnes)": [
-                100, 18000, 38000, 4200, 22000, 1500, 45000, 14000, 11000, 8500, 28000, 32000, 1200, 8500
-            ],
-            "SODEFITEX/DAPSA - Coton & Anacarde (Tonnes)": [
-                0, 0, 0, 0, 0, 18000, 0, 8500, 6200, 0, 2500, 0, 3100, 14500
-            ],
-            "ARM/DHORT - Oignon & Pomme de Terre (Tonnes)": [
-                4500, 65000, 1800, 290000, 8500, 1200, 120000, 800, 1100, 18000, 3200, 1500, 200, 900
-            ],
-            "ARM/DHORT - Tomate Industrielle & Legumes (Tonnes)": [
-                18000, 82000, 4500, 105000, 14000, 8500, 11000, 4200, 5800, 12000, 6200, 4800, 1100, 7200
-            ],
-            "DAPSA - Manioc & Tubercules (Tonnes)": [
-                1200, 210000, 85000, 500, 32000, 14000, 68000, 12000, 18000, 1000, 24000, 45000, 3500, 22000
-            ],
-            "ARM - Capacité de Stockage/Régulation (Tonnes)": [
-                25000, 45000, 8000, 85000, 18000, 4500, 35000, 3000, 4000, 12000, 5000, 8000, 1500, 3500
-            ],
-            "CSE - Biomasse Pastorale Disponible (kg MS/ha)": [
-                250, 850, 1100, 1450, 1800, 2600, 950, 2300, 2800, 1600, 1250, 1900, 3100, 2450
-            ],
-            "ITA - Taux de Transformation Agroalimentaire (%)": [
-                28.5, 16.2, 8.5, 22.0, 14.4, 12.0, 7.2, 9.8, 11.5, 14.2, 9.1, 12.8, 5.5, 10.9
-            ],
-            "La Banque Agricole - Financements Octroyés (Mio FCFA)": [
-                12500, 8900, 6200, 38500, 24000, 7800, 5100, 11200, 13400, 19800, 7100, 28500, 2300, 8200
-            ],
-            "DER/FJ - Agropreneurs & TPE Financés (Nombre)": [
-                1420, 980, 750, 1850, 1210, 840, 620, 910, 1050, 890, 680, 1340, 310, 720
-            ],
-            "ISRA-BAME - Prix Moyen Producteur Céréales (FCFA/kg)": [
-                310, 285, 260, 220, 250, 270, 275, 245, 240, 230, 265, 240, 280, 250
-            ],
-            "3FPT/ONFP - Acteurs Formés en Agribusiness": [
-                850, 1420, 920, 2300, 1750, 1100, 820, 1050, 1280, 1450, 890, 1950, 420, 980
-            ],
-            "ANACIM - Abonnés Alertes Agrométéo SMS": [
-                12000, 45000, 68000, 89000, 95000, 52000, 41000, 63000, 71000, 58000, 48000, 112000, 18000, 44000
-            ],
-            "INP - Terres Salines Restaurées au Gypse (Ha)": [
-                10, 450, 850, 1200, 1600, 3100, 620, 980, 1150, 1400, 4200, 1800, 210, 2800
-            ],
-            "Taux d'Encadrement Technique ANCAR (%)": [
-                5.0, 34.2, 28.0, 78.5, 42.1, 51.0, 22.4, 19.5, 31.0, 64.0, 35.8, 48.0, 12.5, 38.2
-            ],
-            "Taux Couverture Vaccinale Cheptel MEPA (%)": [
-                75.0, 62.5, 88.0, 82.1, 71.4, 55.0, 92.4, 79.8, 85.0, 89.5, 68.0, 74.5, 48.0, 59.2
-            ],
-            "DAPSA - Intrants Subventionnés Distribués (Tonnes)": [
-                50, 4100, 6200, 18500, 14200, 5100, 3200, 8900, 9500, 11200, 5400, 16800, 1200, 4900
-            ],
-            "DAPSA - Valeur Ajoutée Agricole Estimée (Mrds FCFA)": [
-                5.0, 42.0, 28.0, 195.0, 110.0, 55.0, 30.0, 75.0, 88.0, 120.0, 38.0, 145.0, 18.0, 62.0
-            ]
-        }
-        return pd.DataFrame(data)
+    # Sources officielles utilisées comme socle. On n'invente pas de série régionale :
+    # les données terrain/importées restent séparées et identifiées.
+    OFFICIAL_DASHBOARD = [
+        {"Indicateur":"Production d'arachide","Valeur":1_670_000,"Unité":"t","Période":"2023-2024","Source":"MASAE / DAPSA / ANSD","Statut":"Officiel"},
+        {"Indicateur":"Production de riz","Valeur":1_400_000,"Unité":"t","Période":"2023-2024","Source":"MASAE / DAPSA / ANSD","Statut":"Officiel"},
+        {"Indicateur":"Superficie arachide","Valeur":1_200_000,"Unité":"ha","Période":"2023-2024","Source":"MASAE / DAPSA / ANSD","Statut":"Officiel"},
+        {"Indicateur":"Régions couvertes par EAA","Valeur":14,"Unité":"régions","Période":"2023-2024","Source":"MASAE / DAPSA / ANSD","Statut":"Officiel"},
+        {"Indicateur":"Départements couverts par EAA","Valeur":45,"Unité":"départements","Période":"2023-2024","Source":"MASAE / DAPSA / ANSD","Statut":"Officiel"},
+        {"Indicateur":"Mise en place moyenne des intrants","Valeur":90,"Unité":"% minimum annoncé","Période":"2026 — tournée Kaolack/Fatick/Diourbel/Thiès","Source":"MASAE","Statut":"Officiel"},
+        {"Indicateur":"Urée réceptionnée","Valeur":74250,"Unité":"t","Période":"2025-2026","Source":"MASAE","Statut":"Officiel"},
+        {"Indicateur":"Prix arachide annoncé","Valeur":305,"Unité":"FCFA/kg","Période":"campagne commercialisation 2024","Source":"MASAE","Statut":"Officiel"},
+    ]
+    df_off = pd.DataFrame(OFFICIAL_DASHBOARD)
 
-    df_base = charger_donnees_consolidees_senegal()
+    # Import terrain : les données de l'exploitation sont prioritaires pour le diagnostic,
+    # mais ne sont jamais mélangées silencieusement aux statistiques nationales.
+    st.markdown("### 🎛️ 1. Périmètre de décision")
+    c1,c2,c3,c4 = st.columns(4)
+    with c1:
+        region_dash = st.selectbox("Région", ["Tout le Sénégal"] + list(REGIONS_COORD.keys()), key="dash_region_new")
+    with c2:
+        culture_dash = st.selectbox("Culture", ["Toutes"] + CULTURES_SENEGAL, key="dash_culture_new")
+    with c3:
+        campagne_dash = st.selectbox("Campagne", ["2026", "2025-2026", "2023-2024", "Données terrain"], key="dash_campaign_new")
+    with c4:
+        uploaded_dash = st.file_uploader("Données terrain (CSV/XLSX)", type=["csv","xlsx"], key="dash_upload_new")
 
-    st.markdown("<div class='db-section-title'>📌 Références nationales fiables & traçabilité des données</div>", unsafe_allow_html=True)
-    oc1, oc2, oc3, oc4 = st.columns(4)
-    oc1.metric("Arachide — campagne 2023-2024", f"{DONNEES_OFFICIELLES_NATIONALES['Production arachide (t)']:,} t")
-    oc2.metric("Riz — campagne 2023-2024", f"{DONNEES_OFFICIELLES_NATIONALES['Production riz (t)']:,} t")
-    oc3.metric("Surface arachide", f"{DONNEES_OFFICIELLES_NATIONALES['Surface arachide (ha)']:,} ha")
-    oc4.metric("EAA", f"{DONNEES_OFFICIELLES_NATIONALES.get("Régions couvertes par l'EAA", 14)} régions / {DONNEES_OFFICIELLES_NATIONALES.get("Départements couverts par l'EAA", 45)} départements")
-    st.caption(DONNEES_OFFICIELLES_NATIONALES["Source"] + ". Les tableaux régionaux historiques ci-dessous sont conservés pour préserver le fonctionnement du code original; ils doivent être remplacés par un fichier source officiel lorsqu'une série détaillée est disponible.")
-    st.markdown("**Sources de référence :** " + " · ".join([f"[{k}]({v})" for k,v in SOURCES_SENEGAL.items()]))
+    df_terrain = None
+    if uploaded_dash is not None:
+        try:
+            df_terrain = pd.read_csv(uploaded_dash) if uploaded_dash.name.lower().endswith('.csv') else pd.read_excel(uploaded_dash)
+            st.success(f"Données terrain chargées : {len(df_terrain):,} lignes. Elles restent distinctes des chiffres officiels.")
+        except Exception as exc:
+            st.error(f"Import impossible : {exc}")
 
-    with st.expander("📥 Importer un fichier de données de campagne / exploitation"):
-        uploaded_db = st.file_uploader("CSV ou Excel", type=["csv", "xlsx"], key="dashboard_data_import_v3")
-        if uploaded_db is not None:
-            try:
-                if uploaded_db.name.lower().endswith(".csv"):
-                    df_import = pd.read_csv(uploaded_db)
-                else:
-                    df_import = pd.read_excel(uploaded_db)
-                st.success(f"Données importées : {len(df_import):,} lignes. Elles sont affichées séparément des indicateurs nationaux.")
-                st.dataframe(df_import.head(100), use_container_width=True, hide_index=True)
-            except Exception as exc:
-                st.error(f"Impossible de lire le fichier : {exc}")
+    st.markdown("### 📌 2. Indicateurs fiables de référence")
+    k1,k2,k3,k4 = st.columns(4)
+    k1.metric("Arachide 2023-24", "1,67 Mt")
+    k2.metric("Riz 2023-24", "1,40 Mt")
+    k3.metric("Arachide", "1,20 M ha")
+    k4.metric("Intrants 2026", ">90 %", help="Niveau moyen annoncé lors de la première tournée 2026 dans 4 régions")
+    st.caption("Ces chiffres sont des références officielles, pas des estimations produites par YouAgronoMe.")
 
-    st.markdown("<div class='db-section-title'>⚙️ Paramétrage du Territoire & Scénarios de Campagne Agricole</div>", unsafe_allow_html=True)
-    with st.container(border=True):
-        col_reg, col_annee, col_scen = st.columns([2, 2, 2])
-        
-        with col_reg:
-            liste_regions = ["Tout le Sénégal"] + list(df_base["Région"].unique())
-            region_choisie = st.selectbox("Territoire d'analyse :", options=liste_regions, key="sb_region_choisie_v3")
-        
-        with col_annee:
-            annee_choisie = st.slider("Année de référence :", min_value=1960, max_value=2026, value=2026, key="sl_annee_v3")
-            
-        with col_scen:
-            scenario = st.selectbox(
-                "Modèle de projection :",
-                options=[
-                    "📈 Statu Quo / Campagne Traditionnelle", 
-                    "🚨 Choc Climatique / Sécheresse Historique", 
-                    "🚀 Optimisation Technologique YouAgronoMe"
-                ],
-                key="sb_scen_v3"
-            )
+    st.markdown("### 🧭 3. Matrice de prise en charge")
+    # Score opérationnel calculé uniquement à partir des informations disponibles dans le dossier.
+    risk_items = []
+    if region_dash != "Tout le Sénégal":
+        zone_dash = next((z for z,d in ZONES_AGROECOLOGIQUES.items() if region_dash in d.get("regions",[])), None)
+        if zone_dash:
+            zdata=ZONES_AGROECOLOGIQUES[zone_dash]
+            risk_items.append(("Zone agroécologique", zone_dash, zdata.get("risques","À vérifier"), "Contexte"))
+    if culture_dash != "Toutes":
+        risk_items.append(("Culture", culture_dash, "Adapter le stade, l'eau, la fertilisation et la surveillance phytosanitaire.", "À traiter"))
+    risk_items += [
+        ("Météo", "Surveillance requise", "Consulter les prévisions et vigilances ANACIM avant décision sensible.", "ANACIM"),
+        ("Phytosanitaire", "Surveillance DPV", "Comparer toute suspicion avec les bulletins DPV disponibles et faire confirmer sur le terrain.", "DPV"),
+        ("Sol", "Analyse recommandée", "Utiliser analyse de sol/diagnostic de fertilité plutôt qu'une dose générique.", "ISRA/INP"),
+    ]
+    df_risk=pd.DataFrame(risk_items, columns=["Domaine","État","Action prioritaire","Référence"])
+    st.dataframe(df_risk, use_container_width=True, hide_index=True)
 
-        facteur_historique = 0.20 + (0.80 * ((annee_choisie - 1960) / (2026 - 1960)))
-        coef_production = facteur_historique
+    st.markdown("### 📈 4. Données officielles et traçabilité")
+    st.dataframe(df_off, use_container_width=True, hide_index=True)
 
-        if "Choc Climatique" in scenario:
-            coef_production *= 0.70  
-            st.error(f"⚠️ **Alerte ANACIM ({annee_choisie})** : Simulation d'un déficit pluviométrique majeur (-30% de rendement sur les cultures pluviales).")
-        elif "YouAgronoMe" in scenario:
-            coef_production *= 1.25  
-            st.success(f"✨ **Gains YouAgronoMe ({annee_choisie})** : Rationalisation des intrants, irrigation de précision et valorisation industrielle (+25%).")
+    st.markdown("### 🧪 5. Données terrain : analyse automatique")
+    if df_terrain is not None and not df_terrain.empty:
+        num_cols=df_terrain.select_dtypes(include=[np.number]).columns.tolist()
+        m1,m2,m3=st.columns(3)
+        m1.metric("Observations", f"{len(df_terrain):,}")
+        m2.metric("Variables numériques", len(num_cols))
+        m3.metric("Valeurs manquantes", f"{int(df_terrain.isna().sum().sum()):,}")
+        if num_cols:
+            st.dataframe(df_terrain[num_cols].describe().T.reset_index().rename(columns={"index":"Variable"}), use_container_width=True)
+        with st.expander("Voir les données terrain"):
+            st.dataframe(df_terrain.head(500), use_container_width=True, hide_index=True)
+    else:
+        st.info("Aucune donnée terrain chargée. Importez un CSV/XLSX d'exploitation pour calculer les indicateurs propres à votre campagne.")
 
-        df_filtre = df_base.copy()
-        if region_choisie != "Tout le Sénégal":
-            df_filtre = df_filtre[df_filtre["Région"] == region_choisie]
+    st.markdown("### 🚨 6. Alertes de décision")
+    alerts = [
+        ("🟠 Météo", "Toute intervention dépendante de pluie/vent/chaleur doit être confrontée aux informations ANACIM."),
+        ("🟠 Phytosanitaire", "Un bulletin DPV daté doit être privilégié à une alerte générique. Une observation terrain est nécessaire avant traitement."),
+        ("🟡 Fertilité", "Une recommandation d'engrais doit intégrer au minimum culture, rendement visé, analyse du sol et historique de fertilisation."),
+        ("🟢 Traçabilité", "Les données officielles et les données terrain sont séparées afin d'éviter de transformer une estimation en statistique nationale."),
+    ]
+    for level,msg in alerts:
+        st.write(f"**{level}** — {msg}")
 
-        cols_prod = [
-            "SAED/SODAGRI - Riz Irrigué & Pluvial (Tonnes)", "DAPSA - Mil & Sorgho (Tonnes)",
-            "DAPSA - Maïs & Fonio (Tonnes)", "DAPSA - Arachide (Tonnes)", "DAPSA - Niébé & Sésame (Tonnes)",
-            "SODEFITEX/DAPSA - Coton & Anacarde (Tonnes)", "ARM/DHORT - Oignon & Pomme de Terre (Tonnes)",
-            "ARM/DHORT - Tomate Industrielle & Legumes (Tonnes)", "DAPSA - Manioc & Tubercules (Tonnes)"
-        ]
-        for c in cols_prod:
-            df_filtre[c] = (df_filtre[c] * coef_production).astype(int)
+    st.markdown("### 🔗 7. Références institutionnelles")
+    for name,url in SOURCES_SENEGAL.items():
+        st.markdown(f"- **{name}** : {url}")
+    st.markdown('<div class="source-note">Principe de fiabilité : une donnée officielle est affichée avec sa période et son organisme source ; une donnée calculée est explicitement présentée comme calculée ; une donnée terrain importée est séparée du référentiel national.</div>', unsafe_allow_html=True)
 
-        df_filtre["DAPSA - Valeur Ajoutée Agricole Estimée (Mrds FCFA)"] = df_filtre["DAPSA - Valeur Ajoutée Agricole Estimée (Mrds FCFA)"] * facteur_historique
-        df_filtre["La Banque Agricole - Financements Octroyés (Mio FCFA)"] = (df_filtre["La Banque Agricole - Financements Octroyés (Mio FCFA)"] * facteur_historique).astype(int)
-
-    total_cereales_all = (
-        df_filtre["SAED/SODAGRI - Riz Irrigué & Pluvial (Tonnes)"].sum() +
-        df_filtre["DAPSA - Mil & Sorgho (Tonnes)"].sum() +
-        df_filtre["DAPSA - Maïs & Fonio (Tonnes)"].sum()
-    )
-
-    st.markdown("<div class='db-section-title'>🎯 Tableau de Bord Personnalisé selon les Rôles Institutionnels</div>", unsafe_allow_html=True)
-
-    profil = st.tabs([
-        "🧑‍🌾 Agriculteurs & Producteurs",
-        "🔬 Techniciens & Vulgarisateurs",
-        "🌍 ONG & Projets de Développement",
-        "💼 Investisseurs & Agrobusiness",
-        "🏛️ État & Décideurs Publics"
-    ])
-
-    with profil[0]:
-        st.info("💡 **Vue Producteur** : Alertes météo ANACIM, prix indicatifs ISRA-BAME, régulation ARM et disponibilité fourragère CSE.")
-        c1, c2, c3, c4 = st.columns(4)
-        with c1:
-            st.markdown(f"""
-            <div class="clean-card">
-                <div class="clean-card-title">📡 SMS Météo (ANACIM)</div>
-                <div class="clean-card-value">{df_filtre['ANACIM - Abonnés Alertes Agrométéo SMS'].sum():,}</div>
-                <div class="clean-card-sub">Producteurs connectés</div>
-            </div>
-            """, unsafe_allow_html=True)
-        with c2:
-            st.markdown(f"""
-            <div class="clean-card">
-                <div class="clean-card-title">💵 Prix Repère (ISRA-BAME)</div>
-                <div class="clean-card-value">{df_filtre['ISRA-BAME - Prix Moyen Producteur Céréales (FCFA/kg)'].mean():.0f} FCFA/kg</div>
-                <div class="clean-card-sub">Moyenne céréales locales</div>
-            </div>
-            """, unsafe_allow_html=True)
-        with c3:
-            st.markdown(f"""
-            <div class="clean-card">
-                <div class="clean-card-title">🧅 Régulation (ARM)</div>
-                <div class="clean-card-value">{df_filtre['ARM/DHORT - Oignon & Pomme de Terre (Tonnes)'].sum():,} T</div>
-                <div class="clean-card-sub">Oignon & P. de terre récoltés</div>
-            </div>
-            """, unsafe_allow_html=True)
-        with c4:
-            st.markdown(f"""
-            <div class="clean-card">
-                <div class="clean-card-title">🌿 Biomasse (CSE)</div>
-                <div class="clean-card-value">{df_filtre['CSE - Biomasse Pastorale Disponible (kg MS/ha)'].mean():.0f} kg/ha</div>
-                <div class="clean-card-sub">Pâturage disponible</div>
-            </div>
-            """, unsafe_allow_html=True)
-
-        st.write("")
-        st.markdown("**🔍 Bilan des Productions Agricoles Réelles par Région :**")
-        st.dataframe(
-            df_filtre[[
-                "Région", "Type de Sol Dominant (INP)", "SAED/SODAGRI - Riz Irrigué & Pluvial (Tonnes)", 
-                "DAPSA - Mil & Sorgho (Tonnes)", "DAPSA - Arachide (Tonnes)", "ARM/DHORT - Oignon & Pomme de Terre (Tonnes)"
-            ]],
-            use_container_width=True, hide_index=True
-        )
-
-    with profil[1]:
-        st.info("🔬 **Vue Encadrement Technique** : Suivi du taux de couverture ANCAR, restauration des sols INP et formation continue 3FPT.")
-        c1, c2, c3, c4 = st.columns(4)
-        with c1:
-            st.markdown(f"""
-            <div class="clean-card">
-                <div class="clean-card-title">📢 Conseil (ANCAR)</div>
-                <div class="clean-card-value">{df_filtre["Taux d'Encadrement Technique ANCAR (%)"].mean():.1f} %</div>
-                <div class="clean-card-sub">Taux moyen d'encadrement</div>
-            </div>
-            """, unsafe_allow_html=True)
-        with c2:
-            st.markdown(f"""
-            <div class="clean-card">
-                <div class="clean-card-title">🧪 Sols Traités (INP)</div>
-                <div class="clean-card-value">{df_filtre['INP - Terres Salines Restaurées au Gypse (Ha)'].sum():,} Ha</div>
-                <div class="clean-card-sub">Sols de tannes récupérés</div>
-            </div>
-            """, unsafe_allow_html=True)
-        with c3:
-            st.markdown(f"""
-            <div class="clean-card">
-                <div class="clean-card-title">🎓 Formés (3FPT/ONFP)</div>
-                <div class="clean-card-value">{df_filtre['3FPT/ONFP - Acteurs Formés en Agribusiness'].sum():,}</div>
-                <div class="clean-card-sub">Acteurs formés aux bonnes pratiques</div>
-            </div>
-            """, unsafe_allow_html=True)
-        with c4:
-            st.markdown(f"""
-            <div class="clean-card">
-                <div class="clean-card-title">💉 Santé Animale (MEPA)</div>
-                <div class="clean-card-value">{df_filtre['Taux Couverture Vaccinale Cheptel MEPA (%)'].mean():.1f} %</div>
-                <div class="clean-card-sub">Couverture vaccinale du cheptel</div>
-            </div>
-            """, unsafe_allow_html=True)
-
-        st.write("")
-        st.markdown("**📋 Suivi des Indicateurs de Vulgarisation & Diversification Réelle :**")
-        st.dataframe(
-            df_filtre[[
-                "Région", "Taux d'Encadrement Technique ANCAR (%)", "INP - Terres Salines Restaurées au Gypse (Ha)", 
-                "DAPSA - Niébé & Sésame (Tonnes)", "DAPSA - Manioc & Tubercules (Tonnes)"
-            ]],
-            use_container_width=True, hide_index=True
-        )
-
-    with profil[2]:
-        st.info("🌍 **Vue Résilience & ONG** : Sécurité hydrique DGPRE, appui aux cultures vivrières de base et potentiel de transformation locale ITA.")
-        c1, c2, c3, c4 = st.columns(4)
-        with c1:
-            st.markdown(f"""
-            <div class="clean-card">
-                <div class="clean-card-title">💧 Mobilisation Eau (DGPRE)</div>
-                <div class="clean-card-value">{df_filtre['DGPRE - Eau Irrigation Mobilisée (Mio m³)'].sum():,.1f} M m³</div>
-                <div class="clean-card-sub">Prélèvements d'irrigation</div>
-            </div>
-            """, unsafe_allow_html=True)
-        with c2:
-            st.markdown(f"""
-            <div class="clean-card">
-                <div class="clean-card-title">🥣 Céréales Vivrières</div>
-                <div class="clean-card-value">{df_filtre['DAPSA - Mil & Sorgho (Tonnes)'].sum() + df_filtre['DAPSA - Maïs & Fonio (Tonnes)'].sum():,} T</div>
-                <div class="clean-card-sub">Mil, Sorgho, Maïs, Fonio</div>
-            </div>
-            """, unsafe_allow_html=True)
-        with c3:
-            st.markdown(f"""
-            <div class="clean-card">
-                <div class="clean-card-title">🧆 Legumineuses</div>
-                <div class="clean-card-value">{df_filtre['DAPSA - Niébé & Sésame (Tonnes)'].sum():,} T</div>
-                <div class="clean-card-sub">Protéines végétales locales</div>
-            </div>
-            """, unsafe_allow_html=True)
-        with c4:
-            st.markdown(f"""
-            <div class="clean-card">
-                <div class="clean-card-title">🏬 Transfo. Locale (ITA)</div>
-                <div class="clean-card-value">{df_filtre['ITA - Taux de Transformation Agroalimentaire (%)'].mean():.1f} %</div>
-                <div class="clean-card-sub">Valorisation des récoltes</div>
-            </div>
-            """, unsafe_allow_html=True)
-
-        st.write("")
-        st.markdown("**🛡️ Synthèse de la Disponibilité Alimentaire par Territoire :**")
-        st.dataframe(
-            df_filtre[[
-                "Région", "DGPRE - Eau Irrigation Mobilisée (Mio m³)", "DAPSA - Mil & Sorgho (Tonnes)", 
-                "DAPSA - Niébé & Sésame (Tonnes)", "ITA - Taux de Transformation Agroalimentaire (%)"
-            ]],
-            use_container_width=True, hide_index=True
-        )
-
-    with profil[3]:
-        st.info("💼 **Vue Agrobusiness & Finance** : Financements La Banque Agricole & DER/FJ, capacités logistiques ARM et cultures de rente.")
-        c1, c2, c3, c4 = st.columns(4)
-        with c1:
-            st.markdown(f"""
-            <div class="clean-card">
-                <div class="clean-card-title">🏦 Crédit La Banque Agricole</div>
-                <div class="clean-card-value">{df_filtre['La Banque Agricole - Financements Octroyés (Mio FCFA)'].sum() / 1000:.2f} Mrds FCFA</div>
-                <div class="clean-card-sub">Financements bancaires injectés</div>
-            </div>
-            """, unsafe_allow_html=True)
-        with c2:
-            st.markdown(f"""
-            <div class="clean-card">
-                <div class="clean-card-title">🚀 Agropreneurs (DER/FJ)</div>
-                <div class="clean-card-value">{df_filtre['DER/FJ - Agropreneurs & TPE Financés (Nombre)'].sum():,}</div>
-                <div class="clean-card-sub">Projets d'agrobusiness financés</div>
-            </div>
-            """, unsafe_allow_html=True)
-        with c3:
-            st.markdown(f"""
-            <div class="clean-card">
-                <div class="clean-card-title">🥜 Filière Arachidière</div>
-                <div class="clean-card-value">{df_filtre['DAPSA - Arachide (Tonnes)'].sum():,} T</div>
-                <div class="clean-card-sub">Volume d'arachide produit</div>
-            </div>
-            """, unsafe_allow_html=True)
-        with c4:
-            st.markdown(f"""
-            <div class="clean-card">
-                <div class="clean-card-title">📦 Infrastructures ARM</div>
-                <div class="clean-card-value">{df_filtre['ARM - Capacité de Stockage/Régulation (Tonnes)'].sum():,} T</div>
-                <div class="clean-card-sub">Capacité d'entreposage disponible</div>
-            </div>
-            """, unsafe_allow_html=True)
-
-        st.write("")
-        st.markdown("**📈 Opportunités d'Investissement dans les Filières Industrielles :**")
-        st.dataframe(
-            df_filtre[[
-                "Région", "La Banque Agricole - Financements Octroyés (Mio FCFA)", "DER/FJ - Agropreneurs & TPE Financés (Nombre)", 
-                "SODEFITEX/DAPSA - Coton & Anacarde (Tonnes)", "ARM/DHORT - Tomate Industrielle & Legumes (Tonnes)"
-            ]],
-            use_container_width=True, hide_index=True
-        )
-
-    with profil[4]:
-        st.info("🏛️ **Vue Macro-économique & Souveraineté** : Bilan global des filières (DAPSA), création de richesse et souveraineté alimentaire.")
-        total_pib = df_filtre["DAPSA - Valeur Ajoutée Agricole Estimée (Mrds FCFA)"].sum()
-        total_intrants = df_filtre["DAPSA - Intrants Subventionnés Distribués (Tonnes)"].sum()
-        
-        c1, c2, c3, c4 = st.columns(4)
-        with c1:
-            st.markdown(f"""
-            <div class="clean-card">
-                <div class="clean-card-title">💰 Valeur Ajoutée (DAPSA)</div>
-                <div class="clean-card-value">{total_pib:.2f} Mrds FCFA</div>
-                <div class="clean-card-sub">PIB Agricole sectoriel</div>
-            </div>
-            """, unsafe_allow_html=True)
-        with c2:
-            st.markdown(f"""
-            <div class="clean-card">
-                <div class="clean-card-title">🌾 Production Céréalière</div>
-                <div class="clean-card-value">{total_cereales_all:,} T</div>
-                <div class="clean-card-sub">Riz, Mil, Sorgho, Maïs, Fonio</div>
-            </div>
-            """, unsafe_allow_html=True)
-        with c3:
-            st.markdown(f"""
-            <div class="clean-card">
-                <div class="clean-card-title">🌱 Subventions Intrants</div>
-                <div class="clean-card-value">{total_intrants:,} T</div>
-                <div class="clean-card-sub">Engrais & semences distribués</div>
-            </div>
-            """, unsafe_allow_html=True)
-        with c4:
-            st.markdown(f"""
-            <div class="clean-card">
-                <div class="clean-card-title">🛡️ Substitution Importations</div>
-                <div class="clean-card-value">{(total_cereales_all * 0.21) / 1000:.1f} Mrds FCFA</div>
-                <div class="clean-card-sub">Économie de devises estimée</div>
-            </div>
-            """, unsafe_allow_html=True)
-
-        st.write("")
-        st.markdown("**📊 Bilan Consolidé de Toutes les Filières Agricoles du Sénégal :**")
-        st.dataframe(
-            df_filtre[[
-                "Région", "SAED/SODAGRI - Riz Irrigué & Pluvial (Tonnes)", "DAPSA - Mil & Sorgho (Tonnes)", 
-                "DAPSA - Arachide (Tonnes)", "ARM/DHORT - Oignon & Pomme de Terre (Tonnes)", "ARM/DHORT - Tomate Industrielle & Legumes (Tonnes)"
-            ]],
-            use_container_width=True, hide_index=True
-        )
 # =====================================================
 # 💼 CONSULTANCE AGRONOMIQUE EXPERTE (MODULE 360° & IA)
 # =====================================================
 elif selected == "💼 Consultance":
 
     DB_FILE = "techniciens_db.json"
-    OWNER_EMAIL = os.getenv("YOUAGRONOME_OWNER_EMAIL", "issayoume2012@gmail.com")
-    OWNER_PASS = os.getenv("YOUAGRONOME_OWNER_PASS", "change-me-before-production")
+    OWNER_EMAIL = os.getenv("YOUAGRONOME_OWNER_EMAIL", "iy@2012")
+    OWNER_PASS = os.getenv("YOUAGRONOME_OWNER_PASS", "issayoume2026")
 
     DEFAULT_OWNER = {
         "email": OWNER_EMAIL,
         "password": OWNER_PASS,
         "nom": "Issa Youm (Administrateur Principal)",
-        "role": "Administrateur Système",
+        "role": "Super-Admin",
         "zone": "National (Sénégal)",
         "statut": "Actif"
     }
@@ -1138,7 +778,7 @@ elif selected == "💼 Consultance":
         for user in clean_whitelist:
             if str(user.get("email", "")).strip().lower() == OWNER_EMAIL.lower():
                 user["password"] = OWNER_PASS
-                user["role"] = "Administrateur Système"
+                user["role"] = "Super-Admin"
                 user["statut"] = "Actif"
                 owner_found = True
                 break
