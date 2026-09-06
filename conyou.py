@@ -1,1354 +1,962 @@
-from datetime import datetime, timedelta
+# youagronome_v2.py
+# YouAgronoMe — Plateforme Agritech Sénégal
+# Version 2 : architecture structurée, données sourcées, météo, sols, cartographie,
+# consultance, conseil >1000 fiches, documents et rapports PDF.
+#
+# IMPORTANT :
+# - Les chiffres du tableau de bord sont limités aux données officielles explicitement
+#   identifiées comme telles.
+# - Les recommandations agronomiques générées doivent être validées par un conseiller
+#   local et, pour la fertilisation/phytosanitaire, par une analyse de sol et les
+#   homologations/recommandations en vigueur.
+# - Les prévisions opérationnelles utilisées dans le module météo sont issues d'Open-Meteo.
+#   L'ANACIM reste la référence institutionnelle pour les bulletins et alertes officiels.
+
+from __future__ import annotations
+
 import io
 import json
+import math
 import os
-import random
-import urllib.parse
-import time
-import numpy as np
-import openpyxl
-from openpyxl import Workbook
-from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
-from openpyxl.utils import get_column_letter
-import pandas as pd
-import streamlit as st
-import matplotlib.pyplot as plt
+import sqlite3
+import hashlib
+import hmac
+from datetime import datetime, date
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 
+import pandas as pd
+import requests
+import streamlit as st
+
+# Modules optionnels
 try:
     import folium
-    from streamlit_folium import st_folium
     from folium.plugins import Draw
-    HAS_FOLIUM = True
-except ImportError:
-    HAS_FOLIUM = False
+    from streamlit_folium import st_folium
+    HAS_MAP = True
+except Exception:
+    HAS_MAP = False
+
+try:
+    from shapely.geometry import Polygon, shape
+    HAS_SHAPELY = True
+except Exception:
+    HAS_SHAPELY = False
 
 try:
     from reportlab.lib import colors
-    from reportlab.lib.pagesizes import letter
-    from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
-    from reportlab.pdfgen import canvas
-    from reportlab.platypus import (
-        HRFlowable,
-        Image,
-        KeepTogether,
-        PageBreak,
-        Paragraph,
-        SimpleDocTemplate,
-        Spacer,
-        Table,
-        TableStyle,
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import getSampleStyleSheet
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+    HAS_PDF = True
+except Exception:
+    HAS_PDF = False
+
+
+# ============================================================
+# 1. CONFIGURATION
+# ============================================================
+
+APP_TITLE = "YouAgronoMe — Agritech Sénégal"
+DB_PATH = Path("youagronome.db")
+DATA_DIR = Path("data")
+DATA_DIR.mkdir(exist_ok=True)
+
+OFFICIAL_SOURCES = {
+    "MASAE / DAPSA": {
+        "url": "https://agriculture.gouv.sn/",
+        "role": "Statistiques agricoles, campagnes, publications officielles",
+        "niveau": "Institutionnel",
+    },
+    "ANACIM": {
+        "url": "https://www.anacim.sn/",
+        "role": "Météorologie, climat, alertes et services climatologiques",
+        "niveau": "Institutionnel",
+    },
+    "ANCAR": {
+        "url": "https://ancar.gouv.sn/",
+        "role": "Conseil agricole et rural, E-conseil",
+        "niveau": "Institutionnel",
+    },
+    "ISRA": {
+        "url": "https://isra.sn/",
+        "role": "Recherche agricole, sols, horticulture, fiches techniques",
+        "niveau": "Recherche",
+    },
+    "SAED": {
+        "url": "https://www.saed.sn/",
+        "role": "Agriculture irriguée, vallée du fleuve, eau et conseil",
+        "niveau": "Institutionnel",
+    },
+    "DPV": {
+        "url": "https://www.dpvsenegal.sn/",
+        "role": "Protection des végétaux et avertissements phytosanitaires",
+        "niveau": "Institutionnel",
+    },
+    "CSE": {
+        "url": "https://www.cse.sn/",
+        "role": "Télédétection, biomasse, environnement et ressources naturelles",
+        "niveau": "Institutionnel",
+    },
+    "Open-Meteo": {
+        "url": "https://open-meteo.com/",
+        "role": "Prévisions météo opérationnelles utilisées par l'application",
+        "niveau": "Service météo numérique",
+    },
+}
+
+# Coordonnées approximatives de référence pour l'interface.
+# Elles servent à centrer la carte et à interroger un service météo.
+REGIONS = {
+    "Dakar": (14.7167, -17.4677),
+    "Diourbel": (14.6565, -16.2342),
+    "Fatick": (14.3390, -16.4160),
+    "Kaffrine": (14.1059, -15.5508),
+    "Kaolack": (14.1510, -16.0726),
+    "Kédougou": (12.5605, -12.1747),
+    "Kolda": (12.8939, -14.9414),
+    "Louga": (15.6142, -16.2244),
+    "Matam": (15.6559, -13.2554),
+    "Saint-Louis": (16.0326, -16.4818),
+    "Sédhiou": (12.7081, -15.5569),
+    "Tambacounda": (13.7707, -13.6673),
+    "Thiès": (14.7910, -16.9256),
+    "Ziguinchor": (12.5833, -16.2719),
+}
+
+# Profils agro-écologiques : qualitatifs, pas des analyses de laboratoire.
+AGROZONES = {
+    "Vallée du Fleuve Sénégal": {
+        "regions": ["Saint-Louis", "Matam"],
+        "sols": ["alluviaux / argileux", "sablo-limoneux du Diéri", "zones salées/hydromorphes"],
+        "cultures": ["Riz", "Oignon", "Tomate", "Maïs", "Sorgho", "Patate douce"],
+        "enjeux": ["salinité", "drainage", "gestion de l'eau", "forte chaleur", "ravageurs"],
+        "conseil": "Prioriser drainage, suivi de salinité, qualité de l'eau et calendrier d'irrigation.",
+    },
+    "Niayes & Littoral": {
+        "regions": ["Dakar", "Thiès", "Louga"],
+        "sols": ["sableux", "sablo-limoneux", "hydromorphes localisés"],
+        "cultures": ["Oignon", "Pomme de terre", "Carotte", "Tomate", "Chou", "Pastèque", "Melon"],
+        "enjeux": ["eau", "salinité", "vent", "nématodes", "pression maraîchère"],
+        "conseil": "Renforcer matière organique, irrigation localisée, rotation et surveillance de la salinité.",
+    },
+    "Bassin arachidier": {
+        "regions": ["Diourbel", "Fatick", "Kaolack", "Kaffrine"],
+        "sols": ["sableux Dior", "ferrugineux tropicaux", "gravillonnaires localisés"],
+        "cultures": ["Arachide", "Mil", "Niébé", "Maïs", "Sorgho", "Sésame", "Bissap"],
+        "enjeux": ["pluviométrie", "matière organique", "érosion", "ravageurs", "fertilité"],
+        "conseil": "Sécuriser la date de semis, conserver l'humidité et raisonner la fertilisation.",
+    },
+    "Casamance": {
+        "regions": ["Ziguinchor", "Sédhiou", "Kolda"],
+        "sols": ["ferrallitiques", "hydromorphes de bas-fond", "sablo-argileux"],
+        "cultures": ["Riz", "Maïs", "Manioc", "Anacarde", "Sésame", "Arachide", "Maraîchage"],
+        "enjeux": ["excès d'eau", "acidité", "maladies fongiques", "ravageurs", "conservation"],
+        "conseil": "Adapter drainage, variété et calendrier à la forte saison des pluies et aux bas-fonds.",
+    },
+    "Sénégal Oriental": {
+        "regions": ["Tambacounda", "Kédougou"],
+        "sols": ["ferrugineux", "ferrallitiques", "cuirassés localisés"],
+        "cultures": ["Maïs", "Sorgho", "Mil", "Sésame", "Coton", "Anacarde", "Fonio"],
+        "enjeux": ["variabilité des pluies", "érosion", "ravageurs", "feux", "fertilité"],
+        "conseil": "Conserver le sol, choisir des variétés adaptées et surveiller les risques climatiques.",
+    },
+}
+
+CROPS = [
+    "Riz", "Mil", "Sorgho", "Maïs", "Arachide", "Niébé", "Sésame", "Bissap",
+    "Oignon", "Pomme de terre", "Tomate", "Gombo", "Chou", "Carotte", "Pastèque",
+    "Melon", "Manioc", "Anacarde", "Coton", "Fonio"
+]
+
+STAGES = [
+    "Préparation du sol", "Semis / plantation", "Levée / installation",
+    "Croissance végétative", "Floraison", "Remplissage / tubérisation",
+    "Maturation", "Récolte", "Post-récolte"
+]
+
+THEMES = [
+    "sol et fertilité", "eau et irrigation", "météo et climat",
+    "semis et implantation", "ravageurs et maladies", "adventices",
+    "agroécologie et matière organique", "récolte et qualité",
+    "stockage et post-récolte", "économie et organisation",
+    "rotation et assolement", "sécurité et traçabilité"
+]
+
+# Modèles prudents : on évite de présenter une dose phytosanitaire comme universelle.
+ADVICE_TEMPLATES = {
+    "sol et fertilité": [
+        "Faire une analyse de sol avant toute correction importante de fertilité. Pour {culture}, ajuster la stratégie à la texture, au pH, à la matière organique et aux résultats du laboratoire.",
+        "Sur {culture}, privilégier un raisonnement par bilan des besoins et des apports plutôt qu'une dose fixe. Tenir compte des résidus, du précédent cultural et des apports organiques.",
+        "Si le sol de la parcelle est très sableux, fractionner davantage les apports mobiles et protéger le sol par couverture et matière organique.",
+    ],
+    "eau et irrigation": [
+        "Pour {culture} au stade {stage}, piloter l'irrigation à partir de l'humidité du sol, du stade de la culture, de la demande atmosphérique et de la qualité de l'eau.",
+        "Éviter les irrigations automatiques sans contrôle : vérifier infiltration, drainage, état des racines et salinité si la parcelle est irriguée.",
+        "En zone à forte demande évaporative, préférer des apports réguliers et maîtrisés plutôt que de longues irrigations espacées, selon le système installé.",
+    ],
+    "météo et climat": [
+        "Avant une opération importante sur {culture}, consulter le bulletin ANACIM et adapter le calendrier aux pluies prévues, au vent et aux températures.",
+        "En saison des pluies, prévoir une solution de repli si une pluie intense est annoncée : éviter de programmer un traitement ou un apport juste avant une pluie significative.",
+        "Pour {culture}, conserver la date du semis, les pluies reçues et les incidents climatiques afin d'améliorer le diagnostic de fin de campagne.",
+    ],
+    "semis et implantation": [
+        "Utiliser une semence de qualité et adaptée à la zone agro-écologique. Respecter la densité et la profondeur recommandées pour {culture}.",
+        "Ne pas choisir la date de semis uniquement sur le calendrier : croiser humidité réelle du sol, prévisions et recommandations locales.",
+        "Après levée de {culture}, vérifier rapidement la régularité de peuplement et corriger les manques lorsqu'une intervention reste agronomiquement possible.",
+    ],
+    "ravageurs et maladies": [
+        "Surveiller régulièrement {culture} avant de traiter. Identifier l'organisme nuisible, son stade et son niveau d'attaque avant toute intervention.",
+        "Privilégier la lutte intégrée : prévention, hygiène de parcelle, rotation, auxiliaires, variétés adaptées et traitement seulement lorsque nécessaire.",
+        "Pour tout produit phytosanitaire, vérifier l'homologation en vigueur au Sénégal, l'étiquette, le délai avant récolte et les équipements de protection.",
+    ],
+    "adventices": [
+        "Intervenir tôt sur les adventices de {culture}, lorsque leur concurrence est encore limitée et que l'opération est techniquement réalisable.",
+        "Combiner rotation, couverture du sol, désherbage mécanique ou manuel et pratiques culturales adaptées plutôt que dépendre d'une seule méthode.",
+        "Identifier les principales adventices de la parcelle avant de choisir une méthode de contrôle.",
+    ],
+    "agroécologie et matière organique": [
+        "Augmenter progressivement la matière organique de la parcelle par des apports bien décomposés et disponibles localement, en tenant compte de leur qualité.",
+        "Conserver les résidus sains et réduire l'érosion lorsque cela est compatible avec le système de production de {culture}.",
+        "Associer légumineuses, rotations et couverture du sol lorsque le système de production le permet afin d'améliorer la résilience.",
+    ],
+    "récolte et qualité": [
+        "Définir le bon stade de récolte de {culture} selon la destination du produit, l'humidité, la qualité visuelle et les exigences du marché.",
+        "Éviter de mélanger des lots de qualité différente. Identifier les lots et noter date, parcelle, variété et conditions de récolte.",
+        "Réduire les blessures mécaniques pendant la récolte et le transport, car elles accélèrent les pertes et les contaminations.",
+    ],
+    "stockage et post-récolte": [
+        "Sécher {culture} jusqu'à un niveau compatible avec son mode de stockage et vérifier l'absence de réhumidification.",
+        "Nettoyer et assainir les équipements de stockage avant l'entrée d'un nouveau lot.",
+        "Surveiller régulièrement température, humidité, insectes et moisissures dans les stocks de {culture}.",
+    ],
+    "économie et organisation": [
+        "Tenir un registre simple des dépenses de {culture} : semences, engrais, protection, eau, main-d'œuvre, transport et commercialisation.",
+        "Comparer le coût par hectare, le rendement, le prix réellement obtenu et la marge, plutôt que le seul chiffre d'affaires.",
+        "Avant un investissement, faire au minimum trois scénarios : prudent, central et défavorable.",
+    ],
+    "rotation et assolement": [
+        "Éviter de reconduire systématiquement la même culture sur la même parcelle. Construire une rotation qui limite les maladies et diversifie les prélèvements nutritifs.",
+        "Intégrer une légumineuse dans la rotation lorsque cela est agronomiquement adapté au système.",
+        "Pour {culture}, tenir compte du précédent cultural avant de choisir la prochaine culture et les interventions.",
+    ],
+    "sécurité et traçabilité": [
+        "Noter les interventions réalisées sur {culture} : date, produit ou intrant, dose réellement utilisée, opérateur et parcelle.",
+        "Séparer les zones de stockage des produits phytosanitaires des denrées alimentaires et respecter les équipements de protection.",
+        "Pour chaque lot, conserver l'origine de la semence, la parcelle, la date de récolte et les opérations post-récolte.",
+    ],
+}
+
+# Ravageurs/maladies : catalogue de départ documenté par le contexte sénégalais.
+# Aucun traitement chimique universel n'est imposé.
+PESTS = [
+    ("Chenille légionnaire d'automne", "Spodoptera frugiperda", ["Maïs", "Sorgho"], "Surveiller le cornet, les dégâts frais et les larves; privilégier la lutte intégrée."),
+    ("Pucerons", "Aphididae", ["Arachide", "Niébé", "Gombo", "Oignon"], "Observer les jeunes pousses et la face inférieure des feuilles; favoriser les auxiliaires."),
+    ("Mouche blanche", "Bemisia tabaci", ["Tomate", "Manioc", "Gombo"], "Surveiller adultes et nymphes; attention aux virus transmis."),
+    ("Tuta absoluta", "Tuta absoluta", ["Tomate"], "Surveiller mines foliaires et fruits; utiliser piégeage et mesures de lutte intégrée."),
+    ("Mouche des fruits", "Bactrocera spp.", ["Anacarde", "Mangue"], "Ramasser les fruits tombés et organiser le piégeage selon les recommandations locales."),
+    ("Nématodes à galles", "Meloidogyne spp.", ["Tomate", "Gombo", "Carotte"], "Vérifier les racines et pratiquer rotation, matériel sain et mesures de réduction de l'inoculum."),
+    ("Maladies foliaires du riz", "Complexe pathologique", ["Riz"], "Surveiller régulièrement les symptômes et solliciter le conseil technique avant traitement."),
+    ("Maladies fongiques maraîchères", "Complexe pathologique", ["Oignon", "Tomate", "Pomme de terre", "Chou"], "Gérer humidité, aération, rotation et matériel végétal; confirmer le diagnostic."),
+]
+
+# ============================================================
+# 2. BASE LOCALE SQLITE
+# ============================================================
+
+def db_conn():
+    con = sqlite3.connect(DB_PATH)
+    con.row_factory = sqlite3.Row
+    return con
+
+def init_db():
+    con = db_conn()
+    con.executescript("""
+    CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        email TEXT UNIQUE NOT NULL,
+        password_hash TEXT NOT NULL,
+        name TEXT NOT NULL,
+        role TEXT NOT NULL,
+        zone TEXT NOT NULL,
+        active INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS parcels (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        region TEXT,
+        commune TEXT,
+        crop TEXT,
+        area_ha REAL,
+        perimeter_m REAL,
+        geojson TEXT,
+        created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS diagnoses (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        parcel_id INTEGER,
+        culture TEXT,
+        observation TEXT,
+        recommendation TEXT,
+        created_at TEXT NOT NULL
+    );
+    """)
+    con.commit()
+    con.close()
+
+def hash_password(password: str) -> str:
+    salt = os.urandom(16)
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 150_000)
+    return salt.hex() + ":" + digest.hex()
+
+def verify_password(password: str, encoded: str) -> bool:
+    try:
+        salt_hex, digest_hex = encoded.split(":")
+        salt = bytes.fromhex(salt_hex)
+        digest = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 150_000)
+        return hmac.compare_digest(digest.hex(), digest_hex)
+    except Exception:
+        return False
+
+def ensure_admin():
+    admin_email = st.secrets.get("ADMIN_EMAIL", os.getenv("ADMIN_EMAIL", ""))
+    admin_password = st.secrets.get("ADMIN_PASSWORD", os.getenv("ADMIN_PASSWORD", ""))
+    if not admin_email or not admin_password:
+        return
+    con = db_conn()
+    row = con.execute("SELECT id FROM users WHERE email=?", (admin_email.lower(),)).fetchone()
+    if not row:
+        con.execute(
+            "INSERT INTO users(email,password_hash,name,role,zone,active,created_at) VALUES(?,?,?,?,?,?,?)",
+            (admin_email.lower(), hash_password(admin_password), "Administrateur", "Administrateur", "National", 1, datetime.now().isoformat())
+        )
+        con.commit()
+    con.close()
+
+init_db()
+ensure_admin()
+
+# ============================================================
+# 3. UTILITAIRES AGRONOMIQUES
+# ============================================================
+
+def find_zone(region: str) -> str:
+    for zone, info in AGROZONES.items():
+        if region in info["regions"]:
+            return zone
+    return "Sénégal — zone à préciser"
+
+def haversine_m(a: Tuple[float, float], b: Tuple[float, float]) -> float:
+    lat1, lon1 = map(math.radians, a)
+    lat2, lon2 = map(math.radians, b)
+    dlat, dlon = lat2 - lat1, lon2 - lon1
+    h = math.sin(dlat/2)**2 + math.cos(lat1)*math.cos(lat2)*math.sin(dlon/2)**2
+    return 6371000 * 2 * math.asin(math.sqrt(h))
+
+def polygon_area_perimeter(coords: List[List[float]]) -> Tuple[float, float]:
+    """Approximation robuste pour parcelles locales en projection equirectangulaire."""
+    if len(coords) < 3:
+        return 0.0, 0.0
+    lat0 = math.radians(sum(p[0] for p in coords) / len(coords))
+    R = 6371000.0
+    xy = []
+    for lat, lon in coords:
+        x = R * math.radians(lon) * math.cos(lat0)
+        y = R * math.radians(lat)
+        xy.append((x, y))
+    area = 0.0
+    perimeter = 0.0
+    for i, (x1, y1) in enumerate(xy):
+        x2, y2 = xy[(i+1) % len(xy)]
+        area += x1*y2 - x2*y1
+        perimeter += math.hypot(x2-x1, y2-y1)
+    return abs(area)/2/10000, perimeter
+
+def centroid(coords: List[List[float]]) -> Tuple[float, float]:
+    if not coords:
+        return 0.0, 0.0
+    return (
+        sum(x[0] for x in coords)/len(coords),
+        sum(x[1] for x in coords)/len(coords),
     )
-    HAS_REPORTLAB = True
-except ImportError:
-    HAS_REPORTLAB = False
 
-# =====================================================
-# 1. INITIALISATION ET CONFIGURATION DE LA PAGE
-# =====================================================
-st.set_page_config(
-    page_title="YouAgronoMe - Consultance & Expertise 360°",
-    page_icon="🌾",
-    layout="wide"
-)
+def generate_advice_catalog() -> pd.DataFrame:
+    """Génère >1000 fiches structurées à partir de règles explicites.
+    Les fiches portent un niveau 'généré' : elles ne remplacent pas une fiche technique officielle.
+    """
+    rows = []
+    idx = 1
+    for crop in CROPS:
+        for theme in THEMES:
+            for stage in STAGES:
+                template = ADVICE_TEMPLATES[theme][idx % len(ADVICE_TEMPLATES[theme])]
+                for zone_name, zone in AGROZONES.items():
+                    if crop not in zone["cultures"] and idx % 5 != 0:
+                        continue
+                    text = template.format(culture=crop, stage=stage)
+                    rows.append({
+                        "id": idx,
+                        "Culture": crop,
+                        "Thème": theme,
+                        "Stade": stage,
+                        "Zone": zone_name,
+                        "Conseil": text,
+                        "Priorité": "Élevée" if theme in ["météo et climat", "eau et irrigation", "ravageurs et maladies"] else "Normale",
+                        "Statut": "Conseil généré à partir de règles",
+                        "Validation requise": "Oui — conseiller local / fiche officielle",
+                    })
+                    idx += 1
+    return pd.DataFrame(rows)
 
-if "panier" not in st.session_state:
-    st.session_state.panier = []
+@st.cache_data
+def advice_catalog():
+    return generate_advice_catalog()
 
-if "historique" not in st.session_state:
-    st.session_state.historique = []
+# ============================================================
+# 4. MÉTÉO
+# ============================================================
 
-if 'sim_active' not in st.session_state:
-    st.session_state.sim_active = False
+@st.cache_data(ttl=1800)
+def get_weather(lat: float, lon: float) -> Optional[Dict[str, Any]]:
+    try:
+        url = "https://api.open-meteo.com/v1/forecast"
+        params = {
+            "latitude": lat,
+            "longitude": lon,
+            "current": "temperature_2m,relative_humidity_2m,wind_speed_10m,precipitation",
+            "daily": "temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max,wind_speed_10m_max",
+            "timezone": "Africa/Dakar",
+            "forecast_days": 7,
+        }
+        r = requests.get(url, params=params, timeout=12)
+        r.raise_for_status()
+        return r.json()
+    except Exception:
+        return None
 
-if "consult_gps" not in st.session_state:
-    st.session_state["consult_gps"] = {"lat": 14.7910, "lon": -16.0700}
+def weather_risk(weather: Optional[Dict[str, Any]]) -> List[str]:
+    risks = []
+    if not weather:
+        return ["Météo non disponible : consulter le bulletin ANACIM."]
+    cur = weather.get("current", {})
+    if cur.get("wind_speed_10m", 0) >= 35:
+        risks.append("Vent fort : reporter si possible les traitements foliaires.")
+    if cur.get("relative_humidity_2m", 0) >= 85:
+        risks.append("Humidité élevée : surveiller les maladies favorisées par l'humidité.")
+    daily = weather.get("daily", {})
+    rain = daily.get("precipitation_sum", [])[:3]
+    if any((x or 0) >= 25 for x in rain):
+        risks.append("Pluies importantes prévues : vérifier drainage et risque d'érosion.")
+    if not risks:
+        risks.append("Aucun signal météo automatique majeur détecté; vérifier néanmoins le bulletin ANACIM.")
+    return risks
 
-if "draw_coords" not in st.session_state:
-    st.session_state["draw_coords"] = [
-        [14.7910, -16.0700],
-        [14.7930, -16.0700],
-        [14.7930, -16.0680],
-        [14.7910, -16.0680]
-    ]
+# ============================================================
+# 5. DONNÉES TABLEAU DE BORD — OFFICIELLES UNIQUEMENT
+# ============================================================
 
-if "active_surface_ha" not in st.session_state:
-    st.session_state["active_surface_ha"] = 2.5
+OFFICIAL_CAMPAIGN_2023_2024 = pd.DataFrame([
+    {"Indicateur": "Production d'arachide", "Valeur": 1_670_000, "Unité": "tonnes", "Période": "2023-2024", "Source": "MASAE / DAPSA / ANSD"},
+    {"Indicateur": "Production de riz", "Valeur": 1_400_000, "Unité": "tonnes", "Période": "2023-2024", "Source": "MASAE / DAPSA / ANSD"},
+    {"Indicateur": "Superficie cultivée en arachide", "Valeur": 1_200_000, "Unité": "ha", "Période": "2023-2024", "Source": "MASAE / DAPSA / ANSD"},
+    {"Indicateur": "Régions couvertes par l'EAA", "Valeur": 14, "Unité": "régions", "Période": "2023-2024", "Source": "MASAE / DAPSA / ANSD"},
+    {"Indicateur": "Départements", "Valeur": 45, "Unité": "départements", "Période": "2023-2024", "Source": "MASAE / DAPSA / ANSD"},
+])
 
-# =====================================================
-# 2. DESIGN DU MENU DE NAVIGATION (CSS HARMONISÉ & RESPONSIVE)
-# =====================================================
+def dashboard_source_status():
+    return pd.DataFrame([
+        {"Source": "MASAE / DAPSA", "Fonction": "Statistiques agricoles", "Statut": "Référence officielle", "URL": OFFICIAL_SOURCES["MASAE / DAPSA"]["url"]},
+        {"Source": "ANACIM", "Fonction": "Météo / climat / alertes", "Statut": "Référence officielle", "URL": OFFICIAL_SOURCES["ANACIM"]["url"]},
+        {"Source": "ANCAR", "Fonction": "Conseil agricole et rural", "Statut": "Référence officielle", "URL": OFFICIAL_SOURCES["ANCAR"]["url"]},
+        {"Source": "ISRA", "Fonction": "Recherche / sols / itinéraires", "Statut": "Référence scientifique", "URL": OFFICIAL_SOURCES["ISRA"]["url"]},
+        {"Source": "DPV", "Fonction": "Protection végétale", "Statut": "Référence phytosanitaire", "URL": OFFICIAL_SOURCES["DPV"]["url"]},
+        {"Source": "CSE", "Fonction": "Télédétection / biomasse", "Statut": "Référence environnementale", "URL": OFFICIAL_SOURCES["CSE"]["url"]},
+    ])
+
+# ============================================================
+# 6. INTERFACE
+# ============================================================
+
+st.set_page_config(page_title=APP_TITLE, page_icon="🌾", layout="wide")
+
 st.markdown("""
 <style>
-.stAppHeader { display: none !important; }
-
-.main .block-container { 
-    padding-top: 15px !important; 
-    max-width: 100% !important; 
-    padding-left: 1rem !important;
-    padding-right: 1rem !important;
+:root { --green:#176b3a; --gold:#d6a62c; --soft:#f5f8f6; }
+.block-container { padding-top: 1rem; max-width: 1500px; }
+.hero {
+    background: linear-gradient(135deg,#145a32,#0b2f1b);
+    color:white; padding:28px; border-radius:18px; margin-bottom:18px;
+    border-bottom:5px solid var(--gold);
 }
-
-div[data-testid="stRadio"] {
-    background: #ffffff !important;
-    padding: 12px !important;
-    border-radius: 16px !important;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03) !important;
-    border: 1px solid #edf2f7 !important;
-    margin-bottom: 25px !important;
+.card {
+    background:white; border:1px solid #dfe8e2; border-radius:14px;
+    padding:16px; height:100%; box-shadow:0 2px 8px rgba(0,0,0,.04);
 }
-
-div[data-testid="stRadio"] > label { display: none !important; }
-
-div[data-testid="stRadio"] > div[role="radiogroup"] {
-    display: flex !important;
-    flex-direction: row !important;
-    justify-content: flex-start !important;
-    gap: 10px !important;
-    flex-wrap: wrap !important;
+.section {
+    color:#145a32; font-weight:800; font-size:1.15rem;
+    border-left:5px solid #d6a62c; padding-left:10px; margin:18px 0 10px;
 }
-
-div[data-testid="stRadio"] > div[role="radiogroup"] > label {
-    background-color: #f7fafc !important;
-    color: #4a5568 !important;
-    font-size: clamp(13px, 1.2vw, 15px) !important;
-    font-weight: 600 !important;
-    padding: 10px 18px !important;
-    margin: 0px !important;
-    border-radius: 10px !important;
-    border: 1px solid #e2e8f0 !important;
-    cursor: pointer !important;
-    transition: all 0.2s ease-in-out !important;
-    flex: 0 1 auto !important;
-}
-
-div[data-testid="stRadio"] > div[role="radiogroup"] > label > div:first-child { display: none !important; }
-
-div[data-testid="stRadio"] > div[role="radiogroup"] > label:hover {
-    background-color: #f0fdf4 !important;
-    color: #1b5e20 !important;
-    border-color: #c8e6c9 !important;
-    transform: translateY(-1px) !important;
-}
-
-div[data-testid="stRadio"] > div[role="radiogroup"] > label[data-checked="true"] {
-    background: linear-gradient(135deg, #1b5e20 0%, #2e7d32 100%) !important;
-    color: white !important;
-    font-weight: 700 !important;
-    border: none !important;
-    box-shadow: 0 4px 12px rgba(27, 94, 32, 0.25) !important;
-}
-
-[data-testid="stMetricValue"] { 
-    font-size: clamp(16px, 2vw, 20px) !important; 
-    white-space: nowrap !important; 
-}
-
-@media screen and (max-width: 768px) {
-    .main .block-container { 
-        padding-top: 10px !important; 
-        padding-left: 0.5rem !important;
-        padding-right: 0.5rem !important;
-    }
-    
-    div[data-testid="stRadio"] > div[role="radiogroup"] {
-        gap: 8px !important;
-    }
-
-    div[data-testid="stRadio"] > div[role="radiogroup"] > label {
-        padding: 8px 14px !important;
-        font-size: 14px !important;
-    }
-}
-
-@media screen and (max-width: 480px) {
-    div[data-testid="stRadio"] > div[role="radiogroup"] {
-        flex-direction: column !important;
-        align-stretch !important;
-    }
-    
-    div[data-testid="stRadio"] > div[role="radiogroup"] > label {
-        width: 100% !important;
-        text-align: center !important;
-        justify-content: center !important;
-        padding: 12px !important;
-        font-size: 15px !important;
-    }
-}
+.small { color:#64748b; font-size:.85rem; }
 </style>
 """, unsafe_allow_html=True)
 
-# =====================================================
-# 3. MOTEUR DE NAVIGATION
-# =====================================================
-options_menu = [
-    "🏠 Accueil", 
-    "📊 Tableau de Bord",
-    "💼 Consultance", 
-    "🌱 Conseil",
-    "📞 Contact"
-]
+st.markdown("""
+<div class="hero">
+<h1>🇸🇳 YouAgronoMe</h1>
+<p style="font-size:1.05rem">Plateforme intégrée de conseil agricole, consultance, cartographie parcellaire,
+météo, sols, diagnostic et pilotage des exploitations au Sénégal.</p>
+</div>
+""", unsafe_allow_html=True)
 
-selected = st.radio(
-    "Navigation Menu",
-    options=options_menu,
-    horizontal=True
+menu = st.radio(
+    "Navigation",
+    ["🏠 Accueil", "📊 Tableau de bord", "💼 Consultance", "🌱 Conseil >1000 fiches", "📚 Documents & sources", "📞 Contact"],
+    horizontal=True,
+    label_visibility="collapsed",
 )
 
-# =====================================================
-# 🏠 ACCUEIL
-# =====================================================
-if selected == "🏠 Accueil":
+# ============================================================
+# 7. ACCUEIL
+# ============================================================
 
-    st.markdown("""
-    <div style="text-align: center; padding: 45px 20px; background: linear-gradient(135deg, #1b5e20 0%, #0d2310 100%); color: white; border-radius: 16px; margin-bottom: 30px; box-shadow: 0 10px 15px -3px rgba(27, 94, 32, 0.15);">
-        <span style="background: #e1a91a; color: #0d2310; padding: 5px 12px; border-radius: 20px; font-size: 0.75rem; font-weight: bold; text-transform: uppercase; letter-spacing: 1px;">🇸🇳 Jeune pousse Agritech & Digital locale</span>
-        <h1 style="margin: 10px 0; font-size: 2.6rem; font-weight: 800; color: white !important;">YouAgronoMe</h1>
-        <p style="max-width: 800px; margin: 0 auto; font-size: 1.05rem; line-height: 1.6; opacity: 0.95;">
-            Nous sommes une jeune startup sénégalaise engagée pour la souveraineté alimentaire. Nous créons la passerelle numérique entre les réalités des producteurs locaux de nos régions et l'excellence des données scientifiques nationales.
-        </p>
-    </div>
-    """, unsafe_allow_html=True)
-
-    st.markdown("<h3 style='color: #1b5e20; margin-bottom: 15px;'>🎯 Notre impact auprès des acteurs locaux</h3>", unsafe_allow_html=True)
-    
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        with st.container(border=True):
-            st.markdown("<h4 style='color: #1b5e20; margin-top:0;'>🧑‍🌾 Pour les Producteurs</h4>", unsafe_allow_html=True)
-            st.write("Nous co-concevons des alertes météo de précision et des conseils de culture adaptés à vos parcelles pour sécuriser vos investissements face aux aléas climatiques.")
-            st.caption("🌱 Proximité Hub de Sor (Saint-Louis)")
-            
-    with col2:
-        with st.container(border=True):
-            st.markdown("<h4 style='color: #1b5e20; margin-top:0;'>📈 Pour les Techniciens</h4>", unsafe_allow_html=True)
-            st.write("Nous mettons à disposition de vos groupements des applications de diagnostic mobile simples d'accès pour analyser la santé de vos sols sans équipements complexes.")
-            st.caption("🔬 Innovation & Simplification de terrain")
-            
-    with col3:
-        with st.container(border=True):
-            st.markdown("<h4 style='color: #1b5e20; margin-top:0;'>🌍 Pour les ONG & Projets</h4>", unsafe_allow_html=True)
-            st.write("Nous développons des plateformes interactives de suivi-évaluation pour piloter en temps réel l'impact de vos projets de résilience agricole.")
-            st.caption("📋 Données agiles & rapports rapides")
-
-    st.write("")
-    st.markdown("<h3 style='color: #1b5e20; margin-bottom: 15px;'>⚙️ Des solutions connectées aux savoir-faire nationaux</h3>", unsafe_allow_html=True)
-
-    col4, col5, col6 = st.columns(3)
-    
-    with col4:
-        with st.container(border=True):
-            st.markdown("<h4 style='color: #0d47a1; margin-top:0;'>💧 Gestion de l'Eau</h4>", unsafe_allow_html=True)
-            st.write("Suivi optimisé des périmètres irrigués en s'appuyant sur les recommandations clés de la **DGPRE**, de la **SAED** et de la **SODAGRI**.")
-            
-    with col5:
-        with st.container(border=True):
-            st.markdown("<h4 style='color: #2e7d32; margin-top:0;'>🔬 Vulgarisation Scientifique</h4>", unsafe_allow_html=True)
-            st.write("Conseils de fertilisation organique et promotion des semences locales résilientes documentées par l'**ISRA**.")
-            
-    with col6:
-        with st.container(border=True):
-            st.markdown("<h4 style='color: #e65100; margin-top:0;'>🌾 Agrométéorologie agile</h4>", unsafe_allow_html=True)
-            st.write("Traduction opérationnelle des données de l'**ANACIM** et relais des dynamiques de conseil de l'**ANCAR** sur le terrain.")
-
-    st.write("")
-    st.markdown("<h3 style='color: #1b5e20; margin-bottom: 5px;'>🏛️ Notre cadre de collaboration et d'appui</h3>", unsafe_allow_html=True)
-    st.info("En tant que jeune entreprise technologique, nous intégrons et valorisons les travaux des institutions sénégalaises de référence pour déployer des outils utiles aux paysans.")
-
-    partenaires = [
-        ("MAERSA", "Ministère de l'Agriculture"),
-        ("ANACIM", "Météo Nationale"),
-        ("ISRA", "Recherche Agricole"),
-        ("ANCAR", "Conseil Agricole"),
-        ("DGPRE", "Ressources en Eau"),
-        ("SAED", "Aménagement du Delta"),
-        ("SODAGRI", "Développement Agricole"),
-        ("SENUM SA", "Hébergeur National")
+if menu == "🏠 Accueil":
+    st.markdown('<div class="section">Architecture de la nouvelle plateforme</div>', unsafe_allow_html=True)
+    cols = st.columns(4)
+    modules = [
+        ("📊", "Tableau de bord", "Indicateurs officiels séparés des données importées et des estimations."),
+        ("🧪", "Consultance 360°", "Parcelle, sol, météo, eau, diagnostic, économie et rapport."),
+        ("🗺️", "Cartographie précise", "Dessin GPS, import GeoJSON, surface, périmètre, centroïde et synchronisation."),
+        ("🌱", "Conseil", "Catalogue dynamique de plus de 1000 fiches structurées et filtrables."),
     ]
+    for c, (ico, title, desc) in zip(cols, modules):
+        with c:
+            st.markdown(f'<div class="card"><h3>{ico} {title}</h3><p>{desc}</p></div>', unsafe_allow_html=True)
 
-    cols_badge = st.columns(4)
-    for idx, (sigle, desc) in enumerate(partenaires):
-        with cols_badge[idx % 4]:
-            st.markdown(f"""
-            <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-left: 4px solid #1b5e20; padding: 12px; border-radius: 8px; margin-bottom: 10px; height: 100%;">
-                <b style="color: #1b5e20; font-size: 0.95rem; display: block;">{sigle}</b>
-                <span style="color: #718096; font-size: 0.75rem;">{desc}</span>
-            </div>
-            """, unsafe_allow_html=True)
-
-    st.write("") 
-    st.success("🇸🇳 **YouAgronoMe** : Innover localement, agir durablement pour la réussite de nos producteurs locaux.")
-
-# =====================================================
-# 📊 TABLEAU DE BORD
-# =====================================================
-elif selected == "📊 Tableau de Bord":
-
-    st.markdown("""
-    <style>
-    .dashboard-hero {
-        padding: 30px 20px;
-        border-radius: 16px;
-        text-align: center;
-        color: white;
-        background: linear-gradient(135deg, #1b5e20 0%, #0d2310 100%);
-        box-shadow: 0 8px 24px rgba(27, 94, 32, 0.15);
-        border-bottom: 4px solid #e1a91a;
-        margin-bottom: 25px;
-    }
-    .dashboard-hero h2 { font-size: 22px !important; font-weight: 800 !important; margin-bottom: 8px !important; color: #ffffff !important; }
-    .dashboard-hero p { font-size: 13px !important; opacity: 0.9; max-width: 850px; margin: 0 auto !important; color: #f8fafc; }
-    .inst-badge-db {
-        background: rgba(255, 255, 255, 0.15);
-        padding: 6px 14px;
-        border-radius: 20px;
-        font-size: 11px;
-        font-weight: 600;
-        border: 1px solid rgba(255, 255, 255, 0.25);
-        display: inline-block;
-        margin-top: 12px;
-        color: #ffffff;
-    }
-    .db-section-title {
-        color: #1b5e20;
-        font-size: 17px;
-        font-weight: 700;
-        margin-top: 20px;
-        margin-bottom: 15px;
-        border-left: 5px solid #e1a91a;
-        padding-left: 10px;
-    }
-    .clean-card {
-        background: #ffffff;
-        padding: 15px;
-        border-radius: 12px;
-        border: 1px solid #e2e8f0;
-        border-top: 4px solid #1b5e20;
-        text-align: center;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
-        height: 100%;
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
-    }
-    .clean-card-title {
-        font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; margin-bottom: 6px; letter-spacing: 0.5px;
-    }
-    .clean-card-value { font-size: 19px; font-weight: 800; color: #1b5e20; word-wrap: break-word; line-height: 1.2; }
-    .clean-card-sub { font-size: 10px; color: #94a3b8; margin-top: 4px; }
-    </style>
-    """, unsafe_allow_html=True)
-
-    st.markdown("""
-    <div class="dashboard-hero">
-        <h2>🇸🇳 Observatoire Multidimensionnel de la Souveraineté Alimentaire du Sénégal</h2>
-        <p>Système décisionnel aligné sur les données officielles des bilans de campagne (DAPSA, SAED, SODAGRI, ISRA, ARM, DHORT, CSE, ANACIM, LBA, DER/FJ, DGPRE).</p>
-        <span class="inst-badge-db">Filières Suivies : Riz (Irrigué/Pluvial) • Arachide • Mil • Maïs • Sorgho • Niébé • Oignon • Pomme de Terre • Tomate • Coton • Sésame • Manioc • Anacarde</span>
-    </div>
-    """, unsafe_allow_html=True)
-
-    @st.cache_data
-    def charger_donnees_consolidees_senegal():
-        data = {
-            "Région": [
-                "Dakar", "Thiès", "Diourbel", "Saint-Louis", "Kaolack", 
-                "Ziguinchor", "Louga", "Tambacounda", "Kolda", "Matam", 
-                "Fatick", "Kaffrine", "Kédougou", "Sédhiou"
-            ],
-            "Type de Sol Dominant (INP)": [
-                "Urbain / Sables fins", "Sols Dior (Sableux)", "Sols Deck-Dior", "Sols Hollaldé (Argileux)", "Sols Deck (Sablo-argileux)",
-                "Sols Sulfatés Acides / Fluviaux", "Sols Dior (Sableux / Élevage)", "Sols Ferrugineux Tropicaux", "Sols Ferrallitiques / Argileux", "Sols Vertisols / Alluviaux",
-                "Sols Halomorphes (Salins)", "Sols Deck-Dior (Céréaliers)", "Sols Lithosols / Rocheux", "Sols Hydromorphes / Rizicoles"
-            ],
-            "DGPRE - Eau Irrigation Mobilisée (Mio m³)": [
-                12.5, 45.0, 18.2, 1420.0, 32.0, 85.0, 14.5, 65.0, 92.0, 680.0, 22.0, 28.0, 15.0, 78.0
-            ],
-            "SAED/SODAGRI - Riz Irrigué & Pluvial (Tonnes)": [
-                0, 1200, 0, 850000, 15000, 95000, 500, 28000, 145000, 180000, 12000, 8500, 18000, 110000
-            ],
-            "DAPSA - Mil & Sorgho (Tonnes)": [
-                200, 32000, 98000, 5000, 185000, 12000, 42000, 110000, 85000, 15000, 140000, 260000, 18000, 45000
-            ],
-            "DAPSA - Maïs & Fonio (Tonnes)": [
-                100, 8500, 12000, 2000, 68000, 28000, 4500, 125000, 142000, 8000, 38000, 115000, 24000, 62000
-            ],
-            "DAPSA - Arachide (Tonnes)": [
-                0, 35000, 82000, 1500, 240000, 800, 22000, 85000, 98000, 500, 125000, 310000, 2500, 48000
-            ],
-            "DAPSA - Niébé & Sésame (Tonnes)": [
-                100, 18000, 38000, 4200, 22000, 1500, 45000, 14000, 11000, 8500, 28000, 32000, 1200, 8500
-            ],
-            "SODEFITEX/DAPSA - Coton & Anacarde (Tonnes)": [
-                0, 0, 0, 0, 0, 18000, 0, 8500, 6200, 0, 2500, 0, 3100, 14500
-            ],
-            "ARM/DHORT - Oignon & Pomme de Terre (Tonnes)": [
-                4500, 65000, 1800, 290000, 8500, 1200, 120000, 800, 1100, 18000, 3200, 1500, 200, 900
-            ],
-            "ARM/DHORT - Tomate Industrielle & Legumes (Tonnes)": [
-                18000, 82000, 4500, 105000, 14000, 8500, 11000, 4200, 5800, 12000, 6200, 4800, 1100, 7200
-            ],
-            "DAPSA - Manioc & Tubercules (Tonnes)": [
-                1200, 210000, 85000, 500, 32000, 14000, 68000, 12000, 18000, 1000, 24000, 45000, 3500, 22000
-            ],
-            "ARM - Capacité de Stockage/Régulation (Tonnes)": [
-                25000, 45000, 8000, 85000, 18000, 4500, 35000, 3000, 4000, 12000, 5000, 8000, 1500, 3500
-            ],
-            "CSE - Biomasse Pastorale Disponible (kg MS/ha)": [
-                250, 850, 1100, 1450, 1800, 2600, 950, 2300, 2800, 1600, 1250, 1900, 3100, 2450
-            ],
-            "ITA - Taux de Transformation Agroalimentaire (%)": [
-                28.5, 16.2, 8.5, 22.0, 14.4, 12.0, 7.2, 9.8, 11.5, 14.2, 9.1, 12.8, 5.5, 10.9
-            ],
-            "La Banque Agricole - Financements Octroyés (Mio FCFA)": [
-                12500, 8900, 6200, 38500, 24000, 7800, 5100, 11200, 13400, 19800, 7100, 28500, 2300, 8200
-            ],
-            "DER/FJ - Agropreneurs & TPE Financés (Nombre)": [
-                1420, 980, 750, 1850, 1210, 840, 620, 910, 1050, 890, 680, 1340, 310, 720
-            ],
-            "ISRA-BAME - Prix Moyen Producteur Céréales (FCFA/kg)": [
-                310, 285, 260, 220, 250, 270, 275, 245, 240, 230, 265, 240, 280, 250
-            ],
-            "3FPT/ONFP - Acteurs Formés en Agribusiness": [
-                850, 1420, 920, 2300, 1750, 1100, 820, 1050, 1280, 1450, 890, 1950, 420, 980
-            ],
-            "ANACIM - Abonnés Alertes Agrométéo SMS": [
-                12000, 45000, 68000, 89000, 95000, 52000, 41000, 63000, 71000, 58000, 48000, 112000, 18000, 44000
-            ],
-            "INP - Terres Salines Restaurées au Gypse (Ha)": [
-                10, 450, 850, 1200, 1600, 3100, 620, 980, 1150, 1400, 4200, 1800, 210, 2800
-            ],
-            "Taux d'Encadrement Technique ANCAR (%)": [
-                5.0, 34.2, 28.0, 78.5, 42.1, 51.0, 22.4, 19.5, 31.0, 64.0, 35.8, 48.0, 12.5, 38.2
-            ],
-            "Taux Couverture Vaccinale Cheptel MEPA (%)": [
-                75.0, 62.5, 88.0, 82.1, 71.4, 55.0, 92.4, 79.8, 85.0, 89.5, 68.0, 74.5, 48.0, 59.2
-            ],
-            "DAPSA - Intrants Subventionnés Distribués (Tonnes)": [
-                50, 4100, 6200, 18500, 14200, 5100, 3200, 8900, 9500, 11200, 5400, 16800, 1200, 4900
-            ],
-            "DAPSA - Valeur Ajoutée Agricole Estimée (Mrds FCFA)": [
-                5.0, 42.0, 28.0, 195.0, 110.0, 55.0, 30.0, 75.0, 88.0, 120.0, 38.0, 145.0, 18.0, 62.0
-            ]
-        }
-        return pd.DataFrame(data)
-
-    df_base = charger_donnees_consolidees_senegal()
-
-    st.markdown("<div class='db-section-title'>⚙️ Paramétrage du Territoire & Scénarios de Campagne Agricole</div>", unsafe_allow_html=True)
-    with st.container(border=True):
-        col_reg, col_annee, col_scen = st.columns([2, 2, 2])
-        
-        with col_reg:
-            liste_regions = ["Tout le Sénégal"] + list(df_base["Région"].unique())
-            region_choisie = st.selectbox("Territoire d'analyse :", options=liste_regions, key="sb_region_choisie_v3")
-        
-        with col_annee:
-            annee_choisie = st.slider("Année de référence :", min_value=1960, max_value=2026, value=2026, key="sl_annee_v3")
-            
-        with col_scen:
-            scenario = st.selectbox(
-                "Modèle de projection :",
-                options=[
-                    "📈 Statu Quo / Campagne Traditionnelle", 
-                    "🚨 Choc Climatique / Sécheresse Historique", 
-                    "🚀 Optimisation Technologique YouAgronoMe"
-                ],
-                key="sb_scen_v3"
-            )
-
-        facteur_historique = 0.20 + (0.80 * ((annee_choisie - 1960) / (2026 - 1960)))
-        coef_production = facteur_historique
-
-        if "Choc Climatique" in scenario:
-            coef_production *= 0.70  
-            st.error(f"⚠️ **Alerte ANACIM ({annee_choisie})** : Simulation d'un déficit pluviométrique majeur (-30% de rendement sur les cultures pluviales).")
-        elif "YouAgronoMe" in scenario:
-            coef_production *= 1.25  
-            st.success(f"✨ **Gains YouAgronoMe ({annee_choisie})** : Rationalisation des intrants, irrigation de précision et valorisation industrielle (+25%).")
-
-        df_filtre = df_base.copy()
-        if region_choisie != "Tout le Sénégal":
-            df_filtre = df_filtre[df_filtre["Région"] == region_choisie]
-
-        cols_prod = [
-            "SAED/SODAGRI - Riz Irrigué & Pluvial (Tonnes)", "DAPSA - Mil & Sorgho (Tonnes)",
-            "DAPSA - Maïs & Fonio (Tonnes)", "DAPSA - Arachide (Tonnes)", "DAPSA - Niébé & Sésame (Tonnes)",
-            "SODEFITEX/DAPSA - Coton & Anacarde (Tonnes)", "ARM/DHORT - Oignon & Pomme de Terre (Tonnes)",
-            "ARM/DHORT - Tomate Industrielle & Legumes (Tonnes)", "DAPSA - Manioc & Tubercules (Tonnes)"
-        ]
-        for c in cols_prod:
-            df_filtre[c] = (df_filtre[c] * coef_production).astype(int)
-
-        df_filtre["DAPSA - Valeur Ajoutée Agricole Estimée (Mrds FCFA)"] = df_filtre["DAPSA - Valeur Ajoutée Agricole Estimée (Mrds FCFA)"] * facteur_historique
-        df_filtre["La Banque Agricole - Financements Octroyés (Mio FCFA)"] = (df_filtre["La Banque Agricole - Financements Octroyés (Mio FCFA)"] * facteur_historique).astype(int)
-
-    total_cereales_all = (
-        df_filtre["SAED/SODAGRI - Riz Irrigué & Pluvial (Tonnes)"].sum() +
-        df_filtre["DAPSA - Mil & Sorgho (Tonnes)"].sum() +
-        df_filtre["DAPSA - Maïs & Fonio (Tonnes)"].sum()
+    st.markdown('<div class="section">Principe de fiabilité</div>', unsafe_allow_html=True)
+    st.info(
+        "La version précédente mélangeait des chiffres présentés comme institutionnels avec des valeurs "
+        "non vérifiables et appliquait des coefficients arbitraires à des productions historiques. "
+        "Cette version supprime cette logique : chaque donnée est marquée par sa source, sa période et son statut."
     )
 
-    st.markdown("<div class='db-section-title'>🎯 Tableau de Bord Personnalisé selon les Rôles Institutionnels</div>", unsafe_allow_html=True)
+    st.markdown('<div class="section">Références nationales intégrées</div>', unsafe_allow_html=True)
+    st.dataframe(dashboard_source_status(), use_container_width=True, hide_index=True)
 
-    profil = st.tabs([
-        "🧑‍🌾 Agriculteurs & Producteurs",
-        "🔬 Techniciens & Vulgarisateurs",
-        "🌍 ONG & Projets de Développement",
-        "💼 Investisseurs & Agrobusiness",
-        "🏛️ État & Décideurs Publics"
+# ============================================================
+# 8. TABLEAU DE BORD
+# ============================================================
+
+elif menu == "📊 Tableau de bord":
+    st.markdown('<div class="section">Observatoire agricole — données vérifiables</div>', unsafe_allow_html=True)
+    st.caption("Les chiffres ci-dessous reprennent les indicateurs affichés par le MASAE pour la campagne 2023–2024. Ils ne sont pas extrapolés à 2026.")
+
+    a,b,c,d,e = st.columns(5)
+    vals = OFFICIAL_CAMPAIGN_2023_2024.set_index("Indicateur")
+    a.metric("Arachide", "1,67 M t")
+    b.metric("Riz", "1,40 M t")
+    c.metric("Arachide", "1,20 M ha")
+    d.metric("Régions EAA", "14")
+    e.metric("Départements", "45")
+
+    st.markdown('<div class="section">Données officielles disponibles</div>', unsafe_allow_html=True)
+    st.dataframe(OFFICIAL_CAMPAIGN_2023_2024, use_container_width=True, hide_index=True)
+
+    st.markdown('<div class="section">Importer un jeu de données DAPSA / projet / exploitation</div>', unsafe_allow_html=True)
+    uploaded = st.file_uploader("CSV ou Excel", type=["csv", "xlsx"], key="dashboard_upload")
+    if uploaded:
+        try:
+            if uploaded.name.lower().endswith(".csv"):
+                df = pd.read_csv(uploaded)
+            else:
+                df = pd.read_excel(uploaded)
+            st.success(f"{len(df):,} lignes chargées. Les données sont marquées comme 'importées' et ne sont pas confondues avec les données officielles.")
+            st.dataframe(df, use_container_width=True, hide_index=True)
+            csv_bytes = df.to_csv(index=False).encode("utf-8")
+            st.download_button("📥 Télécharger la copie normalisée CSV", csv_bytes, "donnees_normalisees.csv", "text/csv")
+        except Exception as exc:
+            st.error(f"Impossible de lire le fichier : {exc}")
+
+    st.markdown('<div class="section">Suivi territorial</div>', unsafe_allow_html=True)
+    region = st.selectbox("Région", ["Toutes"] + list(REGIONS.keys()))
+    if region != "Toutes":
+        lat, lon = REGIONS[region]
+        zone = find_zone(region)
+        st.info(f"**{region}** — zone agro-écologique : **{zone}**. Les informations de sol sont indicatives et ne remplacent pas une analyse de laboratoire.")
+        weather = get_weather(lat, lon)
+        if weather:
+            cur = weather["current"]
+            x1,x2,x3,x4 = st.columns(4)
+            x1.metric("Température", f"{cur.get('temperature_2m','—')} °C")
+            x2.metric("Humidité", f"{cur.get('relative_humidity_2m','—')} %")
+            x3.metric("Vent", f"{cur.get('wind_speed_10m','—')} km/h")
+            x4.metric("Pluie actuelle", f"{cur.get('precipitation','—')} mm")
+            for risk in weather_risk(weather):
+                st.warning(risk)
+            daily = pd.DataFrame({
+                "Date": weather["daily"]["time"],
+                "T° max": weather["daily"]["temperature_2m_max"],
+                "T° min": weather["daily"]["temperature_2m_min"],
+                "Pluie mm": weather["daily"]["precipitation_sum"],
+                "Probabilité pluie %": weather["daily"]["precipitation_probability_max"],
+                "Vent max km/h": weather["daily"]["wind_speed_10m_max"],
+            })
+            st.dataframe(daily, use_container_width=True, hide_index=True)
+        else:
+            st.warning("Prévision opérationnelle indisponible. Consulter le bulletin ANACIM.")
+
+# ============================================================
+# 9. CONSULTANCE
+# ============================================================
+
+elif menu == "💼 Consultance":
+    st.markdown('<div class="section">Bureau de consultance agronomique 360°</div>', unsafe_allow_html=True)
+
+    c0,c1,c2,c3,c4 = st.tabs([
+        "🗺️ Parcelle & GPS", "🌦️ Météo & climat", "🧪 Sol & fertilité",
+        "🔬 Diagnostic", "💰 Économie & rapport"
     ])
 
-    with profil[0]:
-        st.info("💡 **Vue Producteur** : Alertes météo ANACIM, prix indicatifs ISRA-BAME, régulation ARM et disponibilité fourragère CSE.")
-        c1, c2, c3, c4 = st.columns(4)
-        with c1:
-            st.markdown(f"""
-            <div class="clean-card">
-                <div class="clean-card-title">📡 SMS Météo (ANACIM)</div>
-                <div class="clean-card-value">{df_filtre['ANACIM - Abonnés Alertes Agrométéo SMS'].sum():,}</div>
-                <div class="clean-card-sub">Producteurs connectés</div>
-            </div>
-            """, unsafe_allow_html=True)
-        with c2:
-            st.markdown(f"""
-            <div class="clean-card">
-                <div class="clean-card-title">💵 Prix Repère (ISRA-BAME)</div>
-                <div class="clean-card-value">{df_filtre['ISRA-BAME - Prix Moyen Producteur Céréales (FCFA/kg)'].mean():.0f} FCFA/kg</div>
-                <div class="clean-card-sub">Moyenne céréales locales</div>
-            </div>
-            """, unsafe_allow_html=True)
-        with c3:
-            st.markdown(f"""
-            <div class="clean-card">
-                <div class="clean-card-title">🧅 Régulation (ARM)</div>
-                <div class="clean-card-value">{df_filtre['ARM/DHORT - Oignon & Pomme de Terre (Tonnes)'].sum():,} T</div>
-                <div class="clean-card-sub">Oignon & P. de terre récoltés</div>
-            </div>
-            """, unsafe_allow_html=True)
-        with c4:
-            st.markdown(f"""
-            <div class="clean-card">
-                <div class="clean-card-title">🌿 Biomasse (CSE)</div>
-                <div class="clean-card-value">{df_filtre['CSE - Biomasse Pastorale Disponible (kg MS/ha)'].mean():.0f} kg/ha</div>
-                <div class="clean-card-sub">Pâturage disponible</div>
-            </div>
-            """, unsafe_allow_html=True)
+    # ----- Parcelle / cartographie -----
+    with c0:
+        st.subheader("Délimitation précise et synchronisée")
+        region = st.selectbox("Région de référence", list(REGIONS.keys()), key="parcel_region")
+        commune = st.text_input("Commune / village", key="parcel_commune")
+        parcel_name = st.text_input("Nom de la parcelle", value="Parcelle 01", key="parcel_name")
+        crop = st.selectbox("Culture principale", CROPS, key="parcel_crop")
 
-        st.write("")
-        st.markdown("**🔍 Bilan des Productions Agricoles Réelles par Région :**")
-        st.dataframe(
-            df_filtre[[
-                "Région", "Type de Sol Dominant (INP)", "SAED/SODAGRI - Riz Irrigué & Pluvial (Tonnes)", 
-                "DAPSA - Mil & Sorgho (Tonnes)", "DAPSA - Arachide (Tonnes)", "ARM/DHORT - Oignon & Pomme de Terre (Tonnes)"
-            ]],
-            use_container_width=True, hide_index=True
-        )
+        lat0, lon0 = REGIONS[region]
+        if "map_coords" not in st.session_state:
+            st.session_state.map_coords = [
+                [lat0, lon0],
+                [lat0 + 0.0015, lon0],
+                [lat0 + 0.0015, lon0 + 0.0015],
+                [lat0, lon0 + 0.0015],
+            ]
 
-    with profil[1]:
-        st.info("🔬 **Vue Encadrement Technique** : Suivi du taux de couverture ANCAR, restauration des sols INP et formation continue 3FPT.")
-        c1, c2, c3, c4 = st.columns(4)
-        with c1:
-            st.markdown(f"""
-            <div class="clean-card">
-                <div class="clean-card-title">📢 Conseil (ANCAR)</div>
-                <div class="clean-card-value">{df_filtre["Taux d'Encadrement Technique ANCAR (%)"].mean():.1f} %</div>
-                <div class="clean-card-sub">Taux moyen d'encadrement</div>
-            </div>
-            """, unsafe_allow_html=True)
-        with c2:
-            st.markdown(f"""
-            <div class="clean-card">
-                <div class="clean-card-title">🧪 Sols Traités (INP)</div>
-                <div class="clean-card-value">{df_filtre['INP - Terres Salines Restaurées au Gypse (Ha)'].sum():,} Ha</div>
-                <div class="clean-card-sub">Sols de tannes récupérés</div>
-            </div>
-            """, unsafe_allow_html=True)
-        with c3:
-            st.markdown(f"""
-            <div class="clean-card">
-                <div class="clean-card-title">🎓 Formés (3FPT/ONFP)</div>
-                <div class="clean-card-value">{df_filtre['3FPT/ONFP - Acteurs Formés en Agribusiness'].sum():,}</div>
-                <div class="clean-card-sub">Acteurs formés aux bonnes pratiques</div>
-            </div>
-            """, unsafe_allow_html=True)
-        with c4:
-            st.markdown(f"""
-            <div class="clean-card">
-                <div class="clean-card-title">💉 Santé Animale (MEPA)</div>
-                <div class="clean-card-value">{df_filtre['Taux Couverture Vaccinale Cheptel MEPA (%)'].mean():.1f} %</div>
-                <div class="clean-card-sub">Couverture vaccinale du cheptel</div>
-            </div>
-            """, unsafe_allow_html=True)
+        colmap, coltools = st.columns([2.5, 1])
+        with colmap:
+            if HAS_MAP:
+                m = folium.Map(location=[lat0, lon0], zoom_start=13, control_scale=True, tiles="OpenStreetMap")
+                folium.LayerControl().add_to(m)
+                Draw(
+                    export=True,
+                    draw_options={
+                        "polyline": False, "rectangle": True, "circle": False,
+                        "circlemarker": False, "marker": True, "polygon": True
+                    },
+                    edit_options={"edit": True, "remove": True}
+                ).add_to(m)
 
-        st.write("")
-        st.markdown("**📋 Suivi des Indicateurs de Vulgarisation & Diversification Réelle :**")
-        st.dataframe(
-            df_filtre[[
-                "Région", "Taux d'Encadrement Technique ANCAR (%)", "INP - Terres Salines Restaurées au Gypse (Ha)", 
-                "DAPSA - Niébé & Sésame (Tonnes)", "DAPSA - Manioc & Tubercules (Tonnes)"
-            ]],
-            use_container_width=True, hide_index=True
-        )
+                if len(st.session_state.map_coords) >= 3:
+                    folium.Polygon(
+                        st.session_state.map_coords,
+                        color="#176b3a", fill=True, fill_opacity=.25,
+                        popup=f"{parcel_name} — {crop}"
+                    ).add_to(m)
 
-    with profil[2]:
-        st.info("🌍 **Vue Résilience & ONG** : Sécurité hydrique DGPRE, appui aux cultures vivrières de base et potentiel de transformation locale ITA.")
-        c1, c2, c3, c4 = st.columns(4)
-        with c1:
-            st.markdown(f"""
-            <div class="clean-card">
-                <div class="clean-card-title">💧 Mobilisation Eau (DGPRE)</div>
-                <div class="clean-card-value">{df_filtre['DGPRE - Eau Irrigation Mobilisée (Mio m³)'].sum():,.1f} M m³</div>
-                <div class="clean-card-sub">Prélèvements d'irrigation</div>
-            </div>
-            """, unsafe_allow_html=True)
-        with c2:
-            st.markdown(f"""
-            <div class="clean-card">
-                <div class="clean-card-title">🥣 Céréales Vivrières</div>
-                <div class="clean-card-value">{df_filtre['DAPSA - Mil & Sorgho (Tonnes)'].sum() + df_filtre['DAPSA - Maïs & Fonio (Tonnes)'].sum():,} T</div>
-                <div class="clean-card-sub">Mil, Sorgho, Maïs, Fonio</div>
-            </div>
-            """, unsafe_allow_html=True)
-        with c3:
-            st.markdown(f"""
-            <div class="clean-card">
-                <div class="clean-card-title">🧆 Legumineuses</div>
-                <div class="clean-card-value">{df_filtre['DAPSA - Niébé & Sésame (Tonnes)'].sum():,} T</div>
-                <div class="clean-card-sub">Protéines végétales locales</div>
-            </div>
-            """, unsafe_allow_html=True)
-        with c4:
-            st.markdown(f"""
-            <div class="clean-card">
-                <div class="clean-card-title">🏬 Transfo. Locale (ITA)</div>
-                <div class="clean-card-value">{df_filtre['ITA - Taux de Transformation Agroalimentaire (%)'].mean():.1f} %</div>
-                <div class="clean-card-sub">Valorisation des récoltes</div>
-            </div>
-            """, unsafe_allow_html=True)
+                map_state = st_folium(m, height=560, width=None, key="consult_map")
+                drawings = map_state.get("all_drawings") if map_state else None
+                if drawings:
+                    latest = drawings[-1]
+                    geom = latest.get("geometry", {})
+                    coords = geom.get("coordinates")
+                    if geom.get("type") == "Polygon" and coords:
+                        ring = coords[0]
+                        st.session_state.map_coords = [[p[1], p[0]] for p in ring[:-1]]
+                        st.rerun()
+                    elif geom.get("type") == "Point" and coords:
+                        st.session_state.map_center = [coords[1], coords[0]]
+                        st.info(f"Point GPS synchronisé : {coords[1]:.6f}, {coords[0]:.6f}")
+            else:
+                st.warning("Folium/streamlit-folium n'est pas installé. Utilisez l'entrée manuelle ci-dessous.")
 
-        st.write("")
-        st.markdown("**🛡️ Synthèse de la Disponibilité Alimentaire par Territoire :**")
-        st.dataframe(
-            df_filtre[[
-                "Région", "DGPRE - Eau Irrigation Mobilisée (Mio m³)", "DAPSA - Mil & Sorgho (Tonnes)", 
-                "DAPSA - Niébé & Sésame (Tonnes)", "ITA - Taux de Transformation Agroalimentaire (%)"
-            ]],
-            use_container_width=True, hide_index=True
-        )
-
-    with profil[3]:
-        st.info("💼 **Vue Agrobusiness & Finance** : Financements La Banque Agricole & DER/FJ, capacités logistiques ARM et cultures de rente.")
-        c1, c2, c3, c4 = st.columns(4)
-        with c1:
-            st.markdown(f"""
-            <div class="clean-card">
-                <div class="clean-card-title">🏦 Crédit La Banque Agricole</div>
-                <div class="clean-card-value">{df_filtre['La Banque Agricole - Financements Octroyés (Mio FCFA)'].sum() / 1000:.2f} Mrds FCFA</div>
-                <div class="clean-card-sub">Financements bancaires injectés</div>
-            </div>
-            """, unsafe_allow_html=True)
-        with c2:
-            st.markdown(f"""
-            <div class="clean-card">
-                <div class="clean-card-title">🚀 Agropreneurs (DER/FJ)</div>
-                <div class="clean-card-value">{df_filtre['DER/FJ - Agropreneurs & TPE Financés (Nombre)'].sum():,}</div>
-                <div class="clean-card-sub">Projets d'agrobusiness financés</div>
-            </div>
-            """, unsafe_allow_html=True)
-        with c3:
-            st.markdown(f"""
-            <div class="clean-card">
-                <div class="clean-card-title">🥜 Filière Arachidière</div>
-                <div class="clean-card-value">{df_filtre['DAPSA - Arachide (Tonnes)'].sum():,} T</div>
-                <div class="clean-card-sub">Volume d'arachide produit</div>
-            </div>
-            """, unsafe_allow_html=True)
-        with c4:
-            st.markdown(f"""
-            <div class="clean-card">
-                <div class="clean-card-title">📦 Infrastructures ARM</div>
-                <div class="clean-card-value">{df_filtre['ARM - Capacité de Stockage/Régulation (Tonnes)'].sum():,} T</div>
-                <div class="clean-card-sub">Capacité d'entreposage disponible</div>
-            </div>
-            """, unsafe_allow_html=True)
-
-        st.write("")
-        st.markdown("**📈 Opportunités d'Investissement dans les Filières Industrielles :**")
-        st.dataframe(
-            df_filtre[[
-                "Région", "La Banque Agricole - Financements Octroyés (Mio FCFA)", "DER/FJ - Agropreneurs & TPE Financés (Nombre)", 
-                "SODEFITEX/DAPSA - Coton & Anacarde (Tonnes)", "ARM/DHORT - Tomate Industrielle & Legumes (Tonnes)"
-            ]],
-            use_container_width=True, hide_index=True
-        )
-
-    with profil[4]:
-        st.info("🏛️ **Vue Macro-économique & Souveraineté** : Bilan global des filières (DAPSA), création de richesse et souveraineté alimentaire.")
-        total_pib = df_filtre["DAPSA - Valeur Ajoutée Agricole Estimée (Mrds FCFA)"].sum()
-        total_intrants = df_filtre["DAPSA - Intrants Subventionnés Distribués (Tonnes)"].sum()
-        
-        c1, c2, c3, c4 = st.columns(4)
-        with c1:
-            st.markdown(f"""
-            <div class="clean-card">
-                <div class="clean-card-title">💰 Valeur Ajoutée (DAPSA)</div>
-                <div class="clean-card-value">{total_pib:.2f} Mrds FCFA</div>
-                <div class="clean-card-sub">PIB Agricole sectoriel</div>
-            </div>
-            """, unsafe_allow_html=True)
-        with c2:
-            st.markdown(f"""
-            <div class="clean-card">
-                <div class="clean-card-title">🌾 Production Céréalière</div>
-                <div class="clean-card-value">{total_cereales_all:,} T</div>
-                <div class="clean-card-sub">Riz, Mil, Sorgho, Maïs, Fonio</div>
-            </div>
-            """, unsafe_allow_html=True)
-        with c3:
-            st.markdown(f"""
-            <div class="clean-card">
-                <div class="clean-card-title">🌱 Subventions Intrants</div>
-                <div class="clean-card-value">{total_intrants:,} T</div>
-                <div class="clean-card-sub">Engrais & semences distribués</div>
-            </div>
-            """, unsafe_allow_html=True)
-        with c4:
-            st.markdown(f"""
-            <div class="clean-card">
-                <div class="clean-card-title">🛡️ Substitution Importations</div>
-                <div class="clean-card-value">{(total_cereales_all * 0.21) / 1000:.1f} Mrds FCFA</div>
-                <div class="clean-card-sub">Économie de devises estimée</div>
-            </div>
-            """, unsafe_allow_html=True)
-
-        st.write("")
-        st.markdown("**📊 Bilan Consolidé de Toutes les Filières Agricoles du Sénégal :**")
-        st.dataframe(
-            df_filtre[[
-                "Région", "SAED/SODAGRI - Riz Irrigué & Pluvial (Tonnes)", "DAPSA - Mil & Sorgho (Tonnes)", 
-                "DAPSA - Arachide (Tonnes)", "ARM/DHORT - Oignon & Pomme de Terre (Tonnes)", "ARM/DHORT - Tomate Industrielle & Legumes (Tonnes)"
-            ]],
-            use_container_width=True, hide_index=True
-        )
-# =====================================================
-# 💼 CONSULTANCE AGRONOMIQUE EXPERTE (MODULE 360° & IA)
-# =====================================================
-elif selected == "💼 Consultance":
-
-    DB_FILE = "techniciens_db.json"
-    OWNER_EMAIL = "issayoume2012@gmail.com"
-    OWNER_PASS = "issayoume2026"
-
-    DEFAULT_OWNER = {
-        "email": OWNER_EMAIL,
-        "password": OWNER_PASS,
-        "nom": "Issa Youm (Administrateur Principal)",
-        "role": "Administrateur Système",
-        "zone": "National (Sénégal)",
-        "statut": "Actif"
-    }
-
-    def load_db():
-        default_db = {"whitelist": [DEFAULT_OWNER], "historique": [], "projets_expert": []}
-        data = default_db
-        if os.path.exists(DB_FILE):
-            try:
-                with open(DB_FILE, "r", encoding="utf-8") as f:
-                    loaded = json.load(f)
-                    if isinstance(loaded, dict):
-                        data = loaded
-            except Exception:
-                data = default_db
-
-        raw_whitelist = data.get("whitelist", [])
-        if not isinstance(raw_whitelist, list):
-            raw_whitelist = []
-
-        clean_whitelist = [u for u in raw_whitelist if isinstance(u, dict)]
-        owner_found = False
-        for user in clean_whitelist:
-            if str(user.get("email", "")).strip().lower() == OWNER_EMAIL.lower():
-                user["password"] = OWNER_PASS
-                user["role"] = "Administrateur Système"
-                user["statut"] = "Actif"
-                owner_found = True
-                break
-
-        if not owner_found:
-            clean_whitelist.append(DEFAULT_OWNER)
-
-        data["whitelist"] = clean_whitelist
-        if "historique" not in data or not isinstance(data["historique"], list):
-            data["historique"] = []
-        if "projets_expert" not in data or not isinstance(data["projets_expert"], list):
-            data["projets_expert"] = []
-
-        try:
-            with open(DB_FILE, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=4, ensure_ascii=False)
-        except Exception:
-            pass
-        return data
-
-    def save_db(db_data):
-        try:
-            with open(DB_FILE, "w", encoding="utf-8") as f:
-                json.dump(db_data, f, indent=4, ensure_ascii=False)
-        except Exception:
-            pass
-
-    db = load_db()
-
-    # --- BASE PÉDOLOGIQUE COMPLÈTE DU SÉNÉGAL (12 Grands Types - INP) ---
-    BASE_SOLS_INP_EXPERT = {
-        "Vallée du Fleuve Sénégal (Saint-Louis, Matam, Bakel)": {
-            "Sol Deck (Fluvisol Hydromorphe Argileux)": {"pH": 6.8, "MO": 2.1, "N": 0.12, "P": 18, "K": 210, "Rétention": "Très forte (>140mm/m)", "Drainage": "Lent", "Texture": "Argilo-limoneux"},
-            "Sol Brun-Rouge Subaride sur Sable (Fanaye Diéri)": {"pH": 7.6, "MO": 0.3, "N": 0.12, "P": 10, "K": 90, "Rétention": "Faible à moyenne", "Drainage": "Bon", "Texture": "Sableux à sablo-limoneux"},
-            "Sols Halomorphes sur Alluvions Argileuses (Sols Salés / Tanches)": {"pH": 8.5, "MO": 1.5, "N": 0.08, "P": 12, "K": 180, "Rétention": "Forte", "Drainage": "Très lent (Hydromorphie)", "Texture": "Argile lourde"}
-        },
-        "Zone des Niayes & Littoral (Dakar, Thiès, Louga)": {
-            "Sables des Niayes / Céane (Arénosol Eutrique / Sable fin)": {"pH": 6.2, "MO": 0.6, "N": 0.04, "P": 22, "K": 80, "Rétention": "Faible", "Drainage": "Rapide", "Texture": "Sable fin éolien"},
-            "Sol Hydromorphe de Bas-Fond / Marais tourbeux": {"pH": 5.5, "MO": 3.8, "N": 0.22, "P": 25, "K": 150, "Rétention": "Forte", "Drainage": "Imparfait", "Texture": "Limono-organique"},
-            "Sols Sulfatés Acides sur Sable (Mangroves aménagées)": {"pH": 3.5, "MO": 4.2, "N": 0.19, "P": 9, "K": 110, "Rétention": "Forte", "Drainage": "Très difficile (Toxicité aluminique)", "Texture": "Sablo-vaseux"}
-        },
-        "Bassin Arachidier (Kaolack, Fatick, Kaffrine, Diourbel)": {
-            "Sol Dior (Ferrugineux Tropical non lessivé sur sable)": {"pH": 5.7, "MO": 0.5, "N": 0.04, "P": 7, "K": 65, "Rétention": "Faible (50mm/m)", "Drainage": "Rapide", "Texture": "Sableux-graveleux"},
-            "Sol Ferrugineux Tropical Lessivé sur Grès Sablo-Argileux (Plateau)": {"pH": 6.3, "MO": 1.1, "N": 0.07, "P": 12, "K": 110, "Rétention": "Moyenne", "Drainage": "Bon", "Texture": "Franco-sableux"},
-            "Sols Gravillonnaires sur Cuirasse ferrugineuse": {"pH": 6.0, "MO": 0.8, "N": 0.05, "P": 6, "K": 50, "Rétention": "Très faible", "Drainage": "Excessif", "Texture": "Graveleux sablo-argileux"}
-        },
-        "Casamance & Sénégal Oriental (Ziguinchor, Kolda, Sédhiou, Tambacounda)": {
-            "Sol Ferrallitique Désaturé / Sols Rouges (Kounayan)": {"pH": 5.2, "MO": 1.8, "N": 0.10, "P": 11, "K": 90, "Rétention": "Moyenne", "Drainage": "Bon", "Texture": "Argilo-sableux à argileux"},
-            "Sols Minéraux Bruts de Cuirasse (Sur Grès ou Schiste)": {"pH": 5.0, "MO": 0.4, "N": 0.02, "P": 4, "K": 35, "Rétention": "Nulle", "Drainage": "Excessif", "Texture": "Cuirassé / Rocailleux"},
-            "Sols Hydromorphes Risicoles de Bas-Fond (Vasières intérieures)": {"pH": 5.0, "MO": 2.9, "N": 0.18, "P": 15, "K": 120, "Rétention": "Forte", "Drainage": "Lent / Submersion", "Texture": "Argile hydromorphe"}
-        }
-    }
-
-    # --- CATALOGUE SANITAIRE ET RAVAGEURS / INSECTES EXHAUSTIF (DPV / CEDEAO) ---
-    CATALOGUE_DPV_EXPERT = {
-        "Mouche Blanche des Serres (Bemisia tabaci)": {
-            "mecanisme": "Insecte piqueur-suceur très polyphage. Aspire la sève et transmet le virus TYLCV et la Mosaïque du Manioc.",
-            "symptomes_visuels": "Crispation et jaunissement des feuilles, dépôt de fumagine noire sur les organes, nuées de minuscules mouches blanches.",
-            "plans_sensibles": ["🍃 Vue Feuillage (Dessus/Dessous)", "🍓 Vue Fruit / Gousse"],
-            "traitement": "Acetamipride 20 SP ou Huile de Neem (15 ml/L). Pose de pièges chromotropiques jaunes."
-        },
-        "Puceron du Cotonnier (Aphis gossypii)": {
-            "mecanisme": "Piqueur-suceur grégaire piquant les jeunes pousses tendres et sécrétant un miellat abondant.",
-            "symptomes_visuels": "Enroulement des jeunes feuilles, crispation des apex, colonies denses de pucerons sous les feuilles.",
-            "plans_sensibles": ["🍃 Vue Feuillage (Dessus/Dessous)", "🪵 Vue Tige / Collet"],
-            "traitement": "Imidaclopride 200 SL ou savon noir potassique. Favoriser la faune auxiliaire (coccinelles)."
-        },
-        "Chenille Légionnaire d'Automne (Spodoptera frugiperda)": {
-            "mecanisme": "Larve vorace s'attaquant au cornet du maïs, sorgho et riz.",
-            "symptomes_visuels": "Trou perforant en 'coup de fusil', présence de sciure d'excréments au cœur du cornet.",
-            "plans_sensibles": ["🍃 Vue Feuillage (Dessus/Dessous)", "🪵 Vue Tige / Collet"],
-            "traitement": "Emamectine benzoate 5% WDG ou Bacillus thuringiensis (Bt)."
-        },
-        "Mineuse de la Tomate (Tuta absoluta)": {
-            "mecanisme": "Micro-lépidoptère creusant des mines dans le parenchyme foliaire et creusant les fruits.",
-            "symptomes_visuels": "Mines translucides blanchâtres puis nécrotiques, galeries avec excréments sous le calice du fruit.",
-            "plans_sensibles": ["🍃 Vue Feuillage (Dessus/Dessous)", "🍓 Vue Fruit / Gousse"],
-            "traitement": "Chlorantraniliprole (Altacor), Spinosad, pièges à phéromones."
-        },
-        "Nématode à Galles de la Tomate (Meloidogyne incognita)": {
-            "mecanisme": "Endoparasite migrateur provoquant une hypertrophie des cellules racinaires.",
-            "symptomes_visuels": "Billes, loupes et galles denses sur les racines. Flétrissement diurne de la tomate.",
-            "plans_sensibles": ["🪴 Vue Racines / Sol"],
-            "traitement": "Nematicides microbiens (Paecilomyces), tourteau de neem, rotation avec Tagetes."
-        },
-        "Mouche Orientale des Fruits (Bactrocera dorsalis)": {
-            "mecanisme": "Attaque les mangues, papayes, agrumes en piquant la peau pour y déposer ses œufs.",
-            "symptomes_visuels": "Piqure noire sur le fruit, pourrissement interne rapide, coulures, chute massive.",
-            "plans_sensibles": ["🍓 Vue Fruit / Gousse"],
-            "traitement": "Piégeage au Méthyl-Eugenol, ramassage systématique des fruits tombés."
-        },
-        "Flétrissement Bactérien de la Tomate (Ralstonia solanacearum)": {
-            "mecanisme": "Bactérie vasculaire colonisant le xylème et bloquant la circulation de la sève brute.",
-            "symptomes_visuels": "Flétrissement vert brutal du feuillage sans jaunissement préalable, exsudat bactérien au test du verre d'eau.",
-            "plans_sensibles": ["🪵 Vue Tige / Collet", "🍃 Vue Feuillage (Dessus/Dessous)"],
-            "traitement": "Greffage sur porte-greffe résistant (ex. Tonsem), solarisation du sol, aucune solution chimique directe."
-        },
-        "Mildiou de la Tomate et Pomme de terre (Phytophthora infestans)": {
-            "mecanisme": "Oomycete foudroyant se développant par forte humidité ambiante.",
-            "symptomes_visuels": "Taches huileuses nécrotiques grises/brunes sur feuilles avec duvet blanc en dessous.",
-            "plans_sensibles": ["🍃 Vue Feuillage (Dessus/Dessous)", "🍓 Vue Fruit / Gousse"],
-            "traitement": "Mancozèbe en préventif, Métalaxyl + Mancozèbe ou Azoxystrobine en curatif."
-        },
-        "Mosaïque du Manioc (African Cassava Mosaic Virus - ACMV)": {
-            "mecanisme": "Virus transmis par la mouche blanche (*Bemisia tabaci*) ou par les boutures infectées.",
-            "symptomes_visuels": "Mosaïque jaune-vert, déformation sévère et réduction de la surface des limbes foliaires.",
-            "plans_sensibles": ["🍃 Vue Feuillage (Dessus/Dessous)"],
-            "traitement": "Utilisation de boutures saines certifiées ISRA, élimination des plants atteints."
-        }
-    }
-
-    # Completion dynamique du catalogue jusqu'à 200 références DPV
-    cat_keys = list(CATALOGUE_DPV_EXPERT.keys())
-    for i in range(len(cat_keys) + 1, 201):
-        name_p = f"Pathogène / Ravageur Spécifique Réf. DPV-{i:03d}"
-        CATALOGUE_DPV_EXPERT[name_p] = {
-            "mecanisme": f"Parasite d'intérêt régional N°{i} altérant la croissance et la physiologie cellulaire.",
-            "symptomes_visuels": f"Symptomatologie type {i}: taches chlorotiques, ralentissement de vigueur, altération des organes.",
-            "plans_sensibles": ["🍃 Vue Feuillage (Dessus/Dessous)", "🪵 Vue Tige / Collet", "🍓 Vue Fruit / Gousse"],
-            "traitement": "Lutte intégrée IPM: rotation, biopesticide homologué Sahel, contrôle biologique."
-        }
-
-    # -------------------------------------------------
-    # SÉCURITÉ ET CONNEXION À LA LISTE BLANCHE
-    # -------------------------------------------------
-    if "auth_user" not in st.session_state:
-        st.session_state["auth_user"] = None
-
-    if st.session_state["auth_user"] is None:
-        st.markdown("""
-        <div style="background: linear-gradient(135deg, #1b5e20 0%, #2e7d32 100%); padding: 25px; border-radius: 16px; color: white; text-align: center; margin-bottom: 25px;">
-            <h2 style="color: white !important; margin: 0;">💼 Bureau d'Expertise & Consultance Agronomique 360°</h2>
-            <p style="margin-top: 8px; opacity: 0.9;">Accès sécurisé réservé aux experts agréés et autorisés par la Liste Blanche.</p>
-        </div>
-        """, unsafe_allow_html=True)
-
-        col_l1, col_l2, col_l3 = st.columns([1, 2, 1])
-        with col_l2:
-            with st.container(border=True):
-                st.subheader("🔐 Authentification Technicien / Expert")
-                email_in = st.text_input("Adresse E-mail Agréée :", key="login_email")
-                pass_in = st.text_input("Mot de Passe :", type="password", key="login_pass")
-
-                if st.button("Se Connecter à la Consultance", type="primary", use_container_width=True):
-                    matched = None
-                    for u in db["whitelist"]:
-                        if u.get("email", "").strip().lower() == email_in.strip().lower() and u.get("password", "").strip() == pass_in.strip():
-                            if u.get("statut", "Actif") == "Actif":
-                                matched = u
-                                break
-                            else:
-                                st.error("⛔ Ce compte d'expert a été suspendu par l'Administrateur.")
-                                st.stop()
-
-                    if matched:
-                        st.session_state["auth_user"] = matched
-                        st.success(f"Bienvenue, {matched.get('nom', 'Expert')} !")
+        with coltools:
+            st.markdown("**Outils de précision**")
+            st.caption("1. Dessinez le polygone. 2. L'application récupère les sommets. 3. Surface et périmètre sont recalculés.")
+            coords_text = st.text_area(
+                "Sommets manuels — une ligne `lat,lon`",
+                value="\n".join(f"{a:.6f},{b:.6f}" for a,b in st.session_state.map_coords),
+                height=170,
+            )
+            if st.button("🔄 Synchroniser les coordonnées", key="sync_coords"):
+                try:
+                    pts = []
+                    for line in coords_text.splitlines():
+                        if not line.strip():
+                            continue
+                        la, lo = [float(x.strip()) for x in line.split(",")[:2]]
+                        pts.append([la, lo])
+                    if len(pts) >= 3:
+                        st.session_state.map_coords = pts
+                        st.success("Coordonnées synchronisées.")
                         st.rerun()
                     else:
-                        st.error("❌ E-mail ou mot de passe incorrect. Accès restreint par la Liste Blanche.")
-        st.stop()
+                        st.error("Il faut au moins 3 sommets.")
+                except Exception:
+                    st.error("Format invalide.")
 
-    current_user = st.session_state["auth_user"]
-    is_owner = (current_user.get("email", "").strip().lower() == OWNER_EMAIL.lower())
+            area_ha, perimeter_m = polygon_area_perimeter(st.session_state.map_coords)
+            cen = centroid(st.session_state.map_coords)
+            st.metric("Surface", f"{area_ha:.3f} ha")
+            st.metric("Périmètre", f"{perimeter_m:.1f} m")
+            st.metric("Centroïde", f"{cen[0]:.6f}, {cen[1]:.6f}")
 
-    # Barre de statut
-    st.markdown(f"""
-    <div style="background: #e8f5e9; padding: 12px 20px; border-radius: 10px; border-left: 5px solid #2e7d32; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center;">
-        <div>
-            <b>👤 Expert Connecté :</b> {current_user.get('nom')} | <b>Rôle :</b> {current_user.get('role')} | <b>Zone :</b> {current_user.get('zone')}
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+            st.markdown("**Bordures / emprise**")
+            if st.session_state.map_coords:
+                lats = [p[0] for p in st.session_state.map_coords]
+                lons = [p[1] for p in st.session_state.map_coords]
+                st.write(f"Nord : {max(lats):.6f}")
+                st.write(f"Sud : {min(lats):.6f}")
+                st.write(f"Est : {max(lons):.6f}")
+                st.write(f"Ouest : {min(lons):.6f}")
 
-    if st.button("🚪 Déconnexion du Bureau Consultance", key="logout_btn"):
-        st.session_state["auth_user"] = None
-        st.rerun()
+            if st.button("💾 Enregistrer la parcelle", type="primary"):
+                con = db_conn()
+                con.execute(
+                    "INSERT INTO parcels(name,region,commune,crop,area_ha,perimeter_m,geojson,created_at) VALUES(?,?,?,?,?,?,?,?)",
+                    (parcel_name, region, commune, crop, area_ha, perimeter_m, json.dumps(st.session_state.map_coords), datetime.now().isoformat())
+                )
+                con.commit()
+                con.close()
+                st.success("Parcelle enregistrée dans la base locale.")
 
-    st.markdown("""
-    <div style="background: linear-gradient(135deg, #1b5e20 0%, #2e7d32 100%); padding: 25px; border-radius: 16px; color: white; text-align: center; margin-bottom: 25px;">
-        <h2 style="color: white !important; margin: 0;">💼 Bureau d'Expertise & Consultance Agronomique 360°</h2>
-        <p style="margin-top: 8px; opacity: 0.9;">Module de diagnostic, prescription d'intrants, cartographie parcellaire et étude d'impact financier.</p>
-    </div>
-    """, unsafe_allow_html=True)
+        st.markdown("**Importer une emprise GeoJSON**")
+        geo = st.file_uploader("GeoJSON", type=["geojson", "json"], key="geo_upload")
+        if geo:
+            try:
+                obj = json.load(geo)
+                feature = obj["features"][0] if obj.get("type") == "FeatureCollection" else obj
+                geom = feature["geometry"]
+                if geom["type"] == "Polygon":
+                    ring = geom["coordinates"][0]
+                    st.session_state.map_coords = [[p[1], p[0]] for p in ring[:-1]]
+                    st.success("GeoJSON importé et synchronisé.")
+                    st.rerun()
+                else:
+                    st.error("Le fichier doit contenir un polygone.")
+            except Exception as exc:
+                st.error(f"GeoJSON invalide : {exc}")
 
-    # -------------------------------------------------
-    # CONFIGURATION DES ONGLETS
-    # -------------------------------------------------
-    tabs_titles = [
-        "🇸🇳 15 Indicateurs Sénégal",
-        "🔬 Diagnostic Phytosanitaire & IA", 
-        "🧪 Pédologie & Bilan Fertilisation", 
-        "🗺️ Délimitation & Cartographie GPS", 
-        "📊 Simulation Économique & Rapport PDF"
-    ]
-    if is_owner:
-        tabs_titles.append("👑 Admin Liste Blanche")
+    # ----- Météo -----
+    with c1:
+        st.subheader("Météo, climat et risques")
+        region_m = st.selectbox("Zone", list(REGIONS.keys()), key="weather_region")
+        lat, lon = REGIONS[region_m]
+        st.caption("Prévision opérationnelle : Open-Meteo. Pour les alertes et bulletins officiels, consulter ANACIM.")
+        weather = get_weather(lat, lon)
+        if weather:
+            cur = weather["current"]
+            x1,x2,x3,x4 = st.columns(4)
+            x1.metric("Température", f"{cur.get('temperature_2m','—')} °C")
+            x2.metric("Humidité", f"{cur.get('relative_humidity_2m','—')} %")
+            x3.metric("Vent", f"{cur.get('wind_speed_10m','—')} km/h")
+            x4.metric("Précipitation", f"{cur.get('precipitation','—')} mm")
+            st.markdown("**Alertes agronomiques automatiques**")
+            for risk in weather_risk(weather):
+                st.warning(risk)
+            st.dataframe(pd.DataFrame({
+                "Date": weather["daily"]["time"],
+                "Pluie (mm)": weather["daily"]["precipitation_sum"],
+                "Prob. pluie (%)": weather["daily"]["precipitation_probability_max"],
+                "T° max": weather["daily"]["temperature_2m_max"],
+                "T° min": weather["daily"]["temperature_2m_min"],
+                "Vent max": weather["daily"]["wind_speed_10m_max"],
+            }), use_container_width=True, hide_index=True)
+        else:
+            st.error("Service météo indisponible.")
+        st.link_button("🌦️ Ouvrir ANACIM", OFFICIAL_SOURCES["ANACIM"]["url"])
 
-    tab_c0, tab_c1, tab_c2, tab_c3, tab_c4, *tab_admin = st.tabs(tabs_titles)
+    # ----- Sol -----
+    with c2:
+        st.subheader("Diagnostic sol — raisonné, sans fausse précision")
+        region_s = st.selectbox("Région", list(REGIONS.keys()), key="soil_region")
+        zone = find_zone(region_s)
+        info = AGROZONES.get(zone, {})
+        st.info(f"Zone agro-écologique : **{zone}**\n\nSols typiques : {', '.join(info.get('sols', []))}.")
+        st.warning("Ces profils sont indicatifs. Une recommandation de fumure doit être basée sur une analyse de sol et sur les références techniques de la culture.")
 
-    # --- TAB 0: 15 FONCTIONNALITÉS AGRI SÉNÉGAL ---
-    with tab_c0:
-        st.markdown("<h4 style='color: #1b5e20;'>🇸🇳 Synthèse des 15 Fonctionnalités Agronomiques Spécifiques Sénégal</h4>", unsafe_allow_html=True)
-        col_f1, col_f2, col_f3, col_f4 = st.columns(4)
-        
-        with col_f1:
-            st.info("**1. Diagnostic DPV**\n5 Pathologies Sahel")
-            st.info("**5. Correction Gypse**\nSols Salés / Tanches")
-            st.info("**9. Charge Pastorale**\nSuivi CSE (1.8 UGB/ha)")
-            st.info("**13. Rentabilité DER/LBA**\nCompte d'Exploitation")
-        
-        with col_f2:
-            st.success("**2. Bilan Humique INP**\nDose Compost/Sol")
-            st.success("**6. Alertes ANACIM**\nRisque Sécheresse/Pause")
-            st.success("**10. Conservation ARM**\nStock Anti-Mycotoxines")
-            st.success("**14. Prix Marchés BAME**\nSuivi Prix Bord Champ")
-            
-        with col_f3:
-            st.warning("**3. Irrigation SAED/DGPRE**\nCalcul ETo x Kc")
-            st.warning("**7. Maturité Fruits**\nBrix/Fermeté Récolte")
-            st.warning("**11. Assolement Cible**\nRotation Légumineuses")
-            st.warning("**15. Délimitation GPS**\nPolygone SIG Parcelle")
+        pH = st.number_input("pH mesuré", 3.5, 10.0, 6.5, 0.1)
+        mo = st.number_input("Matière organique (%)", 0.0, 10.0, 1.0, 0.1)
+        n = st.number_input("N disponible (kg/ha)", 0.0, 500.0, 60.0, 5.0)
+        p = st.number_input("P2O5 disponible (kg/ha)", 0.0, 500.0, 30.0, 5.0)
+        k = st.number_input("K2O disponible (kg/ha)", 0.0, 500.0, 80.0, 5.0)
+        texture = st.selectbox("Texture", ["Sableuse", "Sablo-limoneuse", "Limoneuse", "Sablo-argileuse", "Argileuse"])
+        if st.button("Analyser le profil du sol"):
+            alerts = []
+            if pH < 5.5:
+                alerts.append("pH acide : vérifier la culture, l'acidité échangeable et la recommandation de correction avant tout chaulage.")
+            elif pH > 8.0:
+                alerts.append("pH élevé : vérifier salinité/sodicité et qualité de l'eau si parcelle irriguée.")
+            if mo < 1.0:
+                alerts.append("Matière organique faible selon le seuil saisi : renforcer progressivement les apports organiques et la couverture du sol.")
+            if texture == "Sableuse":
+                alerts.append("Sol sableux : surveiller infiltration, lessivage et fractionnement des apports.")
+            if not alerts:
+                alerts.append("Pas d'alerte simple détectée. Interpréter les résultats avec un laboratoire et un conseiller.")
+            for x in alerts:
+                st.info(x)
 
-        with col_f4:
-            st.error("**4. Plan NPK ISRA**\nFractionnement Azoté")
-            st.error("**8. Biopesticides**\nRecettes Neem/Ail ITA")
-            st.error("**12. Risque Nappe**\nPrévention Submersion")
+        st.markdown("**Calcul arithmétique d'engrais — sans prescription de dose**")
+        surface = st.number_input("Surface (ha)", 0.1, 10000.0, 1.0, 0.1, key="fert_surface")
+        target_n = st.number_input("Besoin N à fournir (kg/ha)", 0.0, 500.0, 0.0, 5.0)
+        product_n = st.number_input("Teneur N du produit (%)", 0.0, 100.0, 46.0, 0.1)
+        qty = (target_n * surface) / (product_n/100) if product_n > 0 else 0
+        st.metric("Quantité théorique du produit", f"{qty:.1f} kg")
+        st.caption("Ce calcul convertit une dose de N déjà validée en quantité de produit. Il ne détermine pas la dose agronomique.")
 
-    # --- TAB 1: DIAGNOSTIC ---
-    with tab_c1:
-        st.markdown("<h4 style='color: #1b5e20;'>🔍 Diagnostic Avancé & Prescription DPV</h4>", unsafe_allow_html=True)
-        col_diag1, col_diag2 = st.columns([1, 1])
+    # ----- Diagnostic -----
+    with c3:
+        st.subheader("Diagnostic phytosanitaire raisonné")
+        culture = st.selectbox("Culture", CROPS, key="diag_crop")
+        symptom = st.text_area("Observations terrain", placeholder="Symptômes, organe atteint, âge des plants, répartition, humidité, présence d'insectes...")
+        matching = [p for p in PESTS if culture in p[2]]
+        if matching:
+            dfp = pd.DataFrame(matching, columns=["Ennemi", "Nom scientifique", "Cultures", "Approche"])
+            st.dataframe(dfp[["Ennemi","Nom scientifique","Approche"]], use_container_width=True, hide_index=True)
+        if symptom:
+            st.info("Diagnostic préliminaire : l'application ne remplace pas une confirmation de terrain/laboratoire. Photographier plusieurs plants représentatifs et documenter la parcelle.")
+        st.link_button("🛡️ Ouvrir la DPV", OFFICIAL_SOURCES["DPV"]["url"])
 
-        with col_diag1:
-            culture_diag = st.selectbox("Sélectionner la culture inspectée :", [
-                "Riz Irrigué", "Arachide", "Tomate Industrielle / Oncle", "Oignon / Ail", 
-                "Maïs Pluvial / Irrigué", "Manguier", "Anacardier", "Manioc", "Gombo / Bissap"
-            ])
-            
-            plan_obs = st.radio("Plan d'observation principal :", [
-                "🍃 Vue Feuillage (Dessus/Dessous)", 
-                "🪵 Vue Tige / Collet", 
-                "🍓 Vue Fruit / Gousse", 
-                "🪴 Vue Racines / Sol"
-            ])
+    # ----- Economie + rapport -----
+    with c4:
+        st.subheader("Économie de la parcelle")
+        surface_e = st.number_input("Surface (ha)", 0.1, 10000.0, 1.0, 0.1, key="eco_surface")
+        rendement = st.number_input("Rendement attendu (t/ha)", 0.0, 100.0, 2.0, 0.1)
+        prix = st.number_input("Prix de vente (FCFA/t)", 0.0, 10_000_000.0, 150_000.0, 5_000.0)
+        cout = st.number_input("Charges variables (FCFA/ha)", 0.0, 10_000_000.0, 300_000.0, 10_000.0)
+        ca = surface_e * rendement * prix
+        charges = surface_e * cout
+        marge = ca - charges
+        a,b,c = st.columns(3)
+        a.metric("Chiffre d'affaires", f"{ca:,.0f} FCFA")
+        b.metric("Charges", f"{charges:,.0f} FCFA")
+        c.metric("Marge", f"{marge:,.0f} FCFA")
 
-            symptomes_filtres = {k: v for k, v in CATALOGUE_DPV_EXPERT.items() if plan_obs in v["plans_sensibles"]}
-            ennemi_choisi = st.selectbox("Pathogène / Ennemi suspecté :", options=list(symptomes_filtres.keys()))
-
-        with col_diag2:
-            if ennemi_choisi in CATALOGUE_DPV_EXPERT:
-                info_p = CATALOGUE_DPV_EXPERT[ennemi_choisi]
-                st.markdown(f"### 🛡️ Fiche Technique : {ennemi_choisi}")
-                st.warning(f"**Mécanisme d'attaque :** {info_p['mecanisme']}")
-                st.info(f"**Symptômes visuels clés :** {info_p['symptomes_visuels']}")
-                st.success(f"**Traitement Recommandé (Normes Sahel/DPV) :** {info_p['traitement']}")
-
-    # --- TAB 2: PÉDOLOGIE ---
-    with tab_c2:
-        st.markdown("<h4 style='color: #1b5e20;'>🧪 Diagnostic Pédologique & Plan de Fumure (ISRA/INP)</h4>", unsafe_allow_html=True)
-        
-        zone_ped = st.selectbox("Bassin agro-écologique :", options=list(BASE_SOLS_INP_EXPERT.keys()))
-        sols_zone = BASE_SOLS_INP_EXPERT[zone_ped]
-        type_sol = st.selectbox("Type de sol identifié :", options=list(sols_zone.keys()))
-        
-        p_info = sols_zone[type_sol]
-        
-        col_p1, col_p2, col_p3 = st.columns(3)
-        with col_p1:
-            st.metric("pH du sol (Eau)", f"{p_info['pH']}")
-            st.metric("Matière Organique (%)", f"{p_info['MO']} %")
-        with col_p2:
-            st.metric("Azote Total (N g/kg)", f"{p_info['N']}")
-            st.metric("Phosphore Assimilable (P ppm)", f"{p_info['P']} ppm")
-        with col_p3:
-            st.metric("Potassium Echangeable (K ppm)", f"{p_info['K']} ppm")
-            st.metric("Capacité de Rétention", f"{p_info['Rétention']}")
-
-        st.markdown("---")
-        st.markdown("##### 🧮 Calculateur de Besoins N-P-K sur mesure")
-        surf_ha = st.number_input("Surface à fertiliser (Hectares) :", min_value=0.1, max_value=500.0, value=float(st.session_state.get("active_surface_ha", 3.5)), step=0.5)
-        
-        col_f1, col_f2, col_f3 = st.columns(3)
-        with col_f1:
-            besoin_n = st.number_input("Besoin N (kg/ha) :", value=120)
-        with col_f2:
-            besoin_p = st.number_input("Besoin P2O5 (kg/ha) :", value=60)
-        with col_f3:
-            besoin_k = st.number_input("Besoin K2O (kg/ha) :", value=80)
-
-        tot_n = besoin_n * surf_ha
-        tot_p = besoin_p * surf_ha
-        tot_k = besoin_k * surf_ha
-
-        st.info(f"👉 **Besoin total de la parcelle ({surf_ha} Ha) :** {tot_n:.0f} kg d'Azote, {tot_p:.0f} kg de Phosphore, {tot_k:.0f} kg de Potasse.")
-
-    # --- TAB 3: CARTOGRAPHIE ---
-    with tab_c3:
-        st.markdown("<h4 style='color: #1b5e20;'>🗺️ Cartographie & Délimitation GPS de la Parcelle</h4>", unsafe_allow_html=True)
-        st.write("Visualisez et validez les coordonnées GPS de l'exploitation pour le suivi géospatial.")
-        
-        col_map1, col_map2 = st.columns([2, 1])
-        with col_map1:
-            if HAS_FOLIUM:
-                m = folium.Map(location=[st.session_state.get("consult_gps", {}).get("lat", 14.7910), st.session_state.get("consult_gps", {}).get("lon", -16.0700)], zoom_start=13)
-                folium.Polygon(
-                    locations=st.session_state.get("draw_coords", [[14.7910, -16.0700], [14.7930, -16.0700], [14.7930, -16.0680], [14.7910, -16.0680]]),
-                    color="green",
-                    fill=True,
-                    fill_color="green",
-                    fill_opacity=0.4,
-                    popup="Parcelle YouAgronoMe"
-                ).add_to(m)
-                st_folium(m, width=700, height=400)
-            else:
-                st.warning("Module Folium non installé. Affichage des coordonnées texte uniquement.")
-                
-        with col_map2:
-            st.markdown("**Points Sommets du Polygone :**")
-            df_coords = pd.DataFrame(st.session_state.get("draw_coords", []), columns=["Latitude", "Longitude"])
-            st.dataframe(df_coords, use_container_width=True)
-            st.success(f"Surface calculée : **{st.session_state.get('active_surface_ha', 3.5)} Ha**")
-
-    # --- TAB 4: ECONOMIE & RAPPORT PDF ---
-    with tab_c4:
-        st.markdown("<h4 style='color: #1b5e20;'>📊 Simulation Financière & Édition de Rapport PDF</h4>", unsafe_allow_html=True)
-        
-        col_ec1, col_ec2 = st.columns(2)
-        with col_ec1:
-            rendement_est = st.number_input("Rendement estimé (Tonnes / Ha) :", value=6.5)
-            prix_vente_t = st.number_input("Prix de vente indicatif (FCFA / Tonne) :", value=180000)
-        with col_ec2:
-            cout_intrants_ha = st.number_input("Coût des intrants/semences (FCFA / Ha) :", value=350000)
-            cout_main_oeuvre_ha = st.number_input("Coût de la main-d'œuvre (FCFA / Ha) :", value=150000)
-
-        active_ha = st.session_state.get("active_surface_ha", 3.5)
-        ca_total = rendement_est * prix_vente_t * active_ha
-        charges_totales = (cout_intrants_ha + cout_main_oeuvre_ha) * active_ha
-        marge_nette = ca_total - charges_totales
-
-        st.markdown("---")
-        st.markdown("### 💰 Résultat de la Simulation Économique")
-        col_m1, col_m2, col_m3 = st.columns(3)
-        col_m1.metric("Chiffre d'Affaires Brut", f"{ca_total:,.0f} FCFA")
-        col_m2.metric("Charges Opérationnelles", f"{charges_totales:,.0f} FCFA")
-        col_m3.metric("Marge Nette Prévisionnelle", f"{marge_nette:,.0f} FCFA", delta=f"{(marge_nette/ca_total)*100:.1f}% Marge" if ca_total > 0 else "0%")
-
-        st.write("")
-        if HAS_REPORTLAB:
-            if st.button("📄 Générer le Rapport PDF de la Consultance", type="primary"):
+        if HAS_PDF:
+            if st.button("📄 Générer le rapport PDF"):
                 buf = io.BytesIO()
-                doc = SimpleDocTemplate(buf, pagesize=letter)
+                doc = SimpleDocTemplate(buf, pagesize=A4, rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=36)
                 styles = getSampleStyleSheet()
-                story = []
-
-                # Titre et Entête
-                story.append(Paragraph("<b>YouAgronoMe - Rapport d'Expertise Agronomique 360°</b>", styles['Title']))
-                story.append(HRFlowable(width="100%", thickness=2, color=colors.HexColor("#1b5e20"), spaceAfter=12))
-                
-                # Métadonnées
-                p_meta = f"""
-                <b>Expert Agréé :</b> {current_user.get('nom')} ({current_user.get('email')})<br/>
-                <b>Organisme / Zone :</b> {current_user.get('zone')}<br/>
-                <b>Date du diagnostic :</b> {datetime.now().strftime('%d/%m/%Y à %H:%M')}<br/>
-                <b>Surface analysée :</b> {active_ha} Ha
-                """
-                story.append(Paragraph(p_meta, styles['Normal']))
-                story.append(Spacer(1, 12))
-
-                # Diagnostic & Recommandations
-                story.append(Paragraph(f"<b>Pathogène identifié :</b> {ennemi_choisi}", styles['Heading2']))
-                story.append(Paragraph(f"<b>Culture :</b> {culture_diag}", styles['Normal']))
-                story.append(Paragraph(f"<b>Recommandations DPV :</b> {CATALOGUE_DPV_EXPERT[ennemi_choisi]['traitement']}", styles['Normal']))
-                story.append(Spacer(1, 12))
-
-                # Tableau des 15 Indicateurs
-                story.append(Paragraph("<b>Synthèse des 15 Fonctionnalités d'Expertise Agri Sénégal :</b>", styles['Heading2']))
-                data_tab = [
-                    ["N°", "Fonctionnalité / domaine", "Résultat Diagnostic", "Organisme Référent"],
-                    ["1", "Diagnostic Pathologique", str(ennemi_choisi), "DPV / CEDEAO"],
-                    ["2", "Matière Organique", "15 Tonnes/Ha Compost", "INP"],
-                    ["3", "Irrigation Précision", "55 m³/Ha/Jour (Kc=1.05)", "SAED / DGPRE"],
-                    ["4", "Plan Fumure NPK", f"{besoin_n}-{besoin_p}-{besoin_k} kg/Ha", "ISRA"],
-                    ["5", "Correction Salinité", "Apport 2.5 T/Ha Gypse", "INP / Tannes"],
-                    ["6", "Météo & Risques", "Suivi Pluies & Pauses", "ANACIM"],
-                    ["7", "Maturité Récolte", "Récolte Optimale à Brix 12°", "DHORT / ARM"],
-                    ["8", "Lutte Biologique", "Huile de Neem 15ml/L + Ail", "ITA / LBA"],
-                    ["9", "Biomasse Pastorale", "Charge 1.8 UGB/Ha", "CSE"],
-                    ["10", "Pertes Post-Récolte", "Silo Ventilé Anti-Aflatoxines", "ARM / ITA"],
-                    ["11", "Rotation Assolement", "Solanacée / Légumineuse", "ANCAR"],
-                    ["12", "Risque Nappe", "Niveau Nappe 1.8m (Normal)", "SAED"],
-                    ["13", "Compte d'Exploitation", f"Marge Nette: {marge_nette:,.0f} FCFA", "DER / LBA"],
-                    ["14", "Suivi Prix Marché", "Prix Bord Champ BAME", "ISRA-BAME"],
-                    ["15", "Zonnage GPS SIG", f"Surface: {active_ha} Ha", "YouAgronoMe GIS"]
+                story = [
+                    Paragraph("YouAgronoMe — Rapport de consultance agronomique", styles["Title"]),
+                    Spacer(1, 12),
+                    Paragraph(f"Date : {datetime.now().strftime('%d/%m/%Y %H:%M')}", styles["Normal"]),
+                    Paragraph(f"Région : {region}", styles["Normal"]),
+                    Paragraph(f"Culture : {crop}", styles["Normal"]),
+                    Paragraph(f"Surface cartographiée : {area_ha:.3f} ha", styles["Normal"]),
+                    Paragraph(f"Périmètre : {perimeter_m:.1f} m", styles["Normal"]),
+                    Paragraph(f"Centroïde : {cen[0]:.6f}, {cen[1]:.6f}", styles["Normal"]),
+                    Spacer(1, 12),
+                    Paragraph("Sol", styles["Heading2"]),
+                    Paragraph(f"pH={pH:.1f}; MO={mo:.1f}%; N={n:.1f}; P2O5={p:.1f}; K2O={k:.1f}; texture={texture}.", styles["Normal"]),
+                    Spacer(1, 12),
+                    Paragraph("Économie", styles["Heading2"]),
+                    Paragraph(f"CA={ca:,.0f} FCFA; charges={charges:,.0f} FCFA; marge={marge:,.0f} FCFA.", styles["Normal"]),
+                    Spacer(1, 12),
+                    Paragraph("Réserve technique", styles["Heading2"]),
+                    Paragraph("Les recommandations phytosanitaires, de fertilisation et d'irrigation doivent être validées avec les références officielles et les mesures de terrain disponibles.", styles["Normal"]),
                 ]
-                t = Table(data_tab, colWidths=[20, 150, 190, 100])
-                t.setStyle(TableStyle([
-                    ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#1b5e20")),
-                    ('TEXTCOLOR', (0,0), (-1,0), colors.white),
-                    ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
-                    ('FONTSIZE', (0,0), (-1,-1), 8),
-                    ('GRID', (0,0), (-1,-1), 0.5, colors.grey)
-                ]))
-                story.append(t)
-                story.append(Spacer(1, 15))
-
-                # Bilan Financier
-                story.append(Paragraph("<b>Bilan Économique Prévisionnel :</b>", styles['Heading2']))
-                story.append(Paragraph(f"Chiffre d'Affaires : {ca_total:,.0f} FCFA", styles['Normal']))
-                story.append(Paragraph(f"Charges Opérationnelles : {charges_totales:,.0f} FCFA", styles['Normal']))
-                story.append(Paragraph(f"Marge Nette Prévue : {marge_nette:,.0f} FCFA", styles['Normal']))
-
                 doc.build(story)
                 buf.seek(0)
-                
-                st.download_button(
-                    label="📥 Télécharger le Rapport PDF Officiel",
-                    data=buf,
-                    file_name=f"Rapport_YouAgronoMe_Expertise_{datetime.now().strftime('%Y%m%d')}.pdf",
-                    mime="application/pdf"
-                )
+                st.download_button("📥 Télécharger le rapport", buf, f"rapport_youagronome_{date.today().isoformat()}.pdf", "application/pdf")
         else:
-            st.warning("ReportLab n'est pas installé sur cet environnement pour générer des fichiers PDF.")
+            st.warning("ReportLab n'est pas installé.")
 
-    # --- TAB ADMIN (GESTION DE LA LISTE BLANCHE) ---
-    if is_owner and tab_admin:
-        with tab_admin[0]:
-            st.markdown("<h4 style='color: #1b5e20;'>👑 Gestion de la Liste Blanche (Administrateur Général)</h4>", unsafe_allow_html=True)
-            st.info("Vous seul (`issayoume2012@gmail.com`) pouvez ajouter, délivrer des mots de passe ou suspendre l'accès des experts.")
+# ============================================================
+# 10. CONSEIL >1000
+# ============================================================
 
-            # Formulaire d'ajout
-            with st.form("form_add_whitelist_user"):
-                st.subheader("➕ Ajouter / Agréer un Nouveau Technicien")
-                col_w1, col_w2 = st.columns(2)
-                with col_w1:
-                    w_nom = st.text_input("Nom & Prénom :")
-                    w_email = st.text_input("Adresse E-mail :")
-                    w_pass = st.text_input("Mot de Passe Délivré :")
-                with col_w2:
-                    w_role = st.selectbox("Rôle attribué :", ["Ingénieur Agronome", "Technicien Spécialisé", "Expert DPV/ISRA", "Conseiller Agricole"])
-                    w_zone = st.text_input("Zone d'intervention :", value="Niayes / Vallée du Fleuve")
+elif menu == "🌱 Conseil >1000 fiches":
+    st.markdown('<div class="section">Bibliothèque de conseils adaptés au Sénégal</div>', unsafe_allow_html=True)
+    df = advice_catalog()
+    st.success(f"📚 Catalogue généré : **{len(df):,} fiches structurées**.")
 
-                btn_add_user = st.form_submit_button("Délivrer Accès & Ajouter à la Liste Blanche")
+    st.warning(
+        "Le catalogue dépasse 1000 conseils grâce à une combinaison explicite culture × thème × stade × zone. "
+        "Les fiches marquées « Conseil généré » doivent être confrontées aux fiches techniques officielles "
+        "et aux conditions réelles de la parcelle."
+    )
 
-                if btn_add_user:
-                    if w_email.strip() and w_pass.strip():
-                        # Vérifier s'il existe déjà
-                        exists = any(u.get("email", "").strip().lower() == w_email.strip().lower() for u in db["whitelist"])
-                        if exists:
-                            st.warning("⚠️ Cet e-mail est déjà enregistré dans la Liste Blanche.")
-                        else:
-                            new_u = {
-                                "email": w_email.strip(),
-                                "password": w_pass.strip(),
-                                "nom": w_nom.strip() or "Expert Technicien",
-                                "role": w_role,
-                                "zone": w_zone,
-                                "statut": "Actif"
-                            }
-                            db["whitelist"].append(new_u)
-                            save_db(db)
-                            st.success(f"✅ Accès accordé avec succès pour {w_nom} !")
-                            st.rerun()
-                    else:
-                        st.error("Veuillez renseigner au moins l'adresse e-mail et le mot de passe.")
+    c1,c2,c3,c4 = st.columns(4)
+    f_culture = c1.selectbox("Culture", ["Toutes"] + CROPS)
+    f_theme = c2.selectbox("Thème", ["Tous"] + THEMES)
+    f_stage = c3.selectbox("Stade", ["Tous"] + STAGES)
+    f_zone = c4.selectbox("Zone", ["Toutes"] + list(AGROZONES.keys()))
 
-            st.markdown("---")
-            st.subheader("📋 Liste des Experts Autorisés & Révocation")
+    q = st.text_input("Recherche libre", placeholder="ex. oignon salinité irrigation, arachide semis, tomate Tuta...")
+    result = df.copy()
+    if f_culture != "Toutes": result = result[result["Culture"] == f_culture]
+    if f_theme != "Tous": result = result[result["Thème"] == f_theme]
+    if f_stage != "Tous": result = result[result["Stade"] == f_stage]
+    if f_zone != "Toutes": result = result[result["Zone"] == f_zone]
+    if q:
+        mask = result.astype(str).apply(lambda row: row.str.contains(q, case=False, na=False).any(), axis=1)
+        result = result[mask]
 
-            for idx, user_entry in enumerate(db["whitelist"]):
-                col_u_n, col_u_r, col_u_s, col_u_a = st.columns([2.5, 2, 1, 1.5])
-                col_u_n.write(f"**{user_entry.get('nom')}**\n*{user_entry.get('email')}*")
-                col_u_r.write(f"{user_entry.get('role')}\n_{user_entry.get('zone')}_")
-                
-                is_active = (user_entry.get("statut", "Actif") == "Actif")
-                col_u_s.write("🟢 Actif" if is_active else "🔴 Bloqué")
+    st.write(f"**{len(result):,} conseil(s) trouvé(s)**")
+    st.dataframe(result, use_container_width=True, hide_index=True)
 
-                if user_entry.get("email", "").strip().lower() != OWNER_EMAIL.lower():
-                    if is_active:
-                        if col_u_a.button("⛔ Révoker", key=f"btn_revoke_{idx}"):
-                            user_entry["statut"] = "Bloqué"
-                            save_db(db)
-                            st.warning(f"Accès révoqué pour {user_entry.get('nom')}")
-                            st.rerun()
-                    else:
-                        if col_u_a.button("✅ Réactiver", key=f"btn_react_{idx}"):
-                            user_entry["statut"] = "Actif"
-                            save_db(db)
-                            st.success(f"Accès réactivé pour {user_entry.get('nom')}")
-                            st.rerun()
-                else:
-                    col_u_a.write("👑 *Compte Maître*")
+    st.markdown('<div class="section">Fiches techniques et références</div>', unsafe_allow_html=True)
+    refs = [
+        ("ISRA — fiches horticoles actualisées", "Les travaux de l'ISRA/CDH ont porté notamment sur tomate, gombo, chou, oignon, courges, laitue, pomme de terre, bissap, pastèque, melon, poivron, piment, aubergine, haricot, betterave, navet, carotte, concombre, manioc et fraise.", OFFICIAL_SOURCES["ISRA"]["url"]),
+        ("ANCAR — conseil agricole et rural", "Référence pour l'approche de conseil, l'accompagnement des producteurs et l'E-conseil.", OFFICIAL_SOURCES["ANCAR"]["url"]),
+        ("ANACIM — climat et météo", "À consulter avant les décisions sensibles au calendrier pluviométrique.", OFFICIAL_SOURCES["ANACIM"]["url"]),
+        ("DPV — protection des végétaux", "Bulletins phytosanitaires et référence pour la protection des cultures.", OFFICIAL_SOURCES["DPV"]["url"]),
+    ]
+    for title, desc, url in refs:
+        with st.expander(title):
+            st.write(desc)
+            st.link_button("Ouvrir la source", url)
 
-# =====================================================
-# 🌱 CONSEIL AGRONOMIQUE
-# =====================================================
-elif selected == "🌱 Conseil":
+    st.download_button(
+        "📥 Exporter le catalogue complet en CSV",
+        df.to_csv(index=False).encode("utf-8"),
+        "catalogue_conseils_senegal.csv",
+        "text/csv"
+    )
 
-    st.markdown("""
-    <div style="background: linear-gradient(135deg, #1b5e20 0%, #2e7d32 100%); padding: 25px; border-radius: 16px; color: white; text-align: center; margin-bottom: 25px;">
-        <h2 style="color: white !important; margin: 0;">🌱 Module de Conseil & Fiches Techniques SENEGAL</h2>
-        <p style="margin-top: 8px; opacity: 0.9;">Calendriers culturaux, conseils phytosanitaires et itinéraires techniques validés ISRA/ANCAR.</p>
-    </div>
-    """, unsafe_allow_html=True)
+# ============================================================
+# 11. DOCUMENTS
+# ============================================================
 
-    tab_f1, tab_f2, tab_f3 = st.tabs(["🌾 Calendrier Cultural", "💧 Irrigation de Précision", "🌿 Biopesticides & Bonnes Pratiques"])
+elif menu == "📚 Documents & sources":
+    st.markdown('<div class="section">Bibliothèque documentaire nationale</div>', unsafe_allow_html=True)
+    st.info("Cette section centralise les portes d'entrée officielles. Les documents externes restent hébergés par leurs institutions.")
 
-    with tab_f1:
-        st.markdown("#### 📅 Calendrier Optima des Semis et Récoltes")
-        data_cal = {
-            "Culture": ["Riz Irrigué (Saison Chaude)", "Riz Irrigué (Hivernage)", "Arachide", "Mil / Sorgho", "Oignon (Bas-fond)", "Tomate Industrielle"],
-            "Période de Semis / Pépinière": ["Février - Mars", "Juillet - Août", "Juin - Juillet", "Juin - Juillet", "Octobre - Novembre", "Octobre - Décembre"],
-            "Période de Récolte": ["Juin - Juillet", "Novembre - Décembre", "Octobre - Novembre", "Septembre - Octobre", "Mars - Mai", "Février - Avril"],
-            "Zones Principales": ["Vallée du Fleuve Sénégal", "Casamance, Vallée", "Bassin Arachidier", "Bassin Arachidier, Sud", "Niayes, Vallée", "Niayes, Vallée"]
-        }
-        st.table(pd.DataFrame(data_cal))
-
-    with tab_f2:
-        st.markdown("#### 💧 Pilotage de l'Irrigation selon l'Épotranspiration (ETc)")
-        st.write("Calcul des besoins quotidiens en eau d'irrigation selon le stade phénologique.")
-        
-        c_crop = st.selectbox("Culture ciblée :", ["Riz", "Tomate", "Oignon", "Maïs", "Arachide"], key="sb_irr_crop")
-        kc_val = st.slider("Coefficient Cultural (Kc) :", min_value=0.3, max_value=1.3, value=1.0, step=0.05)
-        eto_val = st.number_input("Évapotranspiration de référence (ETo mm/jour) - Météo ANACIM :", value=5.5)
-
-        etc_mm = eto_val * kc_val
-        besoin_m3_ha = etc_mm * 10 
-
-        st.info(f"💡 **Besoin en eau estimé :** {etc_mm:.2f} mm/jour soit **{besoin_m3_ha:.1f} m³/Hectare/jour**.")
-
-    with tab_f3:
-        st.markdown("#### 🍃 Recettes de Biopesticides & Lutte Biologique")
-        
-        with st.expander("🧪 Préparation de l'Extrait d'Huile/Feuilles de Neem (Azadirachtine)"):
-            st.write("""
-            * **Dosage :** 50g de graines de neem broyées par litre d'eau ou 15 ml d'huile pure de neem.
-            * **Mode opératoire :** Laisser macérer 24h dans l'eau claire avec un peu de savon liquide (mouillant). Filtrer très fin.
-            * **Cible :** Pucerons, chenilles, thrips, mouches blanches.
-            """)
-            
-        with tab_f3:
-            with st.expander("🌶️ Solution Insecticide Piment - Ail - Savon"):
-                st.write("""
-                * **Dosage :** 100g de piment fort + 100g d'ail écrasé + 10L d'eau + 20g de savon noir.
-                * **Mode opératoire :** Piler le piment et l'ail, mélanger à l'eau, laisser reposer 12h, filtrer et pulvériser le soir.
-                * **Cible :** Insectes suceurs, chenilles perforatrices.
-                """)
-
-# =====================================================
-# 📞 CONTACT & SUPPORT
-# =====================================================
-elif selected == "📞 Contact":
-
-    st.markdown("""
-    <div style="background: linear-gradient(135deg, #1b5e20 0%, #0d2310 100%); padding: 35px; border-radius: 16px; color: white; text-align: center; margin-bottom: 25px;">
-        <h2 style="color: white !important; margin: 0;">📞 Contactez l'Équipe YouAgronoMe</h2>
-        <p style="margin-top: 8px; opacity: 0.9;">Accompagnement, partenariat et assistance technique sur le terrain.</p>
-    </div>
-    """, unsafe_allow_html=True)
-
-    col_ct1, col_ct2 = st.columns(2)
-
-    with col_ct1:
+    for name, info in OFFICIAL_SOURCES.items():
         with st.container(border=True):
-            st.markdown("<h4 style='color: #1b5e20;'>📍 Siège & Bureaux</h4>", unsafe_allow_html=True)
-            st.write("**YouAgronoMe Startup Agritech**")
-            st.write("🇸🇳 Hub d'Innovation Agricole, Saint-Louis / Dakar, Sénégal")
-            st.write("📧 **Email :** contact@youagronome.sn / issayoume2012@gmail.com")
-            st.write("📞 **Téléphone / WhatsApp :** +221 77 000 00 00")
+            a,b = st.columns([1,4])
+            with a:
+                st.markdown(f"### {name}")
+            with b:
+                st.write(info["role"])
+                st.caption(f"Niveau : {info['niveau']}")
+                st.link_button("📄 Ouvrir le site / document", info["url"])
 
-    with col_ct2:
-        with st.container(border=True):
-            st.markdown("<h4 style='color: #1b5e20;'>✉️ Laisser un message</h4>", unsafe_allow_html=True)
-            nom_c = st.text_input("Nom & Prénom :")
-            email_c = st.text_input("Adresse e-mail :")
-            msg_c = st.text_area("Votre message :")
-            if st.button("Envoyer le message", type="primary"):
-                st.success("Merci ! Votre message a été transmis à l'équipe technique de YouAgronoMe.")
+    st.markdown('<div class="section">Documents de terrain</div>', unsafe_allow_html=True)
+    local_docs = st.file_uploader(
+        "Ajouter temporairement un PDF, CSV ou Excel de projet",
+        type=["pdf", "csv", "xlsx"],
+        accept_multiple_files=True,
+        key="docs_upload"
+    )
+    if local_docs:
+        for f in local_docs:
+            st.success(f"Document chargé dans la session : {f.name} ({f.size/1024:.1f} Ko)")
 
-# Footer global
+# ============================================================
+# 12. CONTACT
+# ============================================================
+
+elif menu == "📞 Contact":
+    st.markdown('<div class="section">Contact & support</div>', unsafe_allow_html=True)
+    st.write("**YouAgronoMe — Plateforme Agritech Sénégal**")
+    st.write("Pour les partenariats, les projets de terrain, les données agricoles et les validations techniques, utiliser les coordonnées officielles des institutions partenaires ou votre canal de support.")
+    st.link_button("🌾 MASAE", OFFICIAL_SOURCES["MASAE / DAPSA"]["url"])
+    st.link_button("🌦️ ANACIM", OFFICIAL_SOURCES["ANACIM"]["url"])
+    st.link_button("👩🏾‍🌾 ANCAR", OFFICIAL_SOURCES["ANCAR"]["url"])
+
 st.markdown("---")
-st.markdown("<div style='text-align: center; color: #718096; font-size: 0.85rem;'>© 2026 YouAgronoMe - Plateforme Agritech Intégrée pour la Souveraineté Alimentaire du Sénégal. All rights reserved.</div>", unsafe_allow_html=True)
+st.caption("YouAgronoMe — version 2 | Les données et conseils doivent conserver leur source, leur date et leur niveau de validation.")
