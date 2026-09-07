@@ -525,14 +525,103 @@ div[data-testid="stRadio"] > div[role="radiogroup"] > label[data-checked="true"]
 """, unsafe_allow_html=True)
 
 # =====================================================
+# 🧩 SOCLE PROFESSIONNEL 360° — DOSSIERS, MÉTIERS, SUIVI, FINANCE
+# =====================================================
+PRO_DB = os.getenv("YOUAGRONOME_PRO_DB", "youagronome_professionnel.sqlite3")
+
+def pro_db_init():
+    con = sqlite3.connect(PRO_DB)
+    cur = con.cursor()
+    cur.executescript("""
+    CREATE TABLE IF NOT EXISTS dossiers (
+        id TEXT PRIMARY KEY, created_at TEXT, updated_at TEXT, client TEXT,
+        telephone TEXT, region TEXT, commune TEXT, village TEXT, type_exploitation TEXT,
+        superficie REAL DEFAULT 0, latitude REAL, longitude REAL, notes TEXT, statut TEXT DEFAULT 'Actif'
+    );
+    CREATE TABLE IF NOT EXISTS assets (
+        id TEXT PRIMARY KEY, dossier_id TEXT, type TEXT, nom TEXT, quantite REAL DEFAULT 0,
+        unite TEXT, valeur REAL DEFAULT 0, notes TEXT, created_at TEXT
+    );
+    CREATE TABLE IF NOT EXISTS missions (
+        id TEXT PRIMARY KEY, dossier_id TEXT, client TEXT, service TEXT, responsable TEXT,
+        date_debut TEXT, date_echeance TEXT, budget REAL DEFAULT 0, statut TEXT DEFAULT 'Nouvelle',
+        priorite TEXT DEFAULT 'Normale', description TEXT, created_at TEXT
+    );
+    CREATE TABLE IF NOT EXISTS actions (
+        id TEXT PRIMARY KEY, mission_id TEXT, action TEXT, responsable TEXT, echeance TEXT,
+        statut TEXT DEFAULT 'À faire', priorite TEXT DEFAULT 'Normale', commentaire TEXT, created_at TEXT
+    );
+    CREATE TABLE IF NOT EXISTS finance (
+        id TEXT PRIMARY KEY, mission_id TEXT, dossier_id TEXT, type TEXT, categorie TEXT,
+        libelle TEXT, montant REAL DEFAULT 0, date_operation TEXT, statut TEXT DEFAULT 'Prévisionnel', note TEXT
+    );
+    CREATE TABLE IF NOT EXISTS livestock (
+        id TEXT PRIMARY KEY, dossier_id TEXT, espece TEXT, categorie TEXT, effectif REAL DEFAULT 0,
+        poids_moyen REAL DEFAULT 0, mortalite REAL DEFAULT 0, aliment_kg_j REAL DEFAULT 0,
+        vaccination TEXT, reproduction TEXT, date_obs TEXT, note TEXT
+    );
+    CREATE TABLE IF NOT EXISTS aquaculture (
+        id TEXT PRIMARY KEY, dossier_id TEXT, espece TEXT, bassin TEXT, surface_m2 REAL DEFAULT 0,
+        densite_m2 REAL DEFAULT 0, ph REAL DEFAULT 0, temperature REAL DEFAULT 0, oxygene REAL DEFAULT 0,
+        aliment_kg_j REAL DEFAULT 0, mortalite REAL DEFAULT 0, biomasse_kg REAL DEFAULT 0, date_obs TEXT, note TEXT
+    );
+    CREATE TABLE IF NOT EXISTS agrofood (
+        id TEXT PRIMARY KEY, dossier_id TEXT, produit TEXT, operation TEXT, quantite_entree REAL DEFAULT 0,
+        quantite_sortie REAL DEFAULT 0, pertes REAL DEFAULT 0, qualite TEXT, stockage TEXT, lot TEXT,
+        date_obs TEXT, note TEXT
+    );
+    CREATE TABLE IF NOT EXISTS analyses (
+        id TEXT PRIMARY KEY, dossier_id TEXT, type_analyse TEXT, parametre TEXT, valeur REAL,
+        unite TEXT, seuil TEXT, laboratoire TEXT, date_analyse TEXT, commentaire TEXT
+    );
+    CREATE TABLE IF NOT EXISTS alerts (
+        id TEXT PRIMARY KEY, dossier_id TEXT, domaine TEXT, niveau TEXT, titre TEXT, message TEXT,
+        echeance TEXT, statut TEXT DEFAULT 'Ouverte', created_at TEXT
+    );
+    CREATE TABLE IF NOT EXISTS audit (
+        id TEXT PRIMARY KEY, actor TEXT, action TEXT, objet TEXT, created_at TEXT, details TEXT
+    );
+    """)
+    con.commit(); con.close()
+
+pro_db_init()
+
+def pro_exec(sql, params=(), fetch=False):
+    con = sqlite3.connect(PRO_DB)
+    con.row_factory = sqlite3.Row
+    cur = con.cursor()
+    cur.execute(sql, params)
+    rows = cur.fetchall() if fetch else []
+    con.commit(); con.close()
+    return [dict(r) for r in rows]
+
+def pro_id(prefix):
+    return f"{prefix}-{datetime.now().strftime('%Y%m%d')}-{uuid.uuid4().hex[:7].upper()}"
+
+def pro_audit(actor, action, objet, details=""):
+    pro_exec("INSERT INTO audit VALUES (?,?,?,?,?,?)", (pro_id('AUD'), actor, action, objet, datetime.now().isoformat(timespec='seconds'), details))
+
+def pro_metrics():
+    d=pro_exec("SELECT COUNT(*) n FROM dossiers",fetch=True)[0]['n']
+    m=pro_exec("SELECT COUNT(*) n FROM missions WHERE statut NOT IN ('Clôturée','Annulée')",fetch=True)[0]['n']
+    a=pro_exec("SELECT COUNT(*) n FROM alerts WHERE statut='Ouverte'",fetch=True)[0]['n']
+    ca=pro_exec("SELECT COALESCE(SUM(montant),0) v FROM finance WHERE type='Recette'",fetch=True)[0]['v']
+    ch=pro_exec("SELECT COALESCE(SUM(montant),0) v FROM finance WHERE type='Dépense'",fetch=True)[0]['v']
+    return d,m,a,ca,ch
+
+def pro_header(title, subtitle):
+    st.markdown(f"""<div style="padding:24px;border-radius:16px;background:linear-gradient(135deg,#14532d,#166534);color:white;margin-bottom:18px"><h2 style="margin:0;color:white">{title}</h2><p style="margin:7px 0 0;opacity:.92">{subtitle}</p></div>""", unsafe_allow_html=True)
+
+
+
+# =====================================================
 # 3. MOTEUR DE NAVIGATION
 # =====================================================
 options_menu = [
-    "🏠 Accueil", 
-    "📊 Tableau de Bord",
-    "💼 Consultance", 
-    "🌱 Conseil",
-    "📞 Contact"
+    "🏠 Accueil", "📊 Tableau de Bord", "🗂️ Dossiers Exploitation", "🌾 Agriculture",
+    "🐄 Élevage", "🐟 Aquaculture", "🏭 Agroalimentaire", "🧪 Analyses & Laboratoire",
+    "🗺️ SIG / GPS", "💼 Consultance", "📋 Missions & Suivi", "💰 Finance", "🤖 IA Expert",
+    "📈 Rapports", "🔔 Alertes", "📚 Conseil", "⚙️ Administration", "📞 Contact"
 ]
 
 selected = st.radio(
@@ -740,9 +829,276 @@ elif selected == "📊 Tableau de Bord":
     st.markdown('<div class="source-note">Principe de fiabilité : une donnée officielle est affichée avec sa période et son organisme source ; une donnée calculée est explicitement présentée comme calculée ; une donnée terrain importée est séparée du référentiel national.</div>', unsafe_allow_html=True)
 
 # =====================================================
+# 🗂️ DOSSIERS EXPLOITATION
+# =====================================================
+elif selected == "🗂️ Dossiers Exploitation":
+    pro_header("🗂️ Dossier Exploitation 360°", "Une fiche unique pour regrouper agriculture, élevage, aquaculture, agroalimentaire, actifs, analyses et historique.")
+    d,m,a,ca,ch=pro_metrics(); c1,c2,c3,c4=st.columns(4)
+    c1.metric("Exploitations",d); c2.metric("Missions actives",m); c3.metric("Alertes ouvertes",a); c4.metric("Marge cumulée",f"{ca-ch:,.0f} FCFA")
+    t1,t2=st.tabs(["➕ Nouveau dossier","📋 Registre & fiche"])
+    with t1:
+        with st.form("new_dossier"):
+            c1,c2,c3=st.columns(3)
+            client=c1.text_input("Client / Exploitant *"); tel=c2.text_input("Téléphone"); typ=c3.selectbox("Type",["Agriculture","Élevage","Aquaculture","Agroalimentaire","Mixte"])
+            c1,c2,c3=st.columns(3)
+            region=c1.selectbox("Région",list(REGIONS_COORD.keys())); commune=c2.text_input("Commune"); village=c3.text_input("Village / localité")
+            c1,c2,c3=st.columns(3)
+            surf=c1.number_input("Superficie (ha)",0.0,100000.0,0.0); lat=c2.number_input("Latitude",-90.0,90.0,14.7167,format="%.6f"); lon=c3.number_input("Longitude",-180.0,180.0,-17.4677,format="%.6f")
+            notes=st.text_area("Notes initiales")
+            if st.form_submit_button("💾 Créer le dossier",type="primary"):
+                did=pro_id('DOS'); now=datetime.now().isoformat(timespec='seconds')
+                pro_exec("INSERT INTO dossiers VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",(did,now,now,client,tel,region,commune,village,typ,surf,lat,lon,notes,'Actif'))
+                pro_audit(st.session_state.get('auth_user',{}).get('email','Utilisateur'),'Création','Dossier',did); st.success(f"Dossier {did} créé.")
+    with t2:
+        rows=pro_exec("SELECT * FROM dossiers ORDER BY updated_at DESC",fetch=True)
+        if rows:
+            df=pd.DataFrame(rows); st.dataframe(df,use_container_width=True,hide_index=True)
+            ids=[r['id'] for r in rows]; did=st.selectbox("Ouvrir un dossier",ids)
+            r=next(x for x in rows if x['id']==did)
+            c1,c2,c3,c4=st.columns(4); c1.metric("Client",r['client']); c2.metric("Type",r['type_exploitation']); c3.metric("Surface",f"{r['superficie']:.2f} ha"); c4.metric("Statut",r['statut'])
+            st.write(f"**Localisation :** {r['commune']} / {r['village']} — {r['region']} · GPS {r['latitude']}, {r['longitude']}")
+            st.write(r['notes'] or "Aucune note.")
+            assets=pro_exec("SELECT * FROM assets WHERE dossier_id=?",(did,),fetch=True)
+            if assets: st.dataframe(pd.DataFrame(assets),use_container_width=True,hide_index=True)
+        else: st.info("Aucun dossier enregistré. Créez la première exploitation.")
+
+# =====================================================
+# 🌾 AGRICULTURE
+# =====================================================
+elif selected == "🌾 Agriculture":
+    pro_header("🌾 Agriculture — Pilotage de campagne", "Parcelles, cultures, itinéraires techniques, irrigation, fertilisation, phytosanitaire, récolte et rendement.")
+    tab1,tab2,tab3=st.tabs(["📐 Campagne & rendement","💧 Eau & fertilisation","🛡️ Santé des cultures"])
+    with tab1:
+        c1,c2,c3,c4=st.columns(4)
+        surface=c1.number_input("Surface (ha)",0.1,100000.0,2.5); rendement=c2.number_input("Rendement (t/ha)",0.0,100.0,3.0); prix=c3.number_input("Prix (FCFA/t)",0.0,10000000.0,180000.0); charges=c4.number_input("Charges (FCFA/ha)",0.0,10000000.0,500000.0)
+        production=surface*rendement; ca=production*prix; total_ch=surface*charges; marge=ca-total_ch
+        a,b,c,d=st.columns(4); a.metric("Production",f"{production:,.2f} t"); b.metric("CA",f"{ca:,.0f} FCFA"); c.metric("Charges",f"{total_ch:,.0f} FCFA"); d.metric("Marge",f"{marge:,.0f} FCFA")
+        st.progress(min(1,max(0,marge/ca if ca else 0)),text="Taux de marge prévisionnel")
+    with tab2:
+        c1,c2,c3,c4=st.columns(4); eto=c1.number_input("ETo (mm/j)",0.0,20.0,5.5); kc=c2.number_input("Kc",0.1,1.5,1.0); surf2=c3.number_input("Surface (ha)",0.1,100000.0,2.5); effic=c4.number_input("Efficacité irrigation",0.1,1.0,0.75)
+        etc=eto*kc; besoin=etc*10*surf2/max(effic,0.1); st.metric("Besoin brut estimé",f"{besoin:,.1f} m³/j")
+        n,p,k=st.columns(3); bn=n.number_input("N kg/ha",0.0,1000.0,120.0); bp=p.number_input("P₂O₅ kg/ha",0.0,1000.0,60.0); bk=k.number_input("K₂O kg/ha",0.0,1000.0,80.0)
+        st.dataframe(pd.DataFrame([{"Élément":"N","Besoin total kg":bn*surf2},{"Élément":"P₂O₅","Besoin total kg":bp*surf2},{"Élément":"K₂O","Besoin total kg":bk*surf2}]),use_container_width=True,hide_index=True)
+        st.caption("Calculs d'aide à la décision : une recommandation finale doit tenir compte de l'analyse de sol, de la culture, du rendement visé et du contexte local.")
+    with tab3:
+        c1,c2=st.columns(2); culture=c1.selectbox("Culture",CULTURES_SENEGAL); stade=c2.selectbox("Stade",STADES_CULTURAUX)
+        obs=st.text_area("Observation terrain",placeholder="Symptômes, incidence, répartition, date d'apparition...")
+        if st.button("🔎 Générer une fiche de surveillance"):
+            st.warning("Priorité : documenter plusieurs points de la parcelle, comparer plants sains/atteints, vérifier météo récente et consulter les références DPV à jour avant toute intervention phytosanitaire.")
+            st.write(f"Culture : **{culture}** · Stade : **{stade}**"); st.write(obs or "Aucune observation saisie.")
+
+# =====================================================
+# 🐄 ÉLEVAGE
+# =====================================================
+elif selected == "🐄 Élevage":
+    pro_header("🐄 Élevage — Suivi technique & économique", "Effectifs, alimentation, croissance, reproduction, vaccination, mortalité et rentabilité.")
+    rows=pro_exec("SELECT * FROM livestock ORDER BY date_obs DESC",fetch=True)
+    tab1,tab2=st.tabs(["➕ Enregistrer une observation","📊 Analyse du troupeau"])
+    with tab1:
+        dossiers=pro_exec("SELECT id,client FROM dossiers ORDER BY client",fetch=True); opts={f"{x['client']} — {x['id']}":x['id'] for x in dossiers}
+        with st.form("livestock_form"):
+            dossier=st.selectbox("Dossier",list(opts.keys()) or ["Sans dossier"]); espece=st.selectbox("Espèce",["Bovins","Ovins","Caprins","Volailles","Porcins","Camelins","Autre"]); cat=st.text_input("Catégorie / lot")
+            c1,c2,c3,c4=st.columns(4); eff=c1.number_input("Effectif",0.0,1000000.0,0.0); poids=c2.number_input("Poids moyen (kg)",0.0,1000.0,0.0); mort=c3.number_input("Mortalité observée (%)",0.0,100.0,0.0); alim=c4.number_input("Aliment (kg/j)",0.0,100000.0,0.0)
+            vacc=st.text_input("Vaccination / prophylaxie"); repro=st.text_input("Reproduction"); note=st.text_area("Note")
+            if st.form_submit_button("💾 Enregistrer",type="primary"):
+                lid=pro_id('ELV'); did=opts.get(dossier); pro_exec("INSERT INTO livestock VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",(lid,did,espece,cat,eff,poids,mort,alim,vacc,repro,datetime.now().date().isoformat(),note)); pro_audit('Utilisateur','Ajout','Élevage',lid); st.success("Observation enregistrée.")
+    with tab2:
+        if rows:
+            df=pd.DataFrame(rows); total=float(df['effectif'].sum()); mortal=float(df['mortalite'].mean()); aliment=float(df['aliment_kg_j'].sum());
+            c1,c2,c3=st.columns(3); c1.metric("Effectif enregistré",f"{total:,.0f}"); c2.metric("Mortalité moyenne",f"{mortal:.2f}%"); c3.metric("Aliment/j",f"{aliment:,.1f} kg")
+            st.dataframe(df,use_container_width=True,hide_index=True)
+        else: st.info("Aucune observation d'élevage enregistrée.")
+
+# =====================================================
+# 🐟 AQUACULTURE
+# =====================================================
+elif selected == "🐟 Aquaculture":
+    pro_header("🐟 Aquaculture — Suivi des bassins", "Qualité de l'eau, densité, alimentation, biomasse, mortalité, croissance et performance économique.")
+    rows=pro_exec("SELECT * FROM aquaculture ORDER BY date_obs DESC",fetch=True)
+    tab1,tab2=st.tabs(["➕ Observation bassin","📊 Qualité & performance"])
+    with tab1:
+        dossiers=pro_exec("SELECT id,client FROM dossiers ORDER BY client",fetch=True); opts={f"{x['client']} — {x['id']}":x['id'] for x in dossiers}
+        with st.form("aqua_form"):
+            dossier=st.selectbox("Dossier",list(opts.keys()) or ["Sans dossier"]); espece=st.selectbox("Espèce",["Tilapia","Poisson-chat","Carpe","Crevette","Autre"]); bassin=st.text_input("Bassin / étang")
+            c1,c2,c3=st.columns(3); sm=c1.number_input("Surface bassin (m²)",0.0,1000000.0,100.0); dens=c2.number_input("Densité (poissons/m²)",0.0,10000.0,2.0); biom=c3.number_input("Biomasse (kg)",0.0,1000000.0,0.0)
+            c1,c2,c3,c4=st.columns(4); ph=c1.number_input("pH",0.0,14.0,7.0); temp=c2.number_input("Température °C",0.0,50.0,28.0); oxy=c3.number_input("O₂ dissous (mg/L)",0.0,30.0,5.0); alim=c4.number_input("Aliment kg/j",0.0,100000.0,0.0)
+            mort=st.number_input("Mortalité (%)",0.0,100.0,0.0); note=st.text_area("Observation")
+            if st.form_submit_button("💾 Enregistrer",type="primary"):
+                aid=pro_id('AQU'); pro_exec("INSERT INTO aquaculture VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",(aid,opts.get(dossier),espece,bassin,sm,dens,ph,temp,oxy,alim,mort,biom,datetime.now().date().isoformat(),note)); pro_audit('Utilisateur','Ajout','Aquaculture',aid); st.success("Observation bassin enregistrée.")
+    with tab2:
+        if rows:
+            df=pd.DataFrame(rows); c1,c2,c3=st.columns(3); c1.metric("Biomasse totale",f"{df['biomasse_kg'].sum():,.1f} kg"); c2.metric("O₂ moyen",f"{df['oxygene'].replace(0,np.nan).mean():.2f} mg/L"); c3.metric("Mortalité moyenne",f"{df['mortalite'].mean():.2f}%"); st.dataframe(df,use_container_width=True,hide_index=True)
+        else: st.info("Aucune donnée aquacole enregistrée.")
+
+# =====================================================
+# 🏭 AGROALIMENTAIRE
+# =====================================================
+elif selected == "🏭 Agroalimentaire":
+    pro_header("🏭 Agroalimentaire — Transformation, qualité & traçabilité", "Suivi des lots, rendements de transformation, pertes, stockage et qualité.")
+    rows=pro_exec("SELECT * FROM agrofood ORDER BY date_obs DESC",fetch=True)
+    with st.form("agro_form"):
+        dossiers=pro_exec("SELECT id,client FROM dossiers ORDER BY client",fetch=True); opts={f"{x['client']} — {x['id']}":x['id'] for x in dossiers}
+        dossier=st.selectbox("Dossier",list(opts.keys()) or ["Sans dossier"]); produit=st.text_input("Produit / matière première"); operation=st.selectbox("Opération",["Tri","Séchage","Décorticage","Transformation","Conditionnement","Stockage","Autre"])
+        c1,c2,c3,c4=st.columns(4); qin=c1.number_input("Entrée (kg)",0.0,100000000.0,0.0); qout=c2.number_input("Sortie (kg)",0.0,100000000.0,0.0); pertes=c3.number_input("Pertes (kg)",0.0,100000000.0,0.0); lot=c4.text_input("N° lot")
+        qual=st.selectbox("Qualité",["Conforme","À contrôler","Non conforme"]); stock=st.text_input("Conditions de stockage"); note=st.text_area("Observation")
+        if st.form_submit_button("💾 Enregistrer le lot",type="primary"):
+            gid=pro_id('AGF'); pro_exec("INSERT INTO agrofood VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",(gid,opts.get(dossier),produit,operation,qin,qout,pertes,qual,stock,lot,datetime.now().date().isoformat(),note)); st.success("Lot enregistré.")
+    if rows:
+        df=pd.DataFrame(rows); df['Rendement %']=np.where(df['quantite_entree']>0,100*df['quantite_sortie']/df['quantite_entree'],0); st.dataframe(df,use_container_width=True,hide_index=True)
+
+# =====================================================
+# 🧪 ANALYSES & LABORATOIRE
+# =====================================================
+elif selected == "🧪 Analyses & Laboratoire":
+    pro_header("🧪 Analyses & Laboratoire", "Centraliser les résultats sol, eau, qualité, interprétation et traçabilité des analyses.")
+    rows=pro_exec("SELECT * FROM analyses ORDER BY date_analyse DESC",fetch=True)
+    with st.form("analysis_form"):
+        dossiers=pro_exec("SELECT id,client FROM dossiers ORDER BY client",fetch=True); opts={f"{x['client']} — {x['id']}":x['id'] for x in dossiers}
+        dossier=st.selectbox("Dossier",list(opts.keys()) or ["Sans dossier"]); typ=st.selectbox("Type",["Sol","Eau d'irrigation","Eau aquaculture","Fourrage","Aliment","Produit agricole","Autre"]); param=st.text_input("Paramètre (pH, N, P, K, CE, etc.)")
+        c1,c2,c3=st.columns(3); val=c1.number_input("Valeur",value=0.0); unit=c2.text_input("Unité"); seuil=c3.text_input("Référence / seuil")
+        lab=st.text_input("Laboratoire"); comment=st.text_area("Interprétation / commentaire")
+        if st.form_submit_button("💾 Enregistrer l'analyse",type="primary"):
+            xid=pro_id('LAB'); pro_exec("INSERT INTO analyses VALUES (?,?,?,?,?,?,?,?,?,?)",(xid,opts.get(dossier),typ,param,val,unit,seuil,lab,datetime.now().date().isoformat(),comment)); pro_audit('Utilisateur','Ajout','Analyse',xid); st.success("Résultat enregistré.")
+    if rows: st.dataframe(pd.DataFrame(rows),use_container_width=True,hide_index=True)
+
+# =====================================================
+# 🗺️ SIG / GPS
+# =====================================================
+elif selected == "🗺️ SIG / GPS":
+    pro_header("🗺️ SIG / GPS — Cartographie opérationnelle", "Parcelles, points d'eau, bâtiments, bassins, cheptels et zones de risque.")
+    dossiers=pro_exec("SELECT * FROM dossiers ORDER BY client",fetch=True)
+    if HAS_FOLIUM:
+        center=st.session_state.get("consult_gps",{"lat":14.7167,"lon":-17.4677}); m=folium.Map(location=[center['lat'],center['lon']],zoom_start=7,control_scale=True)
+        for r in dossiers:
+            if r.get('latitude') is not None and r.get('longitude') is not None:
+                folium.Marker([r['latitude'],r['longitude']],tooltip=r['client'],popup=f"{r['id']} · {r['type_exploitation']}").add_to(m)
+        Draw(export=True,draw_options={"polyline":True,"polygon":True,"rectangle":True,"circle":False,"marker":True,"circlemarker":False}).add_to(m)
+        res=st_folium(m,width=1000,height=560,key="pro_sig_map")
+        drawing=res.get('last_active_drawing') if res else None
+        coords=extraire_coords_dessin(drawing)
+        if coords:
+            st.write(f"Coordonnée / géométrie reçue : {coords[:3]}{'…' if len(coords)>3 else ''}")
+            if len(coords)>=3: st.metric("Surface estimée",f"{surface_polygone_ha(coords):.3f} ha")
+    else: st.warning("Folium n'est pas installé. Utilisez le module GPS de la Consultance.")
+    if dossiers: st.dataframe(pd.DataFrame(dossiers)[['id','client','region','commune','superficie','latitude','longitude','type_exploitation']],use_container_width=True,hide_index=True)
+
+# =====================================================
+# 📋 MISSIONS & SUIVI
+# =====================================================
+elif selected == "📋 Missions & Suivi":
+    pro_header("📋 Missions & Suivi", "Workflow professionnel : demande → diagnostic → devis → intervention → contrôle → rapport → clôture.")
+    rows=pro_exec("SELECT * FROM missions ORDER BY created_at DESC",fetch=True)
+    tab1,tab2=st.tabs(["➕ Nouvelle mission","📋 Pilotage & actions"])
+    with tab1:
+        dossiers=pro_exec("SELECT id,client FROM dossiers ORDER BY client",fetch=True); opts={f"{x['client']} — {x['id']}":x['id'] for x in dossiers}
+        with st.form("mission_form"):
+            dossier=st.selectbox("Dossier",list(opts.keys()) or ["Sans dossier"]); client=st.text_input("Client",value=(dossiers[0]['client'] if dossiers else "")); service=st.selectbox("Service",["Diagnostic agricole","Élevage","Aquaculture","Agroalimentaire","SIG/GPS","Analyse économique","Suivi de campagne","Étude projet","Audit technique"])
+            c1,c2,c3,c4=st.columns(4); resp=c1.text_input("Responsable"); debut=c2.date_input("Date début"); echeance=c3.date_input("Échéance"); budget=c4.number_input("Budget FCFA",0.0,1000000000.0,0.0)
+            prior=st.selectbox("Priorité",["Faible","Normale","Haute","Critique"]); desc=st.text_area("Objectif / cahier des charges")
+            if st.form_submit_button("🚀 Créer la mission",type="primary"):
+                mid=pro_id('MIS'); now=datetime.now().isoformat(timespec='seconds'); pro_exec("INSERT INTO missions VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",(mid,opts.get(dossier),client,service,resp,str(debut),str(echeance),budget,'Nouvelle',prior,desc,now)); pro_audit('Utilisateur','Création','Mission',mid); st.success(f"Mission {mid} créée.")
+    with tab2:
+        if rows:
+            st.dataframe(pd.DataFrame(rows),use_container_width=True,hide_index=True)
+            mid=st.selectbox("Mission active",[x['id'] for x in rows]); st.markdown("#### ✅ Ajouter une action")
+            with st.form("action_form"):
+                action=st.text_input("Action à réaliser"); ar=st.text_input("Responsable"); ae=st.date_input("Échéance"); ap=st.selectbox("Priorité",["Faible","Normale","Haute","Critique"]); ac=st.text_area("Commentaire")
+                if st.form_submit_button("Ajouter"):
+                    aid=pro_id('ACT'); pro_exec("INSERT INTO actions VALUES (?,?,?,?,?,?,?,?,?)",(aid,mid,action,ar,str(ae),'À faire',ap,ac,datetime.now().isoformat(timespec='seconds'))); st.success("Action ajoutée.")
+            acts=pro_exec("SELECT * FROM actions WHERE mission_id=? ORDER BY echeance",(mid,),fetch=True)
+            if acts: st.dataframe(pd.DataFrame(acts),use_container_width=True,hide_index=True)
+        else: st.info("Aucune mission.")
+
+# =====================================================
+# 💰 FINANCE
+# =====================================================
+elif selected == "💰 Finance":
+    pro_header("💰 Finance — Devis, recettes, dépenses & marge", "Lecture économique par mission et par dossier, sans mélanger prévisionnel et réalisé.")
+    with st.form("finance_form"):
+        missions=pro_exec("SELECT id,client FROM missions ORDER BY created_at DESC",fetch=True); dossiers=pro_exec("SELECT id,client FROM dossiers ORDER BY client",fetch=True)
+        mo={f"{x['client']} — {x['id']}":x['id'] for x in missions}; do={f"{x['client']} — {x['id']}":x['id'] for x in dossiers}
+        c1,c2,c3=st.columns(3); mission=c1.selectbox("Mission",["Aucune"]+list(mo.keys())); dossier=c2.selectbox("Dossier",["Aucun"]+list(do.keys())); typ=c3.selectbox("Type",["Recette","Dépense"])
+        c1,c2,c3,c4=st.columns(4); cat=c1.selectbox("Catégorie",["Honoraires","Intrants","Main-d'œuvre","Transport","Matériel","Laboratoire","Communication","Autre"]); lib=c2.text_input("Libellé"); montant=c3.number_input("Montant FCFA",0.0,1000000000.0,0.0); statut=c4.selectbox("Statut",["Prévisionnel","Engagé","Réalisé","Payé","Annulé"])
+        note=st.text_area("Note")
+        if st.form_submit_button("💾 Enregistrer l'opération",type="primary"):
+            fid=pro_id('FIN'); pro_exec("INSERT INTO finance VALUES (?,?,?,?,?,?,?,?,?,?)",(fid,mo.get(mission),do.get(dossier),typ,cat,lib,montant,datetime.now().date().isoformat(),statut,note)); pro_audit('Utilisateur','Ajout','Finance',fid); st.success("Opération enregistrée.")
+    rows=pro_exec("SELECT * FROM finance ORDER BY date_operation DESC",fetch=True)
+    if rows:
+        df=pd.DataFrame(rows); recettes=df.loc[df.type=='Recette','montant'].sum(); dep=df.loc[df.type=='Dépense','montant'].sum(); c1,c2,c3=st.columns(3); c1.metric("Recettes",f"{recettes:,.0f} FCFA"); c2.metric("Dépenses",f"{dep:,.0f} FCFA"); c3.metric("Solde",f"{recettes-dep:,.0f} FCFA"); st.dataframe(df,use_container_width=True,hide_index=True)
+
+# =====================================================
+# 🤖 IA EXPERT
+# =====================================================
+elif selected == "🤖 IA Expert":
+    pro_header("🤖 IA Expert YouAgronoMe", "Copilote local sans clé API : contexte Sénégal, dossier, métier, risques, plan d'action et traçabilité.")
+    dossiers=pro_exec("SELECT id,client,region,type_exploitation,superficie FROM dossiers ORDER BY updated_at DESC",fetch=True)
+    dmap={f"{x['client']} — {x['id']}":x for x in dossiers}; choix=st.selectbox("Dossier à contextualiser",list(dmap.keys()) or ["Aucun dossier"]); r=dmap.get(choix,{})
+    role=st.selectbox("Profil",list(ACTEURS_CONSULTANCE.keys())); domaine=st.selectbox("Domaine",["Agriculture","Élevage","Aquaculture","Agroalimentaire","Économie","Eau","SIG/GPS"]); question=st.text_area("Question / problème",placeholder="Décrivez la situation et l'objectif de décision.")
+    if st.button("🧠 Analyser et construire un plan",type="primary"):
+        context={"zone":next((z for z,d in ZONES_AGROECOLOGIQUES.items() if r.get('region') in d.get('regions',[])),""),"culture":domaine,"stade":"Diagnostic / suivi"}
+        answer,model,evidence=ai_consultation_answer(role,context,question or "Faire un diagnostic opérationnel du dossier.",[] ,[])
+        st.markdown(answer); st.caption(f"{model} · {evidence}")
+        pro_audit('Utilisateur','Analyse IA','Dossier',r.get('id',''))
+
+# =====================================================
+# 📈 RAPPORTS
+# =====================================================
+elif selected == "📈 Rapports":
+    pro_header("📈 Rapports professionnels", "Rapport diagnostic, mission, économique, suivi et synthèse de dossier.")
+    dossiers=pro_exec("SELECT * FROM dossiers ORDER BY updated_at DESC",fetch=True); missions=pro_exec("SELECT * FROM missions ORDER BY created_at DESC",fetch=True)
+    c1,c2=st.columns(2); dossier_id=c1.selectbox("Dossier",[x['id'] for x in dossiers] or ["Aucun"]); mission_id=c2.selectbox("Mission",[x['id'] for x in missions] or ["Aucune"])
+    if dossier_id!="Aucun":
+        d=next(x for x in dossiers if x['id']==dossier_id); m=pro_exec("SELECT * FROM missions WHERE dossier_id=?",(dossier_id,),fetch=True); f=pro_exec("SELECT * FROM finance WHERE dossier_id=?",(dossier_id,),fetch=True); l=pro_exec("SELECT * FROM livestock WHERE dossier_id=?",(dossier_id,),fetch=True); q=pro_exec("SELECT * FROM aquaculture WHERE dossier_id=?",(dossier_id,),fetch=True)
+        st.write(f"### {d['client']} — {d['type_exploitation']}"); st.write(f"Localisation : {d['commune']} / {d['village']} — {d['region']} · {d['superficie']} ha")
+        c1,c2,c3=st.columns(3); c1.metric("Missions",len(m)); c2.metric("Opérations financières",len(f)); c3.metric("Observations élevage/aqua",len(l)+len(q))
+        if HAS_REPORTLAB and st.button("📄 Générer le rapport PDF",type="primary"):
+            buf=io.BytesIO(); doc=SimpleDocTemplate(buf,pagesize=letter); styles=getSampleStyleSheet(); story=[Paragraph("YouAgronoMe — Rapport de Dossier Exploitation 360°",styles['Title']),Spacer(1,12),Paragraph(f"<b>Client :</b> {d['client']}<br/><b>Type :</b> {d['type_exploitation']}<br/><b>Zone :</b> {d['region']} — {d['commune']}<br/><b>Superficie :</b> {d['superficie']} ha<br/><b>Date :</b> {datetime.now().strftime('%d/%m/%Y %H:%M')}",styles['Normal']),Spacer(1,14)]
+            story.append(Paragraph("Synthèse opérationnelle",styles['Heading2'])); story.append(Paragraph(f"Missions associées : {len(m)} · Opérations financières : {len(f)} · Observations élevage/aquaculture : {len(l)+len(q)}.",styles['Normal'])); story.append(Spacer(1,10)); story.append(Paragraph("Le présent document rassemble les données saisies dans YouAgronoMe. Les recommandations techniques nécessitant validation réglementaire ou laboratoire doivent être confirmées par le professionnel compétent.",styles['Normal'])); doc.build(story); buf.seek(0); st.download_button("📥 Télécharger le rapport",buf.getvalue(),file_name=f"rapport_{dossier_id}.pdf",mime="application/pdf")
+    else: st.info("Créez d'abord un dossier.")
+
+# =====================================================
+# 🔔 ALERTES
+# =====================================================
+elif selected == "🔔 Alertes":
+    pro_header("🔔 Centre d'alertes", "Météo, phytosanitaire, eau, mortalité, qualité, échéances de missions et risques économiques.")
+    with st.form("alert_form"):
+        dossiers=pro_exec("SELECT id,client FROM dossiers ORDER BY client",fetch=True); opts={f"{x['client']} — {x['id']}":x['id'] for x in dossiers}
+        dossier=st.selectbox("Dossier",["Aucun"]+list(opts.keys())); dom=st.selectbox("Domaine",["Météo","Phytosanitaire","Eau","Élevage","Aquaculture","Agroalimentaire","Finance","Mission","Qualité"]); niv=st.selectbox("Niveau",["Info","Surveillance","Important","Critique"]); titre=st.text_input("Titre"); msg=st.text_area("Message"); ech=st.date_input("Échéance")
+        if st.form_submit_button("🚨 Créer l'alerte",type="primary"):
+            aid=pro_id('ALT'); pro_exec("INSERT INTO alerts VALUES (?,?,?,?,?,?,?,?,?)",(aid,opts.get(dossier),dom,niv,titre,msg,str(ech),'Ouverte',datetime.now().isoformat(timespec='seconds'))); st.success("Alerte créée.")
+    rows=pro_exec("SELECT * FROM alerts ORDER BY created_at DESC",fetch=True)
+    if rows: st.dataframe(pd.DataFrame(rows),use_container_width=True,hide_index=True)
+
+# =====================================================
+# ⚙️ ADMINISTRATION
+# =====================================================
+elif selected == "⚙️ Administration":
+    pro_header("⚙️ Administration & Gouvernance", "Gestion des données, utilisateurs, missions, audit et paramètres de la plateforme.")
+    auth=st.session_state.get('auth_user')
+    if not auth:
+        st.warning("Accès administrateur : ouvrez d'abord le Bureau de Consultance et authentifiez-vous avec un compte autorisé.")
+    else:
+        is_owner=str(auth.get('role','')).lower()=='super-admin' or str(auth.get('email','')).strip().lower()==os.getenv('YOUAGRONOME_OWNER_EMAIL','iy@2012').lower()
+        if not is_owner: st.error("Accès réservé au Super-Admin.")
+        else:
+            d,m,a,ca,ch=pro_metrics(); c1,c2,c3,c4,c5=st.columns(5); c1.metric("Dossiers",d); c2.metric("Missions",m); c3.metric("Alertes",a); c4.metric("Recettes",f"{ca:,.0f}"); c5.metric("Dépenses",f"{ch:,.0f}")
+            st.markdown("### 👥 Experts autorisés")
+            try:
+                admin_db=load_db(); st.dataframe(pd.DataFrame(admin_db.get('whitelist',[])).drop(columns=['password'],errors='ignore'),use_container_width=True,hide_index=True)
+            except Exception as exc: st.warning(f"Liste des experts indisponible : {exc}")
+            st.markdown("### 🧾 Journal d'activité")
+            audits=pro_exec("SELECT * FROM audit ORDER BY created_at DESC LIMIT 300",fetch=True); st.dataframe(pd.DataFrame(audits),use_container_width=True,hide_index=True) if audits else st.info("Aucune activité enregistrée.")
+            st.markdown("### 💾 Export de sauvegarde")
+            export={}
+            for table in ['dossiers','assets','missions','actions','finance','livestock','aquaculture','agrofood','analyses','alerts','audit']:
+                export[table]=pro_exec(f"SELECT * FROM {table}",fetch=True)
+            st.download_button("📦 Exporter toutes les données JSON",json.dumps(export,ensure_ascii=False,indent=2).encode('utf-8'),file_name=f"youagronome_sauvegarde_{datetime.now().strftime('%Y%m%d_%H%M')}.json",mime='application/json')
+
+# =====================================================
 # 💼 CONSULTANCE AGRONOMIQUE EXPERTE (MODULE 360° & IA)
 # =====================================================
 elif selected == "💼 Consultance":
+
 
     DB_FILE = "techniciens_db.json"
     OWNER_EMAIL = os.getenv("YOUAGRONOME_OWNER_EMAIL", "iy@2012")
