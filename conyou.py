@@ -875,7 +875,7 @@ elif selected == "🌾 Agriculture":
         a,b,c,d=st.columns(4); a.metric("Production",f"{production:,.2f} t"); b.metric("CA",f"{ca:,.0f} FCFA"); c.metric("Charges",f"{total_ch:,.0f} FCFA"); d.metric("Marge",f"{marge:,.0f} FCFA")
         st.progress(min(1,max(0,marge/ca if ca else 0)),text="Taux de marge prévisionnel")
     with tab2:
-        c1,c2,c3,c4=st.columns(4); eto=c1.number_input("ETo (mm/j)",0.0,20.0,5.5); kc=c2.number_input("Kc",0.1,1.5,1.0); surf2=c3.number_input("Surface (ha)",0.1,100000.0,2.5); effic=c4.number_input("Efficacité irrigation",0.1,1.0,0.75)
+        c1,c2,c3,c4=st.columns(4); eto=c1.number_input("ETo (mm/j)",0.0,20.0,5.5,key="irrig_eto"); kc=c2.number_input("Kc",0.1,1.5,1.0,key="irrig_kc"); surf2=c3.number_input("Surface (ha)",0.1,100000.0,2.5,key="irrig_surface"); effic=c4.number_input("Efficacité irrigation",0.1,1.0,0.75,key="irrig_efficiency")
         etc=eto*kc; besoin=etc*10*surf2/max(effic,0.1); st.metric("Besoin brut estimé",f"{besoin:,.1f} m³/j")
         n,p,k=st.columns(3); bn=n.number_input("N kg/ha",0.0,1000.0,120.0); bp=p.number_input("P₂O₅ kg/ha",0.0,1000.0,60.0); bk=k.number_input("K₂O kg/ha",0.0,1000.0,80.0)
         st.dataframe(pd.DataFrame([{"Élément":"N","Besoin total kg":bn*surf2},{"Élément":"P₂O₅","Besoin total kg":bp*surf2},{"Élément":"K₂O","Besoin total kg":bk*surf2}]),use_container_width=True,hide_index=True)
@@ -1602,7 +1602,7 @@ elif selected == "💼 Consultance":
             st.success(f"Dossier {st.session_state['active_consultation_id']} enregistré dans la base persistante.")
 
         if "active_consultation_id" not in st.session_state:
-            existing = list_consultations(1)
+            existing = list_consultations(1) if "list_consultations" in globals() else []
             if existing:
                 st.session_state["active_consultation_id"] = existing[0]["id"]
 
