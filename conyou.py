@@ -678,6 +678,126 @@ def save_zone(coords, feature_type, name, dossier_id, parcelle_id=None):
 
 
 # =========================================================
+# SYNCHRONISATION CENTRALE DE LA PARCELLE / ZONE
+# =========================================================
+def _coords_are_valid(coords):
+    if not coords or len(coords) < 3:
+        return False
+    try:
+        return all(-90 <= float(p[0]) <= 90 and -180 <= float(p[1]) <= 180 for p in coords)
+    except Exception:
+        return False
+
+
+def _geometry_to_coords(geom):
+    """Convertit une géométrie sauvegardée en liste [lat, lon]."""
+    if not geom:
+        return []
+    try:
+        obj = geom
+        if isinstance(geom, str):
+            obj = json.loads(geom)
+        if isinstance(obj, dict):
+            if obj.get("type") == "Feature":
+                obj = obj.get("geometry", {})
+            if obj.get("type") == "FeatureCollection":
+                feats = obj.get("features") or []
+                obj = feats[0].get("geometry", {}) if feats else {}
+            if obj.get("type") == "Polygon":
+                rings = obj.get("coordinates") or []
+                ring = rings[0] if rings else []
+                return [(float(x[1]), float(x[0])) for x in ring if len(x) >= 2]
+            if obj.get("type") == "LineString":
+                return [(float(x[1]), float(x[0])) for x in obj.get("coordinates", [])]
+        if isinstance(obj, list):
+            # Déjà au format [lat, lon]
+            if obj and isinstance(obj[0], (list, tuple)) and len(obj[0]) >= 2:
+                pts = [(float(x[0]), float(x[1])) for x in obj]
+                if _coords_are_valid(pts):
+                    return pts
+    except Exception:
+        pass
+    return []
+
+
+def _save_active_parcel_geometry(coords, label="Parcelle délimitée"):
+    """Sauvegarde la géométrie ET resynchronise le contexte de la parcelle."""
+    if not _coords_are_valid(coords):
+        return False, "Le polygone GPS est invalide ou incomplet."
+
+    c = context()
+    parcel_id = c.get("parcelle_id")
+    dossier_id = c.get("dossier_id")
+    client_id = c.get("client_id")
+    if not parcel_id:
+        return False, "Sélectionnez d'abord une parcelle active."
+
+    area = 0.0
+    perimeter = 0.0
+    try:
+        area = float(polygon_area_ha(coords))
+        perimeter = float(polygon_perimeter_m(coords))
+    except Exception:
+        pass
+
+    geometry_json = json.dumps(
+        {"type": "Polygon", "coordinates": [[[lon, lat] for lat, lon in coords]]},
+        ensure_ascii=False
+    )
+    centroid_lat = sum(float(p[0]) for p in coords) / len(coords)
+    centroid_lon = sum(float(p[1]) for p in coords) / len(coords)
+
+    try:
+        db_exec(
+            """UPDATE parcelles
+               SET geometry=?, surface_ha=?, perimeter_m=?, centroid_lat=?, centroid_lon=?,
+                   source=?, confidence=?, updated_at=?
+               WHERE id=?""",
+            (geometry_json, area, perimeter, centroid_lat, centroid_lon,
+             "GPS/dessin", 1.0, now(), parcel_id)
+        )
+    except Exception as exc:
+        return False, f"Impossible de sauvegarder la géométrie : {exc}"
+
+    # Contexte central : une seule source de vérité pour les modules suivants.
+    st.session_state["active_parcel_geometry"] = coords
+    st.session_state["terrain_geometry"] = coords
+    st.session_state["terrain_sync_version"] = datetime.now().isoformat(timespec="seconds")
+    st.session_state["terrain_sync_status"] = "OK"
+    try:
+        sync_all()
+    except Exception:
+        pass
+    try:
+        audit("PARCELLE_GEOMETRIE_SYNC", label, parcel_id)
+    except Exception:
+        pass
+    return True, f"Parcelle synchronisée : {area:.2f} ha."
+
+
+def _active_geometry():
+    coords = st.session_state.get("active_parcel_geometry") or st.session_state.get("terrain_geometry")
+    if coords:
+        return coords
+    c = context()
+    pid = c.get("parcelle_id")
+    if not pid:
+        return []
+    try:
+        rows = db_exec("SELECT geometry FROM parcelles WHERE id=?", (pid,), fetch=True)
+        if rows:
+            coords = _geometry_to_coords(rows[0].get("geometry"))
+            if coords:
+                st.session_state["active_parcel_geometry"] = coords
+                st.session_state["terrain_geometry"] = coords
+                return coords
+    except Exception:
+        pass
+    return []
+
+
+
+# =========================================================
 # COUCHE PÉDOLOGIQUE — Morpho_Pedo
 # =========================================================
 PEDO_CANDIDATES = [
@@ -731,8 +851,10 @@ def pedo_lookup(coords):
     """
     empty = pd.DataFrame()
 
+    if not coords:
+        coords = _active_geometry()
     if not coords or len(coords) < 3:
-        return empty, "Zone insuffisamment définie pour une recherche pédologique."
+        return empty, "Délimitez ou sélectionnez d'abord une parcelle pour la recherche pédologique."
 
     gdf, load_msg = load_pedo_layer()
     if gdf is None:
@@ -1205,28 +1327,72 @@ def save_interview_answer(dossier_id, client_id, domain, mode, question, answer,
 def interview_transcript(dossier_id):
     return db_exec("SELECT * FROM entretiens WHERE dossier_id=? ORDER BY ordre,created_at", (dossier_id,), fetch=True)
 
-def build_interview_pdf(context_data, rows, ai_summary=""):
+def build_interview_pdf(rows, dossier=None, client=None):
+    """Rapport d'entretien professionnel, lisible et structuré."""
     if not HAS_PDF:
         return None
-    buf=io.BytesIO()
-    doc=SimpleDocTemplate(buf,pagesize=A4,rightMargin=40,leftMargin=40,topMargin=40,bottomMargin=40)
-    styles=getSampleStyleSheet()
-    story=[Paragraph("Compte rendu d'entretien — YouAgronoMe", styles["Title"]), Spacer(1,10)]
-    meta=(f"Client : {context_data.get('client') or '—'} | "
-          f"Dossier : {context_data.get('dossier') or '—'} | "
-          f"Zone : {context_data.get('zone_nom') or 'Non définie'}")
-    story += [Paragraph(meta.replace('&','&amp;'), styles["Normal"]), Spacer(1,12)]
-    if ai_summary:
-        story += [Paragraph("Synthèse factuelle", styles["Heading2"]),
-                  Paragraph(ai_summary.replace('&','&amp;').replace('\n','<br/>'), styles["Normal"]), Spacer(1,12)]
-    story += [Paragraph("Transcription de l'entretien", styles["Heading2"])]
-    for i,r in enumerate(rows,1):
-        q=(r.get('question') or '').replace('&','&amp;')
-        a=(r.get('reponse') or '').replace('&','&amp;').replace('\n','<br/>')
-        story += [Paragraph(f"{i}. {q}", styles["Heading3"]), Paragraph(a or "—", styles["Normal"]), Spacer(1,7)]
-    story += [Spacer(1,12), Paragraph(f"Généré le {datetime.now():%d/%m/%Y à %H:%M}", styles["Italic"])]
-    doc.build(story); buf.seek(0)
+
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buf, pagesize=A4,
+        rightMargin=38, leftMargin=38, topMargin=42, bottomMargin=42
+    )
+    styles = getSampleStyleSheet()
+    title = styles["Title"]
+    title.fontSize = 20
+    title.leading = 24
+    subtitle = styles["Heading2"]
+    subtitle.fontSize = 12
+    body = styles["BodyText"]
+    body.fontSize = 9.5
+    body.leading = 13
+
+    story = []
+    story.append(Paragraph("YO UAGRONOME", title))
+    story.append(Paragraph("RAPPORT DE CONSULTANCE — ENTRETIEN AGRICOLE", subtitle))
+    story.append(Spacer(1, 10))
+
+    client_name = (client or {}).get("nom") if isinstance(client, dict) else None
+    dossier_name = (dossier or {}).get("nom") if isinstance(dossier, dict) else None
+    meta = [
+        ["Client", client_name or "Non renseigné"],
+        ["Dossier", dossier_name or "Non renseigné"],
+        ["Date", datetime.now().strftime("%d/%m/%Y %H:%M")],
+        ["Nombre de questions", str(len(rows or []))],
+    ]
+    t = Table(meta, colWidths=[120, 390])
+    t.setStyle(TableStyle([
+        ("GRID", (0,0), (-1,-1), 0.35, None),
+        ("VALIGN", (0,0), (-1,-1), "TOP"),
+        ("FONTNAME", (0,0), (0,-1), "Helvetica-Bold"),
+        ("FONTNAME", (1,0), (1,-1), "Helvetica"),
+        ("FONTSIZE", (0,0), (-1,-1), 9),
+        ("BOTTOMPADDING", (0,0), (-1,-1), 6),
+        ("TOPPADDING", (0,0), (-1,-1), 6),
+    ]))
+    story.append(t)
+    story.append(Spacer(1, 14))
+
+    for i, row in enumerate(rows or [], 1):
+        question = str(row.get("question", "Question"))
+        answer = str(row.get("reponse", "")).strip() or "Aucune réponse enregistrée."
+        domain = str(row.get("domaine", "")).strip()
+        story.append(Paragraph(f"{i}. {question}", subtitle))
+        if domain:
+            story.append(Paragraph(f"Domaine : {domain}", body))
+        story.append(Paragraph(answer.replace("\n", "<br/>"), body))
+        story.append(Spacer(1, 9))
+
+    story.append(Spacer(1, 12))
+    story.append(Paragraph(
+        "Document généré à partir des réponses enregistrées pendant l'entretien. "
+        "Les éléments techniques doivent être vérifiés sur le terrain lorsque nécessaire.",
+        body
+    ))
+    doc.build(story)
+    buf.seek(0)
     return buf.getvalue()
+
 
 def communication_contacts(dossier_id):
     return db_exec("SELECT * FROM contacts WHERE dossier_id=? ORDER BY nom",(dossier_id,),fetch=True)
@@ -1714,6 +1880,14 @@ def _legacy_sig_space(selected=None):
         st.markdown("#### 🧭 Sol de la zone cartographiée")
         geom = c.get("zone_geometry") or (active_parcelle() or {}).get("geometry_json")
         coords_pedo = load_geometry(geom)
+        if st.button("🔄 Synchroniser la parcelle avec toutes les analyses", key="sync_parcelle_global"):
+            ok_sync, msg_sync = _save_active_parcel_geometry(coords_pedo if 'coords_pedo' in locals() else _active_geometry())
+            if ok_sync:
+                st.success(msg_sync)
+                st.rerun()
+            else:
+                st.warning(msg_sync)
+
         if coords_pedo and len(coords_pedo) >= 3:
             pedo_df, pedo_msg = pedo_lookup(coords_pedo)
             if pedo_msg:
@@ -1946,6 +2120,7 @@ def _legacy_decision_space(selected=None):
 # 13. ESPACE 4 — CONSULTANCE & PILOTAGE
 # =========================================================
 def _legacy_consultancy_space(selected=None):
+    user = st.session_state.get("user") or {}
     section = selected or st.session_state.get("compact__legacy_consultancy_space", '👥 Clients')
 
     if section == '👥 Clients':
