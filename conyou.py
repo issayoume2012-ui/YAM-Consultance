@@ -12,7 +12,7 @@ périmètre commun des analyses.
 
 Dépendances principales :
 streamlit, pandas, numpy
-Optionnelles : folium, streamlit-folium, reportlab, requests
+Optionnelles : folium, streamlit-folium, reportlab, requests, geopandas, shapely
 """
 
 from datetime import datetime, date, timedelta
@@ -886,7 +886,7 @@ def login():
 # =========================================================
 def global_selector():
     st.markdown("### 🎯 Dossier de consultance actif")
-    clients = db_exec("SELECT * FROM clients ORDER BY COALESCE(updated_at, created_at, '') DESC, COALESCE(created_at, '') DESC", fetch=True)
+    clients = accessible_clients()
     client_labels = ["➕ Nouveau client"] + [f"{x['id']} · {x['nom']}" for x in clients]
     current_client = st.session_state.get("client_id")
     cidx = next((i+1 for i,x in enumerate(clients) if x["id"] == current_client), 0)
@@ -917,7 +917,7 @@ def global_selector():
 
     cid = st.session_state.get("client_id")
     if cid:
-        dossiers = db_exec("SELECT * FROM dossiers WHERE client_id=? ORDER BY COALESCE(updated_at, created_at, '') DESC", (cid,), fetch=True)
+        dossiers = accessible_dossiers(cid)
         labels = ["➕ Nouveau dossier"] + [f"{x['id']} · {x['nom']}" for x in dossiers]
         cur = st.session_state.get("dossier_id")
         didx = next((i+1 for i,x in enumerate(dossiers) if x["id"] == cur), 0)
@@ -1058,6 +1058,84 @@ def build_interview_pdf(context_data, rows, ai_summary=""):
     story += [Spacer(1,12), Paragraph(f"Généré le {datetime.now():%d/%m/%Y à %H:%M}", styles["Italic"])]
     doc.build(story); buf.seek(0)
     return buf.getvalue()
+
+def communication_contacts(dossier_id):
+    return db_exec("SELECT * FROM contacts WHERE dossier_id=? ORDER BY nom",(dossier_id,),fetch=True)
+
+def whatsapp_url(phone,message):
+    digits=re.sub(r"[^0-9]","",phone or "")
+    if digits.startswith("00"): digits=digits[2:]
+    return ("https://wa.me/"+digits+"?text="+urllib.parse.quote(message or "")) if digits else ""
+
+def smtp_configured():
+    return all(os.getenv(k) for k in ["YOUAGRONOME_SMTP_HOST","YOUAGRONOME_SMTP_USER","YOUAGRONOME_SMTP_PASS"])
+
+def send_email_smtp(to_email,subject,body):
+    user=os.getenv("YOUAGRONOME_SMTP_USER")
+    msg=EmailMessage()
+    msg["From"]=os.getenv("YOUAGRONOME_SMTP_FROM",user)
+    msg["To"]=to_email
+    msg["Subject"]=subject
+    msg.set_content(body)
+    with smtplib.SMTP(os.getenv("YOUAGRONOME_SMTP_HOST"),int(os.getenv("YOUAGRONOME_SMTP_PORT","587")),timeout=20) as server:
+        server.starttls()
+        server.login(user,os.getenv("YOUAGRONOME_SMTP_PASS"))
+        server.send_message(msg)
+
+def communications_space():
+    c=context()
+    st.subheader("📨 Communications avec les acteurs")
+    st.info("Un seul espace pour contacter les acteurs du dossier. WhatsApp ouvre un message prérempli ; l'e-mail est envoyé automatiquement si le SMTP du cabinet est configuré.")
+    if not c.get("dossier_id"):
+        st.warning("Sélectionnez d'abord un dossier.")
+        return
+    with st.form("contact_add_form_v11"):
+        a,b,c1,d=st.columns(4)
+        nom=a.text_input("Nom / acteur")
+        fonction=b.text_input("Fonction")
+        telephone=c1.text_input("Téléphone WhatsApp")
+        email=d.text_input("E-mail")
+        organisation=st.text_input("Organisation")
+        canal=st.selectbox("Canal préféré",["WhatsApp","E-mail","Les deux"])
+        if st.form_submit_button("Ajouter l'acteur"):
+            if nom.strip():
+                db_exec("""INSERT INTO contacts(id,dossier_id,nom,fonction,organisation,telephone,email,canal_prefere,notes,created_at)
+                           VALUES(?,?,?,?,?,?,?,?,?,?)""",
+                        (new_id("CNT"),c["dossier_id"],nom.strip(),fonction,organisation,telephone,email,canal,"",now()))
+                audit("AJOUT_CONTACT","contact",c["dossier_id"],nom.strip())
+                st.success("Acteur ajouté.")
+                st.rerun()
+    contacts=communication_contacts(c["dossier_id"])
+    if not contacts:
+        st.info("Aucun acteur enregistré dans ce dossier.")
+        return
+    labels=[f"{x['id']} · {x['nom']} · {x['fonction'] or 'acteur'}" for x in contacts]
+    selected_label=st.selectbox("Destinataire",labels,key="communication_contact_v11")
+    actor=contacts[labels.index(selected_label)]
+    subject=st.text_input("Objet","Suivi du dossier YouAgronoMe",key="communication_subject_v11")
+    body=st.text_area("Message",height=180,
+                      value=f"Bonjour {actor['nom']},\n\nNous revenons vers vous concernant le dossier {c['dossier'] or ''}.\n\nCordialement,\nYouAgronoMe",
+                      key="communication_body_v11")
+    a,b=st.columns(2)
+    if actor.get("telephone"):
+        url=whatsapp_url(actor["telephone"],body)
+        if url:
+            a.link_button("🟢 Ouvrir WhatsApp",url,use_container_width=True)
+    if actor.get("email"):
+        if smtp_configured():
+            if b.button("✉️ Envoyer l'e-mail",type="primary",key="smtp_send_mail_v11"):
+                try:
+                    send_email_smtp(actor["email"],subject,body)
+                    audit("ENVOI_EMAIL","contact",actor["id"],actor["email"])
+                    st.success("E-mail envoyé.")
+                except Exception as exc:
+                    st.error(f"Échec d'envoi : {exc}")
+        else:
+            mailto="mailto:"+actor["email"]+"?subject="+urllib.parse.quote(subject)+"&body="+urllib.parse.quote(body)
+            b.link_button("✉️ Ouvrir mon logiciel e-mail",mailto,use_container_width=True)
+            st.caption("Pour l'envoi automatique, configurez YOUAGRONOME_SMTP_HOST, YOUAGRONOME_SMTP_PORT, YOUAGRONOME_SMTP_USER, YOUAGRONOME_SMTP_PASS et YOUAGRONOME_SMTP_FROM.")
+    st.markdown("### 👥 Acteurs du dossier")
+    st.dataframe(pd.DataFrame(contacts),use_container_width=True,hide_index=True)
 
 def entretien_space():
     c=context()
@@ -1400,9 +1478,8 @@ def _legacy_sig_space(selected=None):
         else:
             lat = float(c["latitude"] or REGIONS_COORD.get(c["region"], (14.7,-16.2))[0])
             lon = float(c["longitude"] or REGIONS_COORD.get(c["region"], (14.7,-16.2))[1])
-            st.info("Utilisez l’outil **Polygone** dans la barre de dessin de la carte, cliquez sur chaque limite de la parcelle, puis double-cliquez pour terminer. La surface, le périmètre et les coordonnées sont calculés automatiquement.")
-            st.caption("🖊️ Outils disponibles : polygone, rectangle, point GPS/repère, modification et suppression. Choisissez **Parcelle** pour enregistrer directement le contour dans le dossier.")
-            result = map_for_context(lat, lon, 600, "study_zone_map", allow_draw=True)
+            st.info("Dessinez un polygone autour de la zone réellement étudiée. La surface calculée et la géométrie seront utilisées par les diagnostics et rapports.")
+            result = map_for_context(lat, lon, 600, "study_zone_map", allow_draw=True, include_pedo=True)
             drawing = result.get("last_active_drawing") if result else None
             coords = drawing_to_coords(drawing)
             if len(coords) >= 3:
@@ -1413,44 +1490,17 @@ def _legacy_sig_space(selected=None):
                 typ = a.selectbox("Type de zone", ["Zone d'étude","Parcelle","Zone d'observation","Zone à risque"], key="zone_type_draw")
                 nom = b.text_input("Nom de la zone", "Zone d'étude principale", key="zone_name_draw")
                 c1.write(f"**Centre**\n{centroid(coords)[0]:.6f}, {centroid(coords)[1]:.6f}")
-                if st.button("💾 Enregistrer la délimitation", type="primary", key="save_zone_draw"):
-                    # Une délimitation de type Parcelle est enregistrée dans la table parcelles
-                    # afin que la surface et la géométrie soient directement réutilisables
-                    # par les diagnostics, calculs et rapports.
-                    if typ == "Parcelle":
-                        did = c["dossier_id"]
-                        pid = c.get("parcelle_id")
-                        if not pid:
-                            pid = new_id("PAR")
-                            db_exec(
-                                """INSERT INTO parcelles
-                                   (id,dossier_id,nom,culture,stade,surface_ha,perimeter_m,latitude,longitude,geometry_json,feature_type,source_type,confidence,validation_status,notes,created_at,updated_at)
-                                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                                (pid, did, nom, CULTURES[0], STAGES[0], area, perim,
-                                 centroid(coords)[0], centroid(coords)[1], json.dumps(coords),
-                                 "Parcelle", "GPS/Polygone", 0.98, "À vérifier",
-                                 "Parcelle délimitée sur la carte.", now(), now())
-                            )
-                        else:
-                            db_exec(
-                                """UPDATE parcelles
-                                   SET nom=?, surface_ha=?, perimeter_m=?, latitude=?, longitude=?,
-                                       geometry_json=?, source_type=?, confidence=?, validation_status=?, updated_at=?
-                                   WHERE id=? AND dossier_id=?""",
-                                (nom, area, perim, centroid(coords)[0], centroid(coords)[1],
-                                 json.dumps(coords), "GPS/Polygone", 0.98, "À vérifier", now(), pid, did)
-                            )
-                        st.session_state["parcelle_id"] = pid
-                        zid = save_zone(coords, "Parcelle", nom, did, pid)
-                        st.session_state["zone_feature_id"] = zid
-                        audit("DELIMITATION_PARCELLE", "parcelle", pid,
-                              {"surface_ha": area, "perimeter_m": perim, "points": len(coords)})
-                        st.success(f"Parcelle « {nom} » délimitée et enregistrée : {area:.3f} ha.")
-                    else:
-                        zid = save_zone(coords, typ, nom, c["dossier_id"], c["parcelle_id"])
-                        st.session_state["zone_feature_id"] = zid
-                        st.success("Périmètre enregistré dans le SIG du dossier.")
+                if st.button("💾 Enregistrer cette zone comme périmètre officiel de l'étude", type="primary", key="save_zone_draw"):
+                    zid = save_zone(coords, typ, nom, c["dossier_id"], c["parcelle_id"])
+                    st.session_state["zone_feature_id"] = zid
                     st.session_state["map_nonce"] += 1
+                    st.success("Zone enregistrée. Elle devient le périmètre géographique commun du dossier.")
+                    pedo_df, pedo_msg = pedo_lookup(coords)
+                    if pedo_msg:
+                        st.caption(f"🌱 {pedo_msg}")
+                    if not pedo_df.empty:
+                        st.markdown("#### 🌱 Données pédologiques intersectées")
+                        st.dataframe(pedo_df, use_container_width=True, hide_index=True)
                     st.rerun()
             if c["zone_geometry"]:
                 st.metric("Zone active", f"{c['zone_surface_ha']:.3f} ha")
@@ -1479,35 +1529,7 @@ def _legacy_sig_space(selected=None):
                         (pid,did,nom,culture,STAGES[0],lat,lon,"[]",now(),now()))
                     st.session_state["parcelle_id"] = pid
                     audit("CREATION","parcelle",pid)
-                    st.success("Parcelle créée. Vous pouvez maintenant la délimiter avec l’outil Polygone dans « Zone & GPS ». ")
-
-            st.markdown("#### 🖊️ Délimitation cartographique de la parcelle")
-            st.caption("Sélectionnez une parcelle ci-dessus ou créez-en une, puis dessinez son contour sur la carte.")
-            result_parcel = map_for_context(lat, lon, 520, "parcel_draw_map", allow_draw=True) if HAS_MAP else None
-            drawing_parcel = result_parcel.get("last_active_drawing") if result_parcel else None
-            coords_parcel = drawing_to_coords(drawing_parcel)
-            if len(coords_parcel) >= 3:
-                area_p = polygon_area_ha(coords_parcel)
-                perim_p = polygon_perimeter_m(coords_parcel)
-                st.success(f"Contour de parcelle : {area_p:.3f} ha · périmètre {perim_p:.1f} m")
-                if st.button("💾 Enregistrer ce contour sur la parcelle active", type="primary", key="save_parcel_polygon"):
-                    pid = st.session_state.get("parcelle_id")
-                    if not pid:
-                        st.error("Sélectionnez ou créez d’abord une parcelle.")
-                    else:
-                        la, lo = centroid(coords_parcel)
-                        db_exec(
-                            """UPDATE parcelles SET surface_ha=?, perimeter_m=?, latitude=?, longitude=?,
-                               geometry_json=?, source_type=?, confidence=?, validation_status=?, updated_at=?
-                               WHERE id=? AND dossier_id=?""",
-                            (area_p, perim_p, la, lo, json.dumps(coords_parcel), "GPS/Polygone",
-                             0.98, "À vérifier", now(), pid, did)
-                        )
-                        zid = save_zone(coords_parcel, "Parcelle", "Parcelle active", did, pid)
-                        st.session_state["zone_feature_id"] = zid
-                        audit("DELIMITATION_PARCELLE", "parcelle", pid, {"surface_ha": area_p, "perimeter_m": perim_p})
-                        st.success("Contour enregistré sur la parcelle active.")
-                        st.rerun()
+                    st.success("Parcelle créée.")
 
     if section == '🧭 Couches SIG':
         st.subheader("🧭 Couches SIG du dossier")
@@ -1533,6 +1555,20 @@ def _legacy_sig_space(selected=None):
             st.info(f"Zone agroécologique indicative : {zone}")
             st.write("**Profil de sol indicatif :**", AGROZONES[zone]["sol"])
             st.write("**Risques indicatifs :**", AGROZONES[zone]["risques"])
+        st.markdown("#### 🧭 Sol de la zone cartographiée")
+        geom = c.get("zone_geometry") or (active_parcelle() or {}).get("geometry_json")
+        coords_pedo = load_geometry(geom)
+        if coords_pedo and len(coords_pedo) >= 3:
+            pedo_df, pedo_msg = pedo_lookup(coords_pedo)
+            if pedo_msg:
+                st.caption(f"ℹ️ {pedo_msg}")
+            if not pedo_df.empty:
+                st.success("Unités pédologiques intersectées par la zone active.")
+                st.dataframe(pedo_df, use_container_width=True, hide_index=True)
+            else:
+                st.info("Aucune unité pédologique exploitable n'est associée à cette géométrie.")
+        else:
+            st.info("Délimitez d'abord la parcelle/zone avec le Polygone pour obtenir les données pédologiques.")
         st.markdown("#### Besoin d'irrigation")
         a,b,c1,d = st.columns(4)
         eto = a.number_input("ETo mm/j", 0.0, 20.0, 5.5, key="irrig_eto_pro")
@@ -1942,6 +1978,42 @@ def _legacy_consultancy_space(selected=None):
             users = db_exec("SELECT email,nom,role,zone,statut,created_at FROM users ORDER BY created_at DESC", fetch=True)
             st.dataframe(pd.DataFrame(users), use_container_width=True, hide_index=True)
 
+    if section == '🔐 Accès utilisateurs':
+        st.subheader("🔐 Accès aux données et aux modules")
+        st.info("Principe : un utilisateur non Super-Admin ne voit que les dossiers qui lui sont explicitement attribués. Les modules peuvent également être activés ou retirés par utilisateur.")
+        if user.get("role") != "Super-Admin":
+            st.warning("Accès réservé au Super-Admin.")
+        else:
+            users=db_exec("SELECT email,nom,role,statut FROM users ORDER BY nom,email",fetch=True)
+            if users:
+                labels=[f"{u['email']} · {u['nom']} · {u['role']}" for u in users]
+                u=users[labels.index(st.selectbox("Utilisateur",labels,key="access_user_v11"))]
+                dossiers_all=db_exec("SELECT id,nom FROM dossiers ORDER BY nom",fetch=True)
+                current=db_exec("SELECT dossier_id FROM user_data_access WHERE lower(user_email)=lower(?)",(u["email"],),fetch=True)
+                current_ids={r["dossier_id"] for r in current}
+                dlabels=[f"{d['id']} · {d['nom']}" for d in dossiers_all]
+                selected=st.multiselect("Dossiers autorisés",dlabels,
+                                        default=[x for x in dlabels if x.split(" · ",1)[0] in current_ids],
+                                        key="access_dossiers_v11")
+                custom=db_exec("SELECT module_key FROM user_modules WHERE lower(user_email)=lower(?) AND allowed=1",(u["email"],),fetch=True)
+                default_mods=[r["module_key"] for r in custom] if custom else PROFILS_MODULES.get(u["role"],[])
+                selected_mods=st.multiselect("Modules autorisés",list(MODULES_AUTORISABLES),
+                                             format_func=lambda k:MODULES_AUTORISABLES[k],
+                                             default=[k for k in default_mods if k in MODULES_AUTORISABLES],
+                                             key="access_modules_v11")
+                if st.button("💾 Enregistrer les droits",type="primary",key="save_access_rights_v11"):
+                    db_exec("DELETE FROM user_data_access WHERE lower(user_email)=lower(?)",(u["email"],))
+                    for lab in selected:
+                        db_exec("INSERT OR REPLACE INTO user_data_access(user_email,dossier_id,access_level,created_at) VALUES(?,?,?,?)",
+                                (u["email"],lab.split(" · ",1)[0],"lecture",now()))
+                    db_exec("DELETE FROM user_modules WHERE lower(user_email)=lower(?)",(u["email"],))
+                    for mk in selected_mods:
+                        db_exec("INSERT OR REPLACE INTO user_modules(user_email,module_key,allowed,created_at) VALUES(?,?,?,?)",
+                                (u["email"],mk,1,now()))
+                    audit("MODIFICATION_DROITS","user",u["email"],{"dossiers":len(selected),"modules":len(selected_mods)})
+                    st.success("Droits enregistrés.")
+                    st.rerun()
+
     if section == '🛡️ Audit & synchronisation':
         st.subheader("🛡️ Audit, synchronisation et traçabilité")
         sync = db_exec("SELECT * FROM sync_log ORDER BY fetched_at DESC LIMIT 200", fetch=True)
@@ -2141,6 +2213,7 @@ with st.sidebar:
     c=context(); q,_=data_quality()
     st.markdown("---")
     st.caption(f"👤 {c['client'] or 'Client non sélectionné'}")
+    st.caption(f"🔐 Accès : {(st.session_state.get("user") or {}).get("role","Utilisateur")} · données autorisées uniquement")
     st.caption(f"📁 {c['dossier'] or 'Dossier non sélectionné'}")
     st.caption(f"📍 {c['zone_nom'] or 'Zone non délimitée'}")
     st.caption(f"📐 {(c['zone_surface_ha'] or c['surface_ha']):.2f} ha")
@@ -2156,6 +2229,7 @@ with st.sidebar:
         st.session_state["user"]=None
         st.rerun()
 
+access_guard()
 # Une seule navigation principale. Les anciennes sous-onglets sont remplacées par des rubriques compactes.
 space=st.segmented_control(
     "Espace de travail",
@@ -2181,14 +2255,17 @@ elif space == "🌍 Terrain":
     st.markdown("### 🌍 Terrain")
     section=st.selectbox("Rubrique",[
         "📁 Dossier 360°","🌾 Production","👁️ Observations","🧪 Analyses",
-        "💬 Entretien / Messages","📦 Équipements","📚 Historique"
+        "💬 Entretien / Messages","📨 Communications","📦 Équipements","📚 Historique"
     ],key="terrain_v10_section")
     mapping={
         "📁 Dossier 360°":"📁 Dossier 360°","🌾 Production":"🌾 Agriculture",
         "👁️ Observations":"👁️ Observations","🧪 Analyses":"🧪 Analyses",
         "📦 Équipements":"📦 Équipements","📚 Historique":"📚 Historique"
     }
-    if section=="💬 Entretien / Messages": entretien_space()
+    if section=="💬 Entretien / Messages":
+        entretien_space()
+    elif section=="📨 Communications":
+        communications_space()
     else:
         _legacy_terrain_space(mapping[section])
 
@@ -2223,12 +2300,12 @@ elif space == "💼 Cabinet":
     st.markdown("### 💼 Cabinet")
     section=st.selectbox("Rubrique",[
         "👥 Clients & dossiers","📋 Missions","💰 Devis & Finance","📄 Rapports",
-        "📚 Documents","📆 Suivi & agenda","⚙️ Administration","🛡️ Traçabilité"
+        "📚 Documents","📆 Suivi & agenda","⚙️ Administration","🔐 Accès utilisateurs","🛡️ Traçabilité"
     ],key="cabinet_v10_section")
     mapping={
         "👥 Clients & dossiers":"👥 Clients","📋 Missions":"📋 Missions","💰 Devis & Finance":"💳 Finance",
         "📄 Rapports":"📄 Rapports","📚 Documents":"📚 Documents","📆 Suivi & agenda":"📆 Suivi & agenda",
-        "⚙️ Administration":"👑 Administration","🛡️ Traçabilité":"🛡️ Audit & synchronisation"
+        "⚙️ Administration":"👑 Administration","🔐 Accès utilisateurs":"🔐 Accès utilisateurs","🛡️ Traçabilité":"🛡️ Audit & synchronisation"
     }
     # Devis et Finance sont fusionnés visuellement : on garde le module Devis accessible depuis Finance.
     _legacy_consultancy_space(mapping[section])
