@@ -1400,8 +1400,9 @@ def _legacy_sig_space(selected=None):
         else:
             lat = float(c["latitude"] or REGIONS_COORD.get(c["region"], (14.7,-16.2))[0])
             lon = float(c["longitude"] or REGIONS_COORD.get(c["region"], (14.7,-16.2))[1])
-            st.info("Dessinez un polygone autour de la zone réellement étudiée. La surface calculée et la géométrie seront utilisées par les diagnostics et rapports.")
-            result = map_for_context(lat, lon, 600, "study_zone_map")
+            st.info("Utilisez l’outil **Polygone** dans la barre de dessin de la carte, cliquez sur chaque limite de la parcelle, puis double-cliquez pour terminer. La surface, le périmètre et les coordonnées sont calculés automatiquement.")
+            st.caption("🖊️ Outils disponibles : polygone, rectangle, point GPS/repère, modification et suppression. Choisissez **Parcelle** pour enregistrer directement le contour dans le dossier.")
+            result = map_for_context(lat, lon, 600, "study_zone_map", allow_draw=True)
             drawing = result.get("last_active_drawing") if result else None
             coords = drawing_to_coords(drawing)
             if len(coords) >= 3:
@@ -1412,11 +1413,44 @@ def _legacy_sig_space(selected=None):
                 typ = a.selectbox("Type de zone", ["Zone d'étude","Parcelle","Zone d'observation","Zone à risque"], key="zone_type_draw")
                 nom = b.text_input("Nom de la zone", "Zone d'étude principale", key="zone_name_draw")
                 c1.write(f"**Centre**\n{centroid(coords)[0]:.6f}, {centroid(coords)[1]:.6f}")
-                if st.button("💾 Enregistrer cette zone comme périmètre officiel de l'étude", type="primary", key="save_zone_draw"):
-                    zid = save_zone(coords, typ, nom, c["dossier_id"], c["parcelle_id"])
-                    st.session_state["zone_feature_id"] = zid
+                if st.button("💾 Enregistrer la délimitation", type="primary", key="save_zone_draw"):
+                    # Une délimitation de type Parcelle est enregistrée dans la table parcelles
+                    # afin que la surface et la géométrie soient directement réutilisables
+                    # par les diagnostics, calculs et rapports.
+                    if typ == "Parcelle":
+                        did = c["dossier_id"]
+                        pid = c.get("parcelle_id")
+                        if not pid:
+                            pid = new_id("PAR")
+                            db_exec(
+                                """INSERT INTO parcelles
+                                   (id,dossier_id,nom,culture,stade,surface_ha,perimeter_m,latitude,longitude,geometry_json,feature_type,source_type,confidence,validation_status,notes,created_at,updated_at)
+                                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                                (pid, did, nom, CULTURES[0], STAGES[0], area, perim,
+                                 centroid(coords)[0], centroid(coords)[1], json.dumps(coords),
+                                 "Parcelle", "GPS/Polygone", 0.98, "À vérifier",
+                                 "Parcelle délimitée sur la carte.", now(), now())
+                            )
+                        else:
+                            db_exec(
+                                """UPDATE parcelles
+                                   SET nom=?, surface_ha=?, perimeter_m=?, latitude=?, longitude=?,
+                                       geometry_json=?, source_type=?, confidence=?, validation_status=?, updated_at=?
+                                   WHERE id=? AND dossier_id=?""",
+                                (nom, area, perim, centroid(coords)[0], centroid(coords)[1],
+                                 json.dumps(coords), "GPS/Polygone", 0.98, "À vérifier", now(), pid, did)
+                            )
+                        st.session_state["parcelle_id"] = pid
+                        zid = save_zone(coords, "Parcelle", nom, did, pid)
+                        st.session_state["zone_feature_id"] = zid
+                        audit("DELIMITATION_PARCELLE", "parcelle", pid,
+                              {"surface_ha": area, "perimeter_m": perim, "points": len(coords)})
+                        st.success(f"Parcelle « {nom} » délimitée et enregistrée : {area:.3f} ha.")
+                    else:
+                        zid = save_zone(coords, typ, nom, c["dossier_id"], c["parcelle_id"])
+                        st.session_state["zone_feature_id"] = zid
+                        st.success("Périmètre enregistré dans le SIG du dossier.")
                     st.session_state["map_nonce"] += 1
-                    st.success("Zone enregistrée. Elle devient le périmètre géographique commun du dossier.")
                     st.rerun()
             if c["zone_geometry"]:
                 st.metric("Zone active", f"{c['zone_surface_ha']:.3f} ha")
@@ -1445,7 +1479,35 @@ def _legacy_sig_space(selected=None):
                         (pid,did,nom,culture,STAGES[0],lat,lon,"[]",now(),now()))
                     st.session_state["parcelle_id"] = pid
                     audit("CREATION","parcelle",pid)
-                    st.success("Parcelle créée.")
+                    st.success("Parcelle créée. Vous pouvez maintenant la délimiter avec l’outil Polygone dans « Zone & GPS ». ")
+
+            st.markdown("#### 🖊️ Délimitation cartographique de la parcelle")
+            st.caption("Sélectionnez une parcelle ci-dessus ou créez-en une, puis dessinez son contour sur la carte.")
+            result_parcel = map_for_context(lat, lon, 520, "parcel_draw_map", allow_draw=True) if HAS_MAP else None
+            drawing_parcel = result_parcel.get("last_active_drawing") if result_parcel else None
+            coords_parcel = drawing_to_coords(drawing_parcel)
+            if len(coords_parcel) >= 3:
+                area_p = polygon_area_ha(coords_parcel)
+                perim_p = polygon_perimeter_m(coords_parcel)
+                st.success(f"Contour de parcelle : {area_p:.3f} ha · périmètre {perim_p:.1f} m")
+                if st.button("💾 Enregistrer ce contour sur la parcelle active", type="primary", key="save_parcel_polygon"):
+                    pid = st.session_state.get("parcelle_id")
+                    if not pid:
+                        st.error("Sélectionnez ou créez d’abord une parcelle.")
+                    else:
+                        la, lo = centroid(coords_parcel)
+                        db_exec(
+                            """UPDATE parcelles SET surface_ha=?, perimeter_m=?, latitude=?, longitude=?,
+                               geometry_json=?, source_type=?, confidence=?, validation_status=?, updated_at=?
+                               WHERE id=? AND dossier_id=?""",
+                            (area_p, perim_p, la, lo, json.dumps(coords_parcel), "GPS/Polygone",
+                             0.98, "À vérifier", now(), pid, did)
+                        )
+                        zid = save_zone(coords_parcel, "Parcelle", "Parcelle active", did, pid)
+                        st.session_state["zone_feature_id"] = zid
+                        audit("DELIMITATION_PARCELLE", "parcelle", pid, {"surface_ha": area_p, "perimeter_m": perim_p})
+                        st.success("Contour enregistré sur la parcelle active.")
+                        st.rerun()
 
     if section == '🧭 Couches SIG':
         st.subheader("🧭 Couches SIG du dossier")
