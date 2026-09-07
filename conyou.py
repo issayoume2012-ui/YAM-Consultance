@@ -433,6 +433,11 @@ def init_db():
         id TEXT PRIMARY KEY, dossier_id TEXT, parcelle_id TEXT, question TEXT,
         answer TEXT, confidence REAL, evidence TEXT, created_at TEXT
     );
+    CREATE TABLE IF NOT EXISTS entretiens(
+        id TEXT PRIMARY KEY, dossier_id TEXT, client_id TEXT, type_entretien TEXT,
+        question TEXT, reponse TEXT, domaine TEXT, auteur TEXT,
+        ordre INTEGER DEFAULT 0, created_at TEXT
+    );
     CREATE TABLE IF NOT EXISTS settings(
         key TEXT PRIMARY KEY, value TEXT
     );
@@ -968,7 +973,7 @@ def professional_header():
     .ya-section{background:#f5f8f6;border:1px solid #dfe8e2;border-radius:16px;padding:12px 15px;margin:8px 0 14px}
     .ya-section-title{font-weight:750;color:#18322a;font-size:1.02rem}
     .ya-kicker{color:#66756e;font-size:.84rem;margin-top:2px}
-    div[data-testid="stTabs"] button{font-weight:650}
+    div[data-testid="stTabs"] button{font-weight:700;font-size:.95rem} .stSelectbox{margin-bottom:.4rem}
     </style>
     """, unsafe_allow_html=True)
     c=context(); q,_=data_quality(); risk=risk_score()
@@ -989,782 +994,577 @@ def professional_header():
     """, unsafe_allow_html=True)
 
 
+
+# =========================================================
+# INTERFACE V9 — ORGANISATION SANS SURCHARGE
+# =========================================================
+def compact_context():
+    c = context()
+    st.markdown(
+        f"**Contexte unique :** 👤 {c['client'] or '—'}  ›  📁 {c['dossier'] or '—'}  ›  "
+        f"📍 {c['parcelle'] or c['zone_nom'] or 'Zone non définie'}"
+    )
+
+def interview_questions(domain):
+    base = [
+        ("Situation", "Pouvez-vous décrire votre exploitation et le problème principal rencontré actuellement ?"),
+        ("Historique", "Depuis quand le problème existe-t-il et qu'est-ce qui s'est passé juste avant son apparition ?"),
+        ("Production", "Quelle culture, quel élevage ou quelle production est concerné(e), et à quel stade ?"),
+        ("Pratiques", "Quelles pratiques avez-vous utilisées récemment : irrigation, fertilisation, alimentation, traitements ou autres interventions ?"),
+        ("Observations", "Qu'avez-vous observé précisément sur le terrain, les animaux, l'eau ou les produits ?"),
+        ("Impact", "Quelle est l'importance du problème : surface, nombre d'animaux, volume de production ou pertes estimées ?"),
+        ("Actions", "Qu'avez-vous déjà essayé de faire et avec quel résultat ?"),
+        ("Besoin", "Quelle aide ou quelle décision attendez-vous de YouAgronoMe ?"),
+    ]
+    if domain == "Élevage":
+        base[2] = ("Cheptel", "Quelle espèce, catégorie, effectif et état général sont concernés ?")
+    elif domain == "Aquaculture":
+        base[2] = ("Bassin", "Quelle espèce, quel bassin, quel volume et quelle densité sont concernés ?")
+    elif domain == "Agroalimentaire":
+        base[2] = ("Produit", "Quel produit, quel lot, quelle quantité et quelle étape de transformation sont concernés ?")
+    return base
+
+def save_interview_answer(domain, question, answer, order_no):
+    c = context()
+    if not c["dossier_id"]:
+        return False
+    user = st.session_state.get("user") or {}
+    db_exec(
+        """INSERT INTO entretiens
+        (id,dossier_id,client_id,type_entretien,question,reponse,domaine,auteur,ordre,created_at)
+        VALUES(?,?,?,?,?,?,?,?,?,?)""",
+        (new_id("ENT"), c["dossier_id"], c["client_id"], "Entretien agricole",
+         question, answer, domain, user.get("nom","Utilisateur"), order_no, now())
+    )
+    audit("ENTRETIEN_REPONSE", "entretien", c["dossier_id"], {"domaine": domain, "ordre": order_no})
+    return True
+
+def interview_summary_text():
+    c = context()
+    rows = db_exec(
+        "SELECT * FROM entretiens WHERE dossier_id=? ORDER BY ordre, created_at",
+        (c["dossier_id"],), fetch=True
+    ) if c["dossier_id"] else []
+    if not rows:
+        return ""
+    lines = [
+        "COMPTE RENDU D'ENTRETIEN — YouAgronoMe",
+        f"Client : {c['client'] or '—'}",
+        f"Dossier : {c['dossier'] or '—'}",
+        f"Zone / parcelle : {c['parcelle'] or c['zone_nom'] or '—'}",
+        f"Date de génération : {now()}",
+        "",
+    ]
+    for i, r in enumerate(rows, 1):
+        lines += [
+            f"{i}. {r['domaine']} — {r['question']}",
+            f"Réponse : {r['reponse'] or 'Aucune réponse'}",
+            ""
+        ]
+    return "\n".join(lines)
+
+def build_interview_pdf():
+    if not HAS_PDF:
+        return None
+    text_report = interview_summary_text()
+    if not text_report:
+        return None
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4, rightMargin=36, leftMargin=36, topMargin=40, bottomMargin=40)
+    styles = getSampleStyleSheet()
+    story = [Paragraph("YouAgronoMe — Compte rendu d'entretien agricole", styles["Title"]), Spacer(1, 12)]
+    for line in text_report.splitlines():
+        if not line.strip():
+            story.append(Spacer(1, 7))
+        else:
+            safe = (line.replace("&","&amp;").replace("<","&lt;").replace(">","&gt;"))
+            story.append(Paragraph(safe, styles["Normal"]))
+            story.append(Spacer(1, 4))
+    doc.build(story)
+    buf.seek(0)
+    return buf.getvalue()
+
+def entretien_space():
+    compact_context()
+    st.subheader("💬 Entretien avec l'agriculteur / producteur")
+    c = context()
+    if not c["dossier_id"]:
+        st.info("Sélectionnez d'abord un dossier dans la barre latérale.")
+        return
+
+    domain = st.selectbox(
+        "Domaine de l'entretien",
+        ["Agriculture", "Élevage", "Aquaculture", "Agroalimentaire"],
+        key="entretien_domain"
+    )
+    questions = interview_questions(domain)
+    idx = st.session_state.get("entretien_index", 0)
+    idx = min(idx, len(questions)-1)
+    label, question = questions[idx]
+
+    st.markdown(f"### Question {idx+1}/{len(questions)} — {label}")
+    st.info(question)
+    answer = st.text_area(
+        "Réponse de l'agriculteur / interlocuteur",
+        key=f"entretien_answer_{idx}",
+        height=130,
+        placeholder="Saisissez fidèlement la réponse donnée sur le terrain."
+    )
+
+    b1,b2,b3 = st.columns(3)
+    with b1:
+        if st.button("💾 Enregistrer la réponse", type="primary", key=f"save_entretien_{idx}"):
+            if not answer.strip():
+                st.warning("Saisissez la réponse avant d'enregistrer.")
+            else:
+                save_interview_answer(domain, question, answer.strip(), idx+1)
+                st.session_state["entretien_index"] = min(idx+1, len(questions)-1)
+                st.success("Réponse enregistrée dans le dossier.")
+                st.rerun()
+    with b2:
+        if st.button("↩️ Question précédente", key="prev_entretien"):
+            st.session_state["entretien_index"] = max(0, idx-1)
+            st.rerun()
+    with b3:
+        if st.button("➡️ Question suivante", key="next_entretien"):
+            st.session_state["entretien_index"] = min(len(questions)-1, idx+1)
+            st.rerun()
+
+    rows = db_exec(
+        "SELECT * FROM entretiens WHERE dossier_id=? ORDER BY ordre,created_at",
+        (c["dossier_id"],), fetch=True
+    )
+    if rows:
+        st.markdown("### 📝 Discussion enregistrée")
+        st.dataframe(
+            pd.DataFrame([{
+                "N°": r["ordre"], "Domaine": r["domaine"],
+                "Question": r["question"], "Réponse": r["reponse"],
+                "Date": r["created_at"]
+            } for r in rows]),
+            use_container_width=True, hide_index=True
+        )
+
+        st.markdown("### 📄 Rapport de discussion")
+        st.caption("Le PDF reprend uniquement les échanges réellement enregistrés : aucune réponse n'est inventée.")
+        if HAS_PDF:
+            pdf = build_interview_pdf()
+            if pdf:
+                st.download_button(
+                    "📥 Générer / télécharger le PDF de l'entretien",
+                    pdf,
+                    f"entretien_youagronome_{datetime.now():%Y%m%d_%H%M}.pdf",
+                    "application/pdf",
+                    key="download_interview_pdf"
+                )
+        else:
+            st.warning("ReportLab n'est pas installé : installez-le pour activer l'export PDF.")
+    else:
+        st.caption("Aucune réponse enregistrée pour ce dossier.")
+
+
 # =========================================================
 # 10. ESPACE 1 — TERRAIN & DONNÉES
 # =========================================================
 def terrain_space():
-    tabs = st.tabs([
-        "📁 Dossier 360°", "👥 Client", "🌾 Agriculture", "🐄 Élevage",
-        "🐟 Aquaculture", "🏭 Agroalimentaire", "👁️ Observations", "🧪 Analyses",
-        "📦 Équipements", "📚 Historique"
-    ])
-
-    with tabs[0]:
-        c = context()
-        st.subheader("📁 Dossier d'exploitation / étude")
-        if not c["dossier_id"]:
-            st.info("Sélectionnez ou créez un dossier dans la barre latérale.")
-        else:
-            d = active_dossier()
+    compact_context()
+    choice = st.selectbox(
+        "🧭 Ouvrir",
+        ["Dossier & client", "Production", "Observations & analyses", "Équipements & historique", "💬 Entretien agriculteur"],
+        key="terrain_menu_v9"
+    )
+    if choice == "Dossier & client":
+        c = active_client(); d = active_dossier()
+        st.subheader("📁 Dossier 360°")
+        if d:
             a,b,c1,d1 = st.columns(4)
-            a.write(f"**Client**\n\n{context()['client'] or '—'}")
-            b.write(f"**Type**\n\n{d['type_exploitation']}")
-            c1.write(f"**Localisation**\n\n{d['commune'] or '—'} / {d['region']}")
-            d1.write(f"**Statut**\n\n{d['statut']}")
-            st.success("Ce dossier est la source de contexte commune aux analyses, à la carte, aux missions et aux rapports.")
-            st.text_area("Notes générales", value=d["notes"] or "", key="dossier_notes_view", disabled=True)
-
-    with tabs[1]:
-        c = active_client()
-        if not c:
-            st.info("Sélectionnez un client.")
+            a.metric("Client", c["nom"] if c else "—")
+            b.metric("Type", d["type_exploitation"] or "—")
+            c1.metric("Région", d["region"] or "—")
+            d1.metric("Statut", d["statut"] or "—")
+            st.write(d.get("notes") or "Aucune note.")
         else:
-            st.subheader("👥 Fiche client professionnelle")
-            with st.form("client_update"):
-                nom = st.text_input("Nom", c["nom"])
-                tel = st.text_input("Téléphone", c["telephone"] or "")
-                email = st.text_input("E-mail", c["email"] or "")
-                org = st.text_input("Organisation", c["organisation"] or "")
-                region = st.selectbox("Région", list(REGIONS_COORD), index=list(REGIONS_COORD).index(c["region"]) if c["region"] in REGIONS_COORD else 0)
-                notes = st.text_area("Notes", c["notes"] or "")
-                if st.form_submit_button("Mettre à jour le client"):
-                    db_exec("UPDATE clients SET nom=?,telephone=?,email=?,organisation=?,region=?,notes=?,updated_at=? WHERE id=?",
-                            (nom,tel,email,org,region,notes,now(),c["id"]))
-                    audit("MISE_A_JOUR", "client", c["id"])
-                    st.success("Client mis à jour.")
-
-    with tabs[2]:
-        st.subheader("🌾 Registre technique des cultures")
-        c = context()
-        if not c["parcelle_id"]:
-            st.info("Sélectionnez une parcelle.")
+            st.info("Créez ou sélectionnez un dossier dans la barre latérale.")
+    elif choice == "Production":
+        domain = st.selectbox("Type de production", ["Agriculture", "Élevage", "Aquaculture", "Agroalimentaire"], key="production_domain_v9")
+        if domain == "Agriculture":
+            c = context()
+            if not c["parcelle_id"]: st.info("Sélectionnez une parcelle.")
+            else:
+                p = active_parcelle()
+                with st.form("agri_compact_v9"):
+                    culture = st.selectbox("Culture", CULTURES, index=CULTURES.index(p["culture"]) if p["culture"] in CULTURES else 0)
+                    stade = st.selectbox("Stade", STAGES, index=STAGES.index(p["stade"]) if p["stade"] in STAGES else 0)
+                    variete = st.text_input("Variété")
+                    irrigation = st.selectbox("Irrigation", ["Pluvial","Irrigué","Mixte","Goutte-à-goutte","Aspersion"])
+                    cible = st.number_input("Rendement cible t/ha", 0.0, 100.0, 3.0)
+                    reel = st.number_input("Rendement réel t/ha", 0.0, 100.0, 0.0)
+                    notes = st.text_area("Fertilisation / protection / remarques")
+                    if st.form_submit_button("Enregistrer le suivi", type="primary"):
+                        db_exec("UPDATE parcelles SET culture=?,stade=?,updated_at=? WHERE id=?", (culture,stade,now(),p["id"]))
+                        db_exec("""INSERT INTO cultures
+                            (id,dossier_id,parcelle_id,culture,variete,date_semis,date_recolte_prevue,irrigation,
+                             rendement_cible,rendement_reel,fertilisation,protection,notes,created_at)
+                            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                            (new_id("CUL"),c["dossier_id"],p["id"],culture,variete,str(date.today()),str(date.today()+timedelta(days=90)),
+                             irrigation,cible,reel,notes,"", "",now()))
+                        audit("SUIVI_CULTURE","parcelle",p["id"]); st.success("Suivi agricole enregistré.")
+        elif domain == "Élevage":
+            did = context()["dossier_id"]
+            if did:
+                with st.form("elevage_compact_v9"):
+                    espece = st.selectbox("Espèce", ["Bovin","Ovin","Caprin","Volaille","Porcin","Autre"])
+                    categorie = st.selectbox("Catégorie", ["Adulte","Jeune","Reproducteur","Engraissement","Pondeuse","Autre"])
+                    effectif = st.number_input("Effectif", 0, 100000, 0)
+                    poids = st.number_input("Poids moyen kg", 0.0, 1000.0, 0.0)
+                    alimentation = st.text_input("Alimentation")
+                    mortalite = st.number_input("Mortalités", 0, 100000, 0)
+                    vaccination = st.text_input("Vaccination")
+                    notes = st.text_area("Observations")
+                    if st.form_submit_button("Enregistrer le suivi", type="primary"):
+                        db_exec("""INSERT INTO livestock
+                            (id,dossier_id,espece,categorie,effectif,poids_moyen,alimentation,mortalite,vaccination,reproduction,date_suivi,notes)
+                            VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
+                            (new_id("ELV"),did,espece,categorie,effectif,poids,alimentation,mortalite,vaccination,"",now(),notes))
+                        audit("SUIVI_ELEVAGE","dossier",did); st.success("Suivi élevage enregistré.")
+        elif domain == "Aquaculture":
+            did = context()["dossier_id"]
+            if did:
+                with st.form("aqua_compact_v9"):
+                    unite = st.text_input("Bassin / unité", "Bassin 1")
+                    espece = st.text_input("Espèce", "Tilapia")
+                    volume = st.number_input("Volume m³", 0.0, 1e9, 0.0)
+                    densite = st.number_input("Densité ind./m³", 0.0, 10000.0, 0.0)
+                    oxy = st.number_input("O₂ mg/L", 0.0, 30.0, 0.0)
+                    ph = st.number_input("pH", 0.0, 14.0, 7.0)
+                    temp = st.number_input("Température °C", 0.0, 50.0, 25.0)
+                    mort = st.number_input("Mortalités", 0, 100000, 0)
+                    notes = st.text_area("Notes")
+                    if st.form_submit_button("Enregistrer le suivi", type="primary"):
+                        db_exec("""INSERT INTO aquaculture
+                            (id,dossier_id,unite,espece,volume_m3,densite,oxygene,ph,temperature,mortalite,aliment_kg,poids_moyen_g,date_suivi,notes)
+                            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                            (new_id("AQU"),did,unite,espece,volume,densite,oxy,ph,temp,mort,0,0,now(),notes))
+                        audit("SUIVI_AQUACULTURE","dossier",did); st.success("Suivi aquacole enregistré.")
         else:
-            p = active_parcelle()
-            with st.form("agri_form"):
-                a,b,c1,d = st.columns(4)
-                culture = a.selectbox("Culture", CULTURES, index=CULTURES.index(p["culture"]) if p["culture"] in CULTURES else 0)
-                stade = b.selectbox("Stade", STAGES, index=STAGES.index(p["stade"]) if p["stade"] in STAGES else 0)
-                variete = c1.text_input("Variété")
-                irrigation = d.selectbox("Irrigation", ["Pluvial", "Irrigué", "Mixte", "Goutte-à-goutte", "Aspersion"])
-                a2,b2,c2,d2 = st.columns(4)
-                semis = a2.date_input("Date semis", date.today())
-                recolte = b2.date_input("Récolte prévue", date.today()+timedelta(days=90))
-                cible = c2.number_input("Rendement cible t/ha", 0.0, 100.0, 3.0)
-                reel = d2.number_input("Rendement réel t/ha", 0.0, 100.0, 0.0)
-                fert = st.text_area("Fertilisation / amendements")
-                prot = st.text_area("Protection / interventions")
-                if st.form_submit_button("Enregistrer le suivi"):
-                    db_exec("UPDATE parcelles SET culture=?,stade=?,updated_at=? WHERE id=?",
-                            (culture,stade,now(),p["id"]))
-                    db_exec("""INSERT INTO cultures
-                        (id,dossier_id,parcelle_id,culture,variete,date_semis,date_recolte_prevue,irrigation,
-                         rendement_cible,rendement_reel,fertilisation,protection,notes,created_at)
-                        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                        (new_id("CUL"),c["dossier_id"],p["id"],culture,variete,str(semis),str(recolte),
-                         irrigation,cible,reel,fert,prot,"",now()))
-                    audit("SUIVI_CULTURE", "parcelle", p["id"])
-                    st.success("Suivi agricole enregistré.")
-
-    with tabs[3]:
-        st.subheader("🐄 Élevage — suivi zootechnique")
-        did = context()["dossier_id"]
-        if did:
-            with st.form("livestock_form"):
-                a,b,c1,d = st.columns(4)
-                espece = a.selectbox("Espèce", ["Bovin","Ovin","Caprin","Volaille","Porcin","Autre"])
-                categorie = b.selectbox("Catégorie", ["Adulte","Jeune","Reproducteur","Engraissement","Pondeuse","Autre"])
-                effectif = c1.number_input("Effectif", 0, 100000, 0)
-                poids = d.number_input("Poids moyen kg", 0.0, 1000.0, 0.0)
-                a2,b2,c2,d2 = st.columns(4)
-                mortalite = a2.number_input("Mortalités période", 0, 100000, 0)
-                alimentation = b2.text_input("Alimentation")
-                vaccination = c2.text_input("Vaccination")
-                reproduction = d2.text_input("Reproduction")
-                notes = st.text_area("Observations zootechniques")
-                if st.form_submit_button("Enregistrer le suivi élevage"):
-                    db_exec("""INSERT INTO livestock
-                        (id,dossier_id,espece,categorie,effectif,poids_moyen,alimentation,mortalite,
-                         vaccination,reproduction,date_suivi,notes)
-                        VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
-                        (new_id("ELV"),did,espece,categorie,effectif,poids,alimentation,mortalite,
-                         vaccination,reproduction,now(),notes))
-                    audit("SUIVI_ELEVAGE", "dossier", did)
-                    st.success("Suivi enregistré.")
-            rows = db_exec("SELECT * FROM livestock WHERE dossier_id=? ORDER BY date_suivi DESC", (did,), fetch=True)
-            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
-
-    with tabs[4]:
-        st.subheader("🐟 Aquaculture — suivi de production")
-        did = context()["dossier_id"]
-        if did:
-            with st.form("aqua_form"):
-                a,b,c1,d = st.columns(4)
-                unite = a.text_input("Unité / bassin", "Bassin 1")
-                espece = b.text_input("Espèce", "Tilapia")
-                volume = c1.number_input("Volume m³", 0.0, 1e9, 0.0)
-                densite = d.number_input("Densité ind./m³", 0.0, 10000.0, 0.0)
-                a2,b2,c2,d2 = st.columns(4)
-                oxy = a2.number_input("O₂ mg/L", 0.0, 30.0, 0.0)
-                ph = b2.number_input("pH", 0.0, 14.0, 7.0)
-                temp = c2.number_input("Température °C", 0.0, 50.0, 25.0)
-                mort = d2.number_input("Mortalités", 0, 100000, 0)
-                a3,b3 = st.columns(2)
-                aliment = a3.number_input("Aliment kg/j", 0.0, 100000.0, 0.0)
-                poids = b3.number_input("Poids moyen g", 0.0, 10000.0, 0.0)
-                notes = st.text_area("Notes")
-                if st.form_submit_button("Enregistrer le suivi aquacole"):
-                    db_exec("""INSERT INTO aquaculture
-                        (id,dossier_id,unite,espece,volume_m3,densite,oxygene,ph,temperature,
-                         mortalite,aliment_kg,poids_moyen_g,date_suivi,notes)
-                        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                        (new_id("AQU"),did,unite,espece,volume,densite,oxy,ph,temp,mort,aliment,poids,now(),notes))
-                    audit("SUIVI_AQUACULTURE", "dossier", did)
-                    st.success("Suivi aquacole enregistré.")
-
-    with tabs[5]:
-        st.subheader("🏭 Agroalimentaire — transformation, pertes et qualité")
-        did = context()["dossier_id"]
-        if did:
-            with st.form("agrofood_form"):
-                a,b,c1,d = st.columns(4)
-                produit = a.text_input("Produit")
-                quantite = b.number_input("Quantité", 0.0, 1e9, 0.0)
-                unite = c1.selectbox("Unité", ["kg","t","L","unités"])
-                lot = d.text_input("N° lot")
-                transformation = a.text_input("Transformation")
-                stockage = b.selectbox("Stockage", ["Sec","Froid","Congélation","Ambiant","Autre"])
-                pertes = c1.number_input("Pertes %", 0.0, 100.0, 0.0)
-                qualite = d.selectbox("Qualité", ["Non évaluée","Conforme","À surveiller","Non conforme"])
-                notes = st.text_area("Traçabilité / remarques")
-                if st.form_submit_button("Enregistrer l'opération"):
-                    db_exec("""INSERT INTO agrofood
-                        (id,dossier_id,produit,quantite,unite,transformation,stockage,pertes_pct,
-                         qualite,lot,date_operation,notes)
-                        VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
-                        (new_id("AGF"),did,produit,quantite,unite,transformation,stockage,pertes,qualite,lot,now(),notes))
-                    audit("SUIVI_AGROALIMENTAIRE", "dossier", did)
-                    st.success("Opération enregistrée.")
-
-    with tabs[6]:
-        st.subheader("👁️ Observation terrain")
+            did = context()["dossier_id"]
+            if did:
+                with st.form("agrofood_compact_v9"):
+                    produit = st.text_input("Produit")
+                    quantite = st.number_input("Quantité", 0.0, 1e9, 0.0)
+                    unite = st.selectbox("Unité", ["kg","t","L","unités"])
+                    lot = st.text_input("N° lot")
+                    transformation = st.text_input("Transformation")
+                    stockage = st.selectbox("Stockage", ["Sec","Froid","Congélation","Ambiant","Autre"])
+                    pertes = st.number_input("Pertes %", 0.0, 100.0, 0.0)
+                    qualite = st.selectbox("Qualité", ["Non évaluée","Conforme","À surveiller","Non conforme"])
+                    if st.form_submit_button("Enregistrer", type="primary"):
+                        db_exec("""INSERT INTO agrofood
+                            (id,dossier_id,produit,quantite,unite,transformation,stockage,pertes_pct,qualite,lot,date_operation,notes)
+                            VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
+                            (new_id("AGF"),did,produit,quantite,unite,transformation,stockage,pertes,qualite,lot,now(),""))
+                        audit("SUIVI_AGROALIMENTAIRE","dossier",did); st.success("Opération enregistrée.")
+    elif choice == "Observations & analyses":
         c = context()
-        if not c["dossier_id"]:
-            st.info("Sélectionnez un dossier.")
+        st.subheader("👁️ Observations et 🧪 analyses")
+        if not c["dossier_id"]: st.info("Sélectionnez un dossier.")
         else:
-            with st.form("observation_form"):
-                a,b,c1,d = st.columns(4)
-                domaine = a.selectbox("Domaine", DOMAINS)
-                typ = b.selectbox("Type", ["Inspection","Incident","Symptôme","Mesure","Suivi","Photo","Autre"])
-                gravite = c1.selectbox("Gravité", ["Information","Faible","Moyenne","Élevée","Critique"])
-                incidence = d.number_input("Incidence %", 0.0, 100.0, 0.0)
-                surface = st.number_input("Surface affectée ha", 0.0, 100000.0, 0.0)
-                desc = st.text_area("Description factuelle et précise")
-                photo = st.file_uploader("Photo de preuve", type=["jpg","jpeg","png","webp"], key="obs_photo")
-                if st.form_submit_button("Enregistrer l'observation"):
-                    db_exec("""INSERT INTO observations
-                        (id,dossier_id,parcelle_id,domaine,type_observation,description,gravite,incidence,
-                         surface_affectee_ha,latitude,longitude,photo_name,date_observation,source_type,confidence,
-                         validation_status,created_at)
-                        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                        (new_id("OBS"),c["dossier_id"],c["parcelle_id"],domaine,typ,desc,gravite,incidence,
-                         surface,c["latitude"],c["longitude"],photo.name if photo else "",now(),"Terrain",0.85,
-                         "À vérifier",now()))
-                    if gravite in ["Élevée","Critique"]:
-                        db_exec("""INSERT INTO alerts
-                            (id,dossier_id,parcelle_id,domaine,niveau,titre,message,source,due_date,created_at)
-                            VALUES(?,?,?,?,?,?,?,?,?,?)""",
-                                (new_id("ALT"),c["dossier_id"],c["parcelle_id"],domaine,gravite,
-                                 f"Observation {domaine}",desc or "Contrôle requis.","Terrain",
-                                 str(date.today()+timedelta(days=2)),now()))
-                    audit("OBSERVATION", "observation", c["dossier_id"])
-                    st.success("Observation enregistrée et synchronisée au dossier.")
-
-    with tabs[7]:
-        st.subheader("🧪 Analyses laboratoire / terrain")
-        c = context()
-        if c["dossier_id"]:
-            with st.form("analysis_form"):
-                a,b,c1,d = st.columns(4)
-                typ = a.selectbox("Type analyse", ["Sol","Eau","Végétal","Aliment","Fourrage","Autre"])
-                param = b.text_input("Paramètre", "pH")
-                valeur = c1.number_input("Valeur", -1e12, 1e12, 0.0)
-                unite = d.text_input("Unité")
-                a2,b2,c2 = st.columns(3)
-                methode = a2.text_input("Méthode")
-                labo = b2.text_input("Laboratoire / source")
-                validation = c2.selectbox("Validation", ["Validé","À vérifier","Rejeté"])
-                notes = st.text_area("Commentaire")
-                if st.form_submit_button("Enregistrer l'analyse"):
-                    conf = 0.95 if validation == "Validé" else 0.65
-                    db_exec("""INSERT INTO analyses
-                        (id,dossier_id,parcelle_id,type_analyse,parametre,valeur,unite,methode,laboratoire,
-                         date_analyse,source_type,confidence,validation_status,notes,created_at)
-                        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                        (new_id("ANA"),c["dossier_id"],c["parcelle_id"],typ,param,valeur,unite,methode,labo,
-                         now(),"Laboratoire" if labo else "Terrain",conf,validation,notes,now()))
-                    audit("ANALYSE", "analyse", c["dossier_id"], {"param":param,"value":valeur})
-                    st.success("Analyse enregistrée.")
-            rows = db_exec("SELECT * FROM analyses WHERE dossier_id=? ORDER BY date_analyse DESC", (c["dossier_id"],), fetch=True)
-            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
-
-    with tabs[8]:
-        st.subheader("📦 Parc matériel et actifs")
+            left,right = st.columns(2)
+            with left:
+                with st.form("obs_compact_v9"):
+                    domaine = st.selectbox("Domaine", DOMAINS)
+                    typ = st.selectbox("Type", ["Inspection","Incident","Symptôme","Mesure","Suivi","Photo","Autre"])
+                    gravite = st.selectbox("Gravité", ["Information","Faible","Moyenne","Élevée","Critique"])
+                    incidence = st.number_input("Incidence %",0.0,100.0,0.0)
+                    desc = st.text_area("Observation factuelle")
+                    if st.form_submit_button("Ajouter observation"):
+                        db_exec("""INSERT INTO observations
+                            (id,dossier_id,parcelle_id,domaine,type_observation,description,gravite,incidence,surface_affectee_ha,
+                             latitude,longitude,photo_name,date_observation,source_type,confidence,validation_status,created_at)
+                            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                            (new_id("OBS"),c["dossier_id"],c["parcelle_id"],domaine,typ,desc,gravite,incidence,0,c["latitude"],c["longitude"],"",now(),"Terrain",0.85,"À vérifier",now()))
+                        audit("OBSERVATION","observation",c["dossier_id"]); st.success("Observation enregistrée.")
+            with right:
+                with st.form("ana_compact_v9"):
+                    typ = st.selectbox("Type analyse", ["Sol","Eau","Végétal","Aliment","Fourrage","Autre"])
+                    param = st.text_input("Paramètre","pH")
+                    valeur = st.number_input("Valeur",-1e12,1e12,0.0)
+                    unite = st.text_input("Unité")
+                    labo = st.text_input("Laboratoire / source")
+                    validation = st.selectbox("Validation", ["Validé","À vérifier","Rejeté"])
+                    if st.form_submit_button("Ajouter analyse"):
+                        conf = 0.95 if validation=="Validé" else 0.65
+                        db_exec("""INSERT INTO analyses
+                            (id,dossier_id,parcelle_id,type_analyse,parametre,valeur,unite,methode,laboratoire,date_analyse,
+                             source_type,confidence,validation_status,notes,created_at)
+                            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                            (new_id("ANA"),c["dossier_id"],c["parcelle_id"],typ,param,valeur,unite,"",labo,now(),
+                             "Laboratoire" if labo else "Terrain",conf,validation,"",now()))
+                        audit("ANALYSE","analyse",c["dossier_id"]); st.success("Analyse enregistrée.")
+    elif choice == "Équipements & historique":
         did = context()["dossier_id"]
         if did:
-            with st.form("asset_form"):
-                a,b,c1,d = st.columns(4)
-                typ = a.selectbox("Type", ["Matériel","Bâtiment","Irrigation","Véhicule","Stock","Autre"])
-                nom = b.text_input("Désignation")
-                qte = c1.number_input("Quantité", 0.0, 1e9, 0.0)
-                unite = d.text_input("Unité")
-                valeur = st.number_input("Valeur estimée FCFA", 0.0, 1e12, 0.0)
-                etat = st.selectbox("État", ["Bon","Moyen","À réparer","Hors service"])
-                notes = st.text_area("Notes")
-                if st.form_submit_button("Ajouter l'actif"):
-                    db_exec("""INSERT INTO assets(id,dossier_id,type_asset,nom,quantite,unite,etat,valeur_fcfa,notes,created_at)
-                               VALUES(?,?,?,?,?,?,?,?,?,?)""",
-                            (new_id("AST"),did,typ,nom,qte,unite,etat,valeur,notes,now()))
-                    audit("AJOUT_ACTIF","asset",did)
-
-    with tabs[9]:
-        st.subheader("📚 Historique unifié")
-        did = context()["dossier_id"]
-        if did:
-            tables = [
-                ("Observation","SELECT created_at,description AS texte FROM observations WHERE dossier_id=?"),
-                ("Analyse","SELECT created_at,parametre || ' = ' || valeur AS texte FROM analyses WHERE dossier_id=?"),
-                ("Action","SELECT created_at,titre AS texte FROM actions WHERE dossier_id=?"),
-                ("Mission","SELECT created_at,objet AS texte FROM missions WHERE dossier_id=?"),
-            ]
-            hist = []
-            for typ, sql in tables:
-                for row in db_exec(sql,(did,), fetch=True):
-                    hist.append({"Date":row["created_at"],"Type":typ,"Événement":row["texte"]})
+            assets = db_exec("SELECT * FROM assets WHERE dossier_id=? ORDER BY created_at DESC",(did,), fetch=True)
+            st.subheader("📦 Équipements")
+            st.dataframe(pd.DataFrame(assets), use_container_width=True, hide_index=True) if assets else st.caption("Aucun équipement.")
+            st.subheader("📚 Historique")
+            hist=[]
+            for typ,sql,col in [
+                ("Observation","SELECT created_at,description FROM observations WHERE dossier_id=?","description"),
+                ("Analyse","SELECT created_at,parametre FROM analyses WHERE dossier_id=?","parametre"),
+                ("Action","SELECT created_at,titre FROM actions WHERE dossier_id=?","titre"),
+                ("Mission","SELECT created_at,objet FROM missions WHERE dossier_id=?","objet")]:
+                for r in db_exec(sql,(did,), fetch=True): hist.append({"Date":r["created_at"],"Type":typ,"Événement":r[col]})
             hist.sort(key=lambda x:x["Date"], reverse=True)
-            st.dataframe(pd.DataFrame(hist), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(hist), use_container_width=True, hide_index=True) if hist else st.caption("Historique vide.")
+    else:
+        entretien_space()
 
 
 # =========================================================
 # 11. ESPACE 2 — SIG & DIAGNOSTIC
 # =========================================================
 def sig_space():
-    tabs = st.tabs([
-        "🗺️ Zone concernée", "📍 GPS & polygones", "🧭 Couches SIG",
-        "🌱 Sols & Eau", "🦠 Phytosanitaire", "🌦️ Climat & risques",
-        "🔎 Qualité & preuves"
-    ])
-
-    with tabs[0]:
-        st.subheader("🗺️ Délimiter précisément la zone concernée")
-        c = context()
-        if not c["dossier_id"]:
-            st.info("Créez/sélectionnez un dossier.")
-        elif not HAS_MAP:
-            st.warning("Pour le dessin interactif, installez : folium streamlit-folium")
+    compact_context()
+    choice = st.selectbox(
+        "🧭 Ouvrir",
+        ["Carte & zone d'étude", "GPS & parcelles", "Sol, eau & irrigation", "Santé & phytosanitaire", "Climat & risques", "Fiabilité des données"],
+        key="diagnostic_menu_v9"
+    )
+    c = context()
+    if choice == "Carte & zone d'étude":
+        st.subheader("🗺️ Zone réellement étudiée")
+        if not c["dossier_id"]: st.info("Sélectionnez un dossier.")
+        elif not HAS_MAP: st.warning("Installez folium et streamlit-folium pour la carte interactive.")
         else:
-            lat = float(c["latitude"] or REGIONS_COORD.get(c["region"], (14.7,-16.2))[0])
-            lon = float(c["longitude"] or REGIONS_COORD.get(c["region"], (14.7,-16.2))[1])
-            st.info("Dessinez un polygone autour de la zone réellement étudiée. La surface calculée et la géométrie seront utilisées par les diagnostics et rapports.")
-            result = map_for_context(lat, lon, 600, "study_zone_map", fetch=True)
-            drawing = result.get("last_active_drawing") if result else None
-            coords = drawing_to_coords(drawing)
-            if len(coords) >= 3:
-                area = polygon_area_ha(coords)
-                perim = polygon_perimeter_m(coords)
-                st.success(f"Zone détectée : {area:.3f} ha · périmètre {perim:.1f} m")
-                a,b,c1 = st.columns(3)
-                typ = a.selectbox("Type de zone", ["Zone d'étude","Parcelle","Zone d'observation","Zone à risque"], key="zone_type_draw")
-                nom = b.text_input("Nom de la zone", "Zone d'étude principale", key="zone_name_draw")
-                c1.write(f"**Centre**\n{centroid(coords)[0]:.6f}, {centroid(coords)[1]:.6f}")
-                if st.button("💾 Enregistrer cette zone comme périmètre officiel de l'étude", type="primary", key="save_zone_draw"):
-                    zid = save_zone(coords, typ, nom, c["dossier_id"], c["parcelle_id"])
-                    st.session_state["zone_feature_id"] = zid
-                    st.session_state["map_nonce"] += 1
-                    st.success("Zone enregistrée. Elle devient le périmètre géographique commun du dossier.")
-                    st.rerun()
-            if c["zone_geometry"]:
-                st.metric("Zone active", f"{c['zone_surface_ha']:.3f} ha")
-                st.caption(f"{c['zone_nom']} · {c['zone_type']} · source GPS/terrain")
-
-    with tabs[1]:
-        st.subheader("📍 GPS, coordonnées et création de parcelle")
-        did = context()["dossier_id"]
-        if did:
-            d = active_dossier()
-            a,b = st.columns(2)
-            lat = a.number_input("Latitude centrale", value=float(d["latitude"] or 14.7), format="%.6f", key="gps_lat_main")
-            lon = b.number_input("Longitude centrale", value=float(d["longitude"] or -16.2), format="%.6f", key="gps_lon_main")
-            if st.button("Enregistrer le point GPS", key="save_gps_main"):
-                db_exec("UPDATE dossiers SET latitude=?,longitude=?,updated_at=? WHERE id=?", (lat,lon,now(),did))
-                audit("GPS","dossier",did,{"lat":lat,"lon":lon})
-                st.success("GPS enregistré.")
-            with st.form("new_parcel_sig"):
-                nom = st.text_input("Nom de la parcelle", "Parcelle 1")
-                culture = st.selectbox("Culture", CULTURES)
-                if st.form_submit_button("Créer la parcelle"):
-                    pid = new_id("PAR")
-                    db_exec("""INSERT INTO parcelles
-                        (id,dossier_id,nom,culture,stade,latitude,longitude,geometry_json,created_at,updated_at)
-                        VALUES(?,?,?,?,?,?,?,?,?,?)""",
-                        (pid,did,nom,culture,STAGES[0],lat,lon,"[]",now(),now()))
-                    st.session_state["parcelle_id"] = pid
-                    audit("CREATION","parcelle",pid)
-                    st.success("Parcelle créée.")
-
-    with tabs[2]:
-        st.subheader("🧭 Couches SIG du dossier")
-        did = context()["dossier_id"]
-        if did:
-            rows = db_exec("SELECT * FROM gis_features WHERE dossier_id=? ORDER BY created_at DESC", (did,), fetch=True)
-            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
-            if rows:
-                options = [f"{r['id']} · {r['nom']} ({r['type_feature']})" for r in rows]
-                cur = context()["zone_id"]
-                idx = next((i for i,r in enumerate(rows) if r["id"] == cur),0)
-                sel = st.selectbox("Périmètre géographique actif", options, index=idx, key="active_zone_select")
-                zid = sel.split(" · ",1)[0]
-                if zid != st.session_state.get("zone_feature_id"):
-                    st.session_state["zone_feature_id"] = zid
-                    st.rerun()
-
-    with tabs[3]:
-        st.subheader("🌱 Sols & Eau")
-        c = context()
-        zone = next((z for z,v in AGROZONES.items() if c["region"] in v["regions"]), None)
+            lat=float(c["latitude"] or REGIONS_COORD.get(c["region"],(14.7,-16.2))[0])
+            lon=float(c["longitude"] or REGIONS_COORD.get(c["region"],(14.7,-16.2))[1])
+            result=map_for_context(lat,lon,560,"study_zone_map_v9",allow_draw=True)
+            drawing=result.get("last_active_drawing") if result else None
+            coords=drawing_to_coords(drawing)
+            if len(coords)>=3:
+                st.success(f"Zone : {polygon_area_ha(coords):.3f} ha · périmètre {polygon_perimeter_m(coords):.1f} m")
+                typ=st.selectbox("Type",["Zone d'étude","Parcelle","Zone d'observation","Zone à risque"],key="v9_zone_type")
+                nom=st.text_input("Nom", "Zone d'étude principale",key="v9_zone_name")
+                if st.button("💾 Enregistrer le périmètre",type="primary",key="v9_save_zone"):
+                    zid=save_zone(coords,typ,nom,c["dossier_id"],c["parcelle_id"])
+                    st.session_state["zone_feature_id"]=zid; st.success("Périmètre enregistré."); st.rerun()
+    elif choice == "GPS & parcelles":
+        if c["dossier_id"]:
+            d=active_dossier()
+            a,b=st.columns(2)
+            lat=a.number_input("Latitude",value=float(d["latitude"] or 14.7),format="%.6f",key="v9_lat")
+            lon=b.number_input("Longitude",value=float(d["longitude"] or -16.2),format="%.6f",key="v9_lon")
+            if st.button("Enregistrer GPS",key="v9_gps"):
+                db_exec("UPDATE dossiers SET latitude=?,longitude=?,updated_at=? WHERE id=?",(lat,lon,now(),c["dossier_id"]))
+                audit("GPS","dossier",c["dossier_id"],{"lat":lat,"lon":lon}); st.success("GPS enregistré.")
+    elif choice == "Sol, eau & irrigation":
+        zone=next((z for z,v in AGROZONES.items() if c["region"] in v["regions"]),None)
         if zone:
-            st.info(f"Zone agroécologique indicative : {zone}")
-            st.write("**Profil de sol indicatif :**", AGROZONES[zone]["sol"])
-            st.write("**Risques indicatifs :**", AGROZONES[zone]["risques"])
-        st.markdown("#### Besoin d'irrigation")
-        a,b,c1,d = st.columns(4)
-        eto = a.number_input("ETo mm/j", 0.0, 20.0, 5.5, key="irrig_eto_pro")
-        kc = b.number_input("Kc", 0.1, 1.5, 1.0, key="irrig_kc_pro")
-        surf = c1.number_input("Surface ha", 0.1, 100000.0, float(c["zone_surface_ha"] or c["surface_ha"] or 1), key="irrig_surface_pro")
-        eff = d.number_input("Efficacité", 0.1, 1.0, 0.75, key="irrig_eff_pro")
-        etc = eto * kc
-        gross = etc * 10 * surf / eff
-        st.metric("ETc", f"{etc:.2f} mm/j")
-        st.metric("Besoin brut", f"{gross:.1f} m³/j")
-        st.caption("Calcul indicatif; confirmer les paramètres par les conditions locales et les données techniques disponibles.")
-
-    with tabs[4]:
-        st.subheader("🦠 Pré-diagnostic phytosanitaire")
-        st.warning("La sortie est un pré-diagnostic et une procédure de vérification, pas une prescription homologuée.")
-        symptoms = st.text_area("Symptômes / ravageurs observés", key="phyt_symptoms_pro")
-        severity = st.select_slider("Sévérité", ["Faible","Moyenne","Élevée","Critique"], key="phyt_level_pro")
-        if st.button("Construire le pré-diagnostic", key="phyt_run_pro"):
-            answer, conf, evidence = local_expert(f"{symptoms} sévérité {severity}", "Technicien")
-            st.markdown(answer)
-            audit("PRE_DIAGNOSTIC","phytosanitaire",context()["parcelle_id"] or "")
-
-    with tabs[5]:
-        st.subheader("🌦️ Climat & risques")
-        c = context()
-        if st.button("🔄 Synchroniser la météo de la zone", key="weather_sync_pro"):
-            try:
-                sync_weather()
-                st.success("Météo synchronisée.")
-            except Exception as exc:
-                st.error(str(exc))
-        weather = st.session_state.get("weather")
-        if weather:
-            cur = weather.get("current", {})
-            a,b,c1,d = st.columns(4)
-            a.metric("Température", f"{cur.get('temperature_2m','—')} °C")
-            b.metric("Humidité", f"{cur.get('relative_humidity_2m','—')} %")
-            c1.metric("Pluie", f"{cur.get('precipitation','—')} mm")
-            d.metric("Vent", f"{cur.get('wind_speed_10m','—')} km/h")
-            daily = weather.get("daily", {})
-            if daily:
-                st.dataframe(pd.DataFrame(daily), use_container_width=True, hide_index=True)
-        st.caption("Pour les vigilances officielles, vérifier les communications ANACIM au moment de la décision.")
-
-    with tabs[6]:
-        st.subheader("🔎 Qualité des données, preuves et fiabilité")
-        q, checks = data_quality()
-        st.progress(q/100)
-        st.metric("Score de qualité", f"{q}/100")
-        st.dataframe(pd.DataFrame(checks), use_container_width=True, hide_index=True)
-        st.markdown(f"**Confiance calculée séparément :** {confidence_from_sources()*100:.0f} %")
-        st.markdown(f"**Risque séparé :** {risk_score()}/100")
-        st.caption("Une faible qualité de données ne signifie pas un faible risque. Qualité, confiance et risque sont volontairement séparés.")
+            st.info(
+                f"Zone agroécologique indicative : {zone}\n\n"
+                f"Sol : {AGROZONES[zone]['sol']}\n\n"
+                f"Risques : {AGROZONES[zone]['risques']}"
+            )
+        a,b,c1,d=st.columns(4)
+        eto=a.number_input("ETo mm/j",0.0,20.0,5.5,key="v9_eto")
+        kc=b.number_input("Kc",0.1,1.5,1.0,key="v9_kc")
+        surf=c1.number_input("Surface ha",0.1,100000.0,float(c["zone_surface_ha"] or c["surface_ha"] or 1),key="v9_surf")
+        eff=d.number_input("Efficacité",0.1,1.0,0.75,key="v9_eff")
+        st.metric("Besoin brut",f"{eto*kc*10*surf/eff:.1f} m³/j")
+    elif choice == "Santé & phytosanitaire":
+        st.warning("Pré-diagnostic : il s'agit d'une aide à la vérification, pas d'une prescription homologuée.")
+        symptoms=st.text_area("Symptômes / problème observé",key="v9_symptoms")
+        if st.button("Analyser",type="primary",key="v9_phyt"):
+            answer,_,_=local_expert(symptoms,"Technicien"); st.markdown(answer)
+    elif choice == "Climat & risques":
+        if st.button("🔄 Synchroniser la météo",key="v9_weather"):
+            try: sync_weather(); st.success("Météo synchronisée.")
+            except Exception as exc: st.error(str(exc))
+        w=st.session_state.get("weather")
+        if w:
+            cur=w.get("current",{}); a,b,c1,d=st.columns(4)
+            a.metric("Température",f"{cur.get('temperature_2m','—')} °C")
+            b.metric("Humidité",f"{cur.get('relative_humidity_2m','—')} %")
+            c1.metric("Pluie",f"{cur.get('precipitation','—')} mm")
+            d.metric("Vent",f"{cur.get('wind_speed_10m','—')} km/h")
+    else:
+        q,checks=data_quality()
+        st.metric("Qualité des données",f"{q}/100")
+        st.metric("Confiance",f"{confidence_from_sources()*100:.0f}%")
+        st.metric("Risque",f"{risk_score()}/100")
+        st.dataframe(pd.DataFrame(checks),use_container_width=True,hide_index=True)
 
 
 # =========================================================
 # 12. ESPACE 3 — IA & DÉCISION
 # =========================================================
 def decision_space():
-    tabs = st.tabs([
-        "🧠 IA Expert 360°", "🔬 Diagnostic multi-domaine", "📊 Simulations",
-        "💰 Économie / ROI", "🚨 Alertes", "📈 KPI", "✅ Plan d'action",
-        "🧪 Contrôle de cohérence"
-    ])
-
-    with tabs[0]:
-        st.subheader("🧠 IA Expert 360° sans clé API")
-        st.caption("Le moteur lit automatiquement le dossier, la parcelle, la zone GPS, les observations, analyses et météo disponibles.")
-        actor = st.selectbox("Profil d'analyse", ROLES, key="ia_actor_pro")
-        question = st.text_area("Question / problème", key="ia_question_pro",
-                                placeholder="Ex. La tomate présente des taches depuis 4 jours dans la zone nord délimitée.")
-        if st.button("🤖 Produire une analyse structurée", type="primary", key="ia_run_pro"):
-            if not question.strip():
-                st.warning("Décrivez le problème.")
-            else:
-                answer, conf, evidence = local_expert(question, actor)
-                st.session_state["last_ai"] = answer
-                c = context()
-                db_exec("""INSERT INTO ai_history
-                    (id,dossier_id,parcelle_id,question,answer,confidence,evidence,created_at)
-                    VALUES(?,?,?,?,?,?,?,?)""",
-                        (new_id("AI"),c["dossier_id"],c["parcelle_id"],question,answer,conf,
-                         json.dumps(evidence),now()))
-                audit("IA_ANALYSE","ai_history",c["dossier_id"],question)
-        if st.session_state.get("last_ai"):
+    compact_context()
+    choice = st.selectbox(
+        "🧭 Ouvrir",
+        ["IA Expert 360°", "Diagnostic transversal", "Simulations & économie", "Alertes & KPI", "Plan d'action"],
+        key="decision_menu_v9"
+    )
+    c=context()
+    if choice == "IA Expert 360°":
+        st.subheader("🧠 IA Expert local — sans clé API")
+        question=st.text_area("Votre question / problème",key="v9_ia_question",height=120)
+        if st.button("🤖 Analyser",type="primary",key="v9_ia_run"):
+            if question.strip():
+                answer,conf,evidence=local_expert(question,"Consultant")
+                st.session_state["last_ai"]=answer
+                if c["dossier_id"]:
+                    db_exec("""INSERT INTO ai_history(id,dossier_id,parcelle_id,question,answer,confidence,evidence,created_at)
+                               VALUES(?,?,?,?,?,?,?,?)""",
+                            (new_id("AI"),c["dossier_id"],c["parcelle_id"],question,answer,conf,json.dumps(evidence),now()))
+                st.markdown(answer)
+        elif st.session_state.get("last_ai"):
             st.markdown(st.session_state["last_ai"])
-
-    with tabs[1]:
-        st.subheader("🔬 Diagnostic transversal")
-        c = context()
-        if not c["dossier_id"]:
-            st.info("Sélectionnez un dossier.")
-        else:
-            obs = db_exec("SELECT * FROM observations WHERE dossier_id=? ORDER BY created_at DESC LIMIT 50", (c["dossier_id"],), fetch=True)
-            ana = db_exec("SELECT * FROM analyses WHERE dossier_id=? ORDER BY date_analyse DESC LIMIT 50", (c["dossier_id"],), fetch=True)
-            a,b,c1 = st.columns(3)
-            a.metric("Observations", len(obs))
-            b.metric("Analyses", len(ana))
-            c1.metric("Confiance", f"{confidence_from_sources()*100:.0f}%")
-            if obs: st.dataframe(pd.DataFrame(obs), use_container_width=True, hide_index=True)
-            if ana: st.dataframe(pd.DataFrame(ana), use_container_width=True, hide_index=True)
-
-    with tabs[2]:
-        st.subheader("📊 Simulations de scénarios")
-        c = context()
-        a,b,c1,d = st.columns(4)
-        yield_t = a.number_input("Rendement t/ha", 0.0, 100.0, 4.0, key="sim_yield_pro")
-        price = b.number_input("Prix FCFA/t", 0.0, 10000000.0, 180000.0, key="sim_price_pro")
-        cost = c1.number_input("Charges FCFA/ha", 0.0, 10000000.0, 500000.0, key="sim_cost_pro")
-        loss = d.slider("Pertes / aléas %", 0, 100, 10, key="sim_loss_pro")
-        ha = float(c["zone_surface_ha"] or c["surface_ha"] or 1)
-        production = yield_t * ha * (1-loss/100)
-        revenue = production * price
-        charges = cost * ha
-        margin = revenue - charges
-        x,y,z = st.columns(3)
-        x.metric("Production ajustée", f"{production:.2f} t")
-        y.metric("Chiffre d'affaires", f"{revenue:,.0f} FCFA")
-        z.metric("Marge simulée", f"{margin:,.0f} FCFA")
-        st.caption("Simulation : modifier les hypothèses pour comparer plusieurs scénarios.")
-        scenario = pd.DataFrame({
-            "Scénario":["Prudent","Central","Optimiste"],
-            "Rendement t/ha":[yield_t*0.75,yield_t,yield_t*1.20],
-            "Pertes %":[min(100,loss+15),loss,max(0,loss-7)]
-        })
-        scenario["Production t"] = scenario["Rendement t/ha"]*ha*(1-scenario["Pertes %"]/100)
-        scenario["CA FCFA"] = scenario["Production t"]*price
-        st.dataframe(scenario, use_container_width=True, hide_index=True)
-
-    with tabs[3]:
-        st.subheader("💰 Économie, coûts, ROI et marge")
-        did = context()["dossier_id"]
+    elif choice == "Diagnostic transversal":
+        if c["dossier_id"]:
+            obs=db_exec("SELECT * FROM observations WHERE dossier_id=? ORDER BY created_at DESC LIMIT 30",(c["dossier_id"],),fetch=True)
+            ana=db_exec("SELECT * FROM analyses WHERE dossier_id=? ORDER BY date_analyse DESC LIMIT 30",(c["dossier_id"],),fetch=True)
+            a,b,c1=st.columns(3); a.metric("Observations",len(obs)); b.metric("Analyses",len(ana)); c1.metric("Confiance",f"{confidence_from_sources()*100:.0f}%")
+            if obs: st.dataframe(pd.DataFrame(obs),use_container_width=True,hide_index=True)
+            if ana: st.dataframe(pd.DataFrame(ana),use_container_width=True,hide_index=True)
+    elif choice == "Simulations & économie":
+        a,b,c1,d=st.columns(4)
+        y=a.number_input("Rendement t/ha",0.0,100.0,4.0,key="v9_y")
+        price=b.number_input("Prix FCFA/t",0.0,10000000.0,180000.0,key="v9_price")
+        cost=c1.number_input("Charges FCFA/ha",0.0,10000000.0,500000.0,key="v9_cost")
+        loss=d.slider("Pertes %",0,100,10,key="v9_loss")
+        ha=float(c["zone_surface_ha"] or c["surface_ha"] or 1)
+        prod=y*ha*(1-loss/100); ca=prod*price; charges=cost*ha
+        x,z,w=st.columns(3); x.metric("Production",f"{prod:.2f} t"); z.metric("CA",f"{ca:,.0f} FCFA"); w.metric("Marge",f"{ca-charges:,.0f} FCFA")
+    elif choice == "Alertes & KPI":
+        did=c["dossier_id"]
         if did:
-            with st.form("finance_form_pro"):
-                a,b,c1,d = st.columns(4)
-                typ = a.selectbox("Type", ["Recette","Dépense"])
-                cat = b.selectbox("Catégorie", ["Intrants","Main-d'œuvre","Irrigation","Transport","Conseil","Vente","Autre"])
-                lib = c1.text_input("Libellé")
-                amount = d.number_input("Montant FCFA", 0.0, 1e12, 0.0)
-                if st.form_submit_button("Enregistrer l'opération"):
-                    db_exec("""INSERT INTO finance
-                        (id,dossier_id,mission_id,type_operation,categorie,libelle,montant_fcfa,date_operation,statut,reference,notes)
-                        VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
-                        (new_id("FIN"),did,st.session_state.get("selected_mission"),typ,cat,lib,amount,now(),"Enregistré","", ""))
-                    audit("FINANCE","finance",did)
-            rows = db_exec("SELECT type_operation,SUM(montant_fcfa) montant FROM finance WHERE dossier_id=? GROUP BY type_operation",(did,), fetch=True)
-            df = pd.DataFrame(rows)
-            recettes = float(df.loc[df["type_operation"]=="Recette","montant"].sum()) if not df.empty else 0
-            depenses = float(df.loc[df["type_operation"]=="Dépense","montant"].sum()) if not df.empty else 0
-            a,b,c1 = st.columns(3)
-            a.metric("Recettes", f"{recettes:,.0f} FCFA")
-            b.metric("Dépenses", f"{depenses:,.0f} FCFA")
-            c1.metric("Solde", f"{recettes-depenses:,.0f} FCFA")
-
-    with tabs[4]:
-        st.subheader("🚨 Centre des alertes")
-        did = context()["dossier_id"]
+            q,_=data_quality(); risk=risk_score()
+            alerts=db_exec("SELECT * FROM alerts WHERE dossier_id=? AND statut='Ouverte' ORDER BY created_at DESC",(did,),fetch=True)
+            a,b,c1=st.columns(3); a.metric("Qualité",f"{q}/100"); b.metric("Risque",f"{risk}/100"); c1.metric("Alertes",len(alerts))
+            if alerts: st.dataframe(pd.DataFrame(alerts),use_container_width=True,hide_index=True)
+    else:
+        did=c["dossier_id"]
         if did:
-            if st.button("Générer les alertes de cohérence", key="generate_alerts_pro"):
-                q,_ = data_quality()
-                if q < 70:
-                    db_exec("""INSERT INTO alerts
-                        (id,dossier_id,parcelle_id,domaine,niveau,titre,message,source,due_date,created_at)
-                        VALUES(?,?,?,?,?,?,?,?,?,?)""",
-                        (new_id("ALT"),did,context()["parcelle_id"],"Données","Moyenne",
-                         "Qualité insuffisante",
-                         "Compléter la zone GPS, les observations et les analyses avant décision sensible.",
-                         "Moteur qualité",str(date.today()+timedelta(days=2)),now()))
-                audit("GENERATION_ALERTES","alerts",did)
-            rows = db_exec("SELECT * FROM alerts WHERE dossier_id=? ORDER BY created_at DESC",(did,), fetch=True)
-            if rows: st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
-            else: st.success("Aucune alerte enregistrée.")
-
-    with tabs[5]:
-        st.subheader("📈 Tableau de bord décisionnel")
-        c = context()
-        q,_ = data_quality()
-        risk = risk_score()
-        obs = len(db_exec("SELECT id FROM observations WHERE dossier_id=?",(c["dossier_id"],), fetch=True)) if c["dossier_id"] else 0
-        ana = len(db_exec("SELECT id FROM analyses WHERE dossier_id=?",(c["dossier_id"],), fetch=True)) if c["dossier_id"] else 0
-        actions = len(db_exec("SELECT id FROM actions WHERE dossier_id=?",(c["dossier_id"],), fetch=True)) if c["dossier_id"] else 0
-        scores = {
-            "Qualité données": q,
-            "Preuves terrain": min(100,obs*15),
-            "Analyses": min(100,ana*20),
-            "SIG / zone": 100 if c["zone_geometry"] else 15,
-            "Contexte cultural": 100 if c["culture"] else 20,
-            "Suivi actions": min(100,actions*15),
-        }
-        decision = int(np.mean(list(scores.values())))
-        a,b,c1 = st.columns(3)
-        a.metric("Score décision", f"{decision}/100")
-        b.metric("Confiance", f"{confidence_from_sources()*100:.0f}%")
-        c1.metric("Risque", f"{risk}/100")
-        st.dataframe(pd.DataFrame([{"Indicateur":k,"Score":v} for k,v in scores.items()]),
-                     use_container_width=True, hide_index=True)
-
-    with tabs[6]:
-        st.subheader("✅ Plan d'action et suivi")
-        did = context()["dossier_id"]
-        if did:
-            with st.form("action_form_pro"):
-                a,b,c1,d = st.columns(4)
-                domaine = a.selectbox("Domaine", DOMAINS)
-                titre = b.text_input("Action")
-                resp = c1.text_input("Responsable")
-                echeance = d.date_input("Échéance", date.today()+timedelta(days=3))
-                a2,b2,c2 = st.columns(3)
-                priorite = a2.selectbox("Priorité", ["Basse","Normale","Haute","Critique"])
-                cout = b2.number_input("Coût estimé FCFA", 0.0, 1e12, 0.0)
-                statut = c2.selectbox("Statut", ["À faire","En cours","Bloquée","Terminée"])
-                notes = st.text_area("Notes / preuve attendue")
-                if st.form_submit_button("Créer l'action"):
+            with st.form("action_v9"):
+                titre=st.text_input("Action à réaliser")
+                resp=st.text_input("Responsable")
+                echeance=st.date_input("Échéance",date.today()+timedelta(days=3))
+                priorite=st.selectbox("Priorité",["Basse","Normale","Haute","Critique"])
+                if st.form_submit_button("Créer l'action",type="primary"):
                     db_exec("""INSERT INTO actions
                         (id,dossier_id,mission_id,domaine,titre,responsable,echeance,priorite,statut,cout_estime,preuve,notes,created_at,updated_at)
                         VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                        (new_id("ACT"),did,st.session_state.get("selected_mission"),domaine,titre,resp,str(echeance),
-                         priorite,statut,cout,"",notes,now(),now()))
-                    audit("CREATION","action",did,titre)
-            rows = db_exec("SELECT * FROM actions WHERE dossier_id=? ORDER BY echeance",(did,), fetch=True)
-            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+                        (new_id("ACT"),did,st.session_state.get("selected_mission"),"Général",titre,resp,str(echeance),priorite,"À faire",0,"","",now(),now()))
+                    audit("CREATION","action",did,titre); st.success("Action créée.")
+            rows=db_exec("SELECT * FROM actions WHERE dossier_id=? ORDER BY echeance",(did,),fetch=True)
+            st.dataframe(pd.DataFrame(rows),use_container_width=True,hide_index=True) if rows else st.caption("Aucune action.")
 
-    with tabs[7]:
-        st.subheader("🧪 Contrôles automatiques de cohérence")
-        c = context()
-        issues = []
-        if c["surface_ha"] and c["zone_surface_ha"] and abs(c["surface_ha"]-c["zone_surface_ha"]) > max(0.5, c["surface_ha"]*0.20):
-            issues.append("La surface parcelle et la surface de zone diffèrent fortement.")
-        if c["latitude"] is not None and not (-90 <= float(c["latitude"]) <= 90):
-            issues.append("Latitude invalide.")
-        if c["longitude"] is not None and not (-180 <= float(c["longitude"]) <= 180):
-            issues.append("Longitude invalide.")
-        if not c["zone_geometry"]:
-            issues.append("Aucune zone d'étude délimitée.")
-        if issues:
-            for x in issues: st.error(x)
-        else:
-            st.success("Aucune incohérence critique détectée par les contrôles simples.")
 
 
 # =========================================================
 # 13. ESPACE 4 — CONSULTANCE & PILOTAGE
 # =========================================================
 def consultancy_space():
-    tabs = st.tabs([
-        "👥 Clients", "📋 Missions", "📝 Devis", "💳 Finance",
-        "📄 Rapports", "📚 Documents", "📆 Suivi & agenda",
-        "👑 Administration", "🛡️ Audit & synchronisation"
-    ])
-
-    with tabs[0]:
-        st.subheader("👥 Portefeuille clients")
-        rows = db_exec("SELECT * FROM clients ORDER BY COALESCE(updated_at, created_at, '') DESC", fetch=True)
-        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
-
-    with tabs[1]:
-        st.subheader("📋 Workflow professionnel des missions")
-        did = context()["dossier_id"]
+    compact_context()
+    choice = st.selectbox(
+        "🧭 Ouvrir",
+        ["Clients & dossiers", "Missions", "Devis & finance", "Rapports", "Documents & agenda", "Administration & audit"],
+        key="cabinet_menu_v9"
+    )
+    c=context()
+    if choice == "Clients & dossiers":
+        rows=db_exec("SELECT * FROM clients ORDER BY COALESCE(updated_at,created_at,'') DESC",fetch=True)
+        st.dataframe(pd.DataFrame(rows),use_container_width=True,hide_index=True) if rows else st.caption("Aucun client.")
+    elif choice == "Missions":
+        did=c["dossier_id"]
         if did:
-            with st.form("mission_form_pro"):
-                a,b,c1,d = st.columns(4)
-                objet = a.text_input("Objet de la mission")
-                typ = b.selectbox("Type", ["Diagnostic","Étude","Suivi","Conseil","Formation","Audit","Cartographie","Évaluation économique"])
-                priorite = c1.selectbox("Priorité", ["Normale","Haute","Critique"])
-                responsable = d.text_input("Consultant responsable", value=(st.session_state.get("user") or {}).get("nom",""))
-                a2,b2,c2,d2 = st.columns(4)
-                debut = a2.date_input("Début", date.today())
-                echeance = b2.date_input("Échéance", date.today()+timedelta(days=7))
-                budget = c2.number_input("Budget FCFA", 0.0, 1e12, 0.0)
-                statut = d2.selectbox("Étape", ["Demande","Devis","Validée","Intervention","Suivi","Rapport","Clôturée"])
-                if st.form_submit_button("Créer la mission", type="primary"):
-                    mid = new_id("MIS")
+            with st.form("mission_v9"):
+                objet=st.text_input("Objet de mission")
+                typ=st.selectbox("Type",["Diagnostic","Étude","Suivi","Conseil","Formation","Audit","Cartographie","Évaluation économique"])
+                responsable=st.text_input("Responsable",value=(st.session_state.get("user") or {}).get("nom",""))
+                echeance=st.date_input("Échéance",date.today()+timedelta(days=7))
+                budget=st.number_input("Budget FCFA",0.0,1e12,0.0)
+                statut=st.selectbox("Étape",["Demande","Devis","Validée","Intervention","Suivi","Rapport","Clôturée"])
+                if st.form_submit_button("Créer la mission",type="primary"):
+                    mid=new_id("MIS")
                     db_exec("""INSERT INTO missions
                         (id,dossier_id,client_id,objet,type_mission,statut,priorite,responsable,date_debut,echeance,budget_fcfa,avancement,notes,created_at,updated_at)
                         VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                        (mid,did,context()["client_id"],objet,typ,statut,priorite,responsable,str(debut),str(echeance),
-                         budget,0,"",now(),now()))
-                    st.session_state["selected_mission"] = mid
-                    audit("CREATION","mission",mid,objet)
-            rows = db_exec("SELECT * FROM missions WHERE dossier_id=? ORDER BY COALESCE(updated_at, created_at, '') DESC",(did,), fetch=True)
-            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
-
-    with tabs[2]:
-        st.subheader("📝 Devis et offres de consultance")
-        cid, did = context()["client_id"], context()["dossier_id"]
-        if cid:
-            with st.form("quote_form"):
-                a,b,c1,d = st.columns(4)
-                ref = a.text_input("Référence", new_id("DEV").upper())
-                objet = b.text_input("Objet")
-                ht = c1.number_input("Montant HT FCFA",0.0,1e12,0.0)
-                taxes = d.number_input("Taxes FCFA",0.0,1e12,0.0)
-                valid = st.date_input("Valide jusqu'au", date.today()+timedelta(days=15))
-                statut = st.selectbox("Statut", ["Brouillon","Envoyé","Accepté","Refusé","Expiré"])
-                if st.form_submit_button("Enregistrer le devis"):
-                    db_exec("""INSERT INTO quotes
-                        (id,client_id,dossier_id,reference,objet,montant_ht,taxes,total,statut,date_creation,date_validite,notes)
-                        VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
-                        (new_id("QTE"),cid,did,ref,objet,ht,taxes,ht+taxes,statut,now(),str(valid),""))
-                    audit("DEVIS","quote",cid,ref)
-            rows = db_exec("SELECT * FROM quotes WHERE client_id=? ORDER BY date_creation DESC",(cid,), fetch=True)
-            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
-
-    with tabs[3]:
-        st.subheader("💳 Finance et rentabilité du cabinet")
-        did = context()["dossier_id"]
+                        (mid,did,c["client_id"],objet,typ,statut,"Normale",responsable,str(date.today()),str(echeance),budget,0,"",now(),now()))
+                    st.session_state["selected_mission"]=mid; audit("CREATION","mission",mid,objet); st.success("Mission créée.")
+            rows=db_exec("SELECT * FROM missions WHERE dossier_id=? ORDER BY COALESCE(updated_at,created_at,'') DESC",(did,),fetch=True)
+            st.dataframe(pd.DataFrame(rows),use_container_width=True,hide_index=True) if rows else st.caption("Aucune mission.")
+    elif choice == "Devis & finance":
+        did=c["dossier_id"]; cid=c["client_id"]
         if did:
-            rows = db_exec("SELECT * FROM finance WHERE dossier_id=? ORDER BY date_operation DESC",(did,), fetch=True)
-            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
-
-    with tabs[4]:
-        st.subheader("📄 Rapports professionnels")
-        c = context()
-        if not c["dossier_id"]:
-            st.info("Sélectionnez un dossier.")
+            with st.form("finance_v9"):
+                typ=st.selectbox("Opération",["Recette","Dépense"]); cat=st.selectbox("Catégorie",["Intrants","Main-d'œuvre","Irrigation","Transport","Conseil","Vente","Autre"])
+                lib=st.text_input("Libellé"); amount=st.number_input("Montant FCFA",0.0,1e12,0.0)
+                if st.form_submit_button("Enregistrer",type="primary"):
+                    db_exec("""INSERT INTO finance
+                        (id,dossier_id,mission_id,type_operation,categorie,libelle,montant_fcfa,date_operation,statut,reference,notes)
+                        VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+                        (new_id("FIN"),did,st.session_state.get("selected_mission"),typ,cat,lib,amount,now(),"Enregistré","",""))
+                    audit("FINANCE","finance",did)
+            rows=db_exec("SELECT * FROM finance WHERE dossier_id=? ORDER BY date_operation DESC",(did,),fetch=True)
+            st.dataframe(pd.DataFrame(rows),use_container_width=True,hide_index=True) if rows else st.caption("Aucune opération.")
+    elif choice == "Rapports":
+        if not c["dossier_id"]: st.info("Sélectionnez un dossier.")
         else:
-            report_type = st.selectbox("Type de rapport",
-                                       ["Diagnostic initial","Rapport de mission","Rapport de suivi","Rapport économique","Rapport final","Note de conseil"])
-            title = st.text_input("Titre du rapport", "Rapport YouAgronoMe")
-            q,_ = data_quality()
-            if st.button("Préparer la synthèse", key="report_prepare_pro"):
-                obs = db_exec("SELECT * FROM observations WHERE dossier_id=? ORDER BY created_at DESC LIMIT 20",(c["dossier_id"],), fetch=True)
-                ana = db_exec("SELECT * FROM analyses WHERE dossier_id=? ORDER BY date_analyse DESC LIMIT 20",(c["dossier_id"],), fetch=True)
-                text = (
-                    f"CLIENT : {c['client'] or '—'}\n"
-                    f"DOSSIER : {c['dossier'] or '—'}\n"
-                    f"ZONE : {c['zone_nom'] or 'Non délimitée'} ({c['zone_surface_ha']:.3f} ha)\n"
-                    f"PARCELLE : {c['parcelle'] or '—'}\n"
-                    f"CULTURE : {c['culture'] or '—'}\n"
-                    f"QUALITÉ DES DONNÉES : {q}/100\n"
-                    f"CONFIANCE : {confidence_from_sources()*100:.0f}%\n"
-                    f"RISQUE : {risk_score()}/100\n\n"
-                    f"OBSERVATIONS RÉCENTES : {len(obs)}\n"
-                    f"ANALYSES DISPONIBLES : {len(ana)}\n\n"
-                    "Conclusion : les recommandations doivent être confirmées selon les preuves "
-                    "terrain, analyses disponibles et sources officielles applicables."
-                )
+            report_type=st.selectbox("Type",["Diagnostic initial","Rapport de mission","Rapport de suivi","Rapport économique","Rapport final","Note de conseil"])
+            title=st.text_input("Titre","Rapport YouAgronoMe")
+            if st.button("Préparer le rapport",type="primary",key="v9_prepare_report"):
+                q,_=data_quality()
+                obs=db_exec("SELECT * FROM observations WHERE dossier_id=? ORDER BY created_at DESC LIMIT 20",(c["dossier_id"],),fetch=True)
+                ana=db_exec("SELECT * FROM analyses WHERE dossier_id=? ORDER BY date_analyse DESC LIMIT 20",(c["dossier_id"],),fetch=True)
+                report=f"""CLIENT : {c['client'] or '—'}
+DOSSIER : {c['dossier'] or '—'}
+ZONE : {c['zone_nom'] or 'Non délimitée'}
+PARCELLE : {c['parcelle'] or '—'}
+QUALITÉ : {q}/100
+CONFIANCE : {confidence_from_sources()*100:.0f}%
+RISQUE : {risk_score()}/100
+OBSERVATIONS : {len(obs)}
+ANALYSES : {len(ana)}
+
+Conclusion : recommandations à confirmer selon les preuves et référentiels applicables."""
                 db_exec("""INSERT INTO reports(id,dossier_id,mission_id,type_rapport,titre,contenu,confidence,created_at)
                            VALUES(?,?,?,?,?,?,?,?)""",
-                        (new_id("RPT"),c["dossier_id"],st.session_state.get("selected_mission"),
-                         report_type,title,text,confidence_from_sources(),now()))
-                st.session_state["report_text"] = text
-                audit("RAPPORT","report",c["dossier_id"],report_type)
+                        (new_id("RPT"),c["dossier_id"],st.session_state.get("selected_mission"),report_type,title,report,confidence_from_sources(),now()))
+                st.session_state["report_text"]=report
             if st.session_state.get("report_text"):
-                st.text_area("Synthèse", st.session_state["report_text"], height=300, key="report_text_view")
+                st.text_area("Synthèse",st.session_state["report_text"],height=250,key="v9_report_view")
                 if HAS_PDF:
-                    buf = io.BytesIO()
-                    doc = SimpleDocTemplate(buf,pagesize=A4)
-                    styles = getSampleStyleSheet()
-                    story = [Paragraph(title,styles["Title"]),Spacer(1,12)]
+                    buf=io.BytesIO(); doc=SimpleDocTemplate(buf,pagesize=A4); styles=getSampleStyleSheet()
+                    story=[Paragraph(title,styles["Title"]),Spacer(1,12)]
                     for line in st.session_state["report_text"].splitlines():
-                        if line.strip():
-                            story.append(Paragraph(line.replace("&","&amp;"),styles["Normal"]))
-                            story.append(Spacer(1,5))
-                    doc.build(story)
-                    buf.seek(0)
-                    st.download_button("📥 Télécharger le rapport PDF",buf.getvalue(),
-                                       f"rapport_youagronome_{datetime.now():%Y%m%d_%H%M}.pdf",
-                                       "application/pdf",key="report_pdf_pro")
-
-    with tabs[5]:
-        st.subheader("📚 Documents et référentiels")
-        for name,url in SOURCES.items():
-            st.markdown(f"- **{name}** — {url}")
-        did = context()["dossier_id"]
+                        if line.strip(): story.append(Paragraph(line.replace("&","&amp;"),styles["Normal"]))
+                    doc.build(story); buf.seek(0)
+                    st.download_button("📥 PDF",buf.getvalue(),f"rapport_{datetime.now():%Y%m%d_%H%M}.pdf","application/pdf",key="v9_report_pdf")
+    elif choice == "Documents & agenda":
+        did=c["dossier_id"]
         if did:
-            with st.form("document_form"):
-                nom = st.text_input("Nom du document")
-                typ = st.selectbox("Type", ["Photo","Analyse","Contrat","Devis","Rapport","Carte","Autre"])
-                chemin = st.text_input("Chemin / référence")
-                desc = st.text_area("Description")
-                if st.form_submit_button("Enregistrer le document"):
-                    db_exec("""INSERT INTO documents
-                        (id,dossier_id,mission_id,nom,type_document,chemin,description,source,created_at)
-                        VALUES(?,?,?,?,?,?,?,?,?)""",
-                        (new_id("DOC"),did,st.session_state.get("selected_mission"),nom,typ,chemin,desc,"Utilisateur",now()))
-                    audit("DOCUMENT","document",did,nom)
-
-    with tabs[6]:
-        st.subheader("📆 Agenda des échéances")
-        did = context()["dossier_id"]
-        if did:
-            actions = db_exec("SELECT * FROM actions WHERE dossier_id=? ORDER BY echeance",(did,), fetch=True)
-            missions = db_exec("SELECT * FROM missions WHERE dossier_id=? ORDER BY echeance",(did,), fetch=True)
-            upcoming = []
-            for x in actions:
-                upcoming.append({"Type":"Action","Objet":x["titre"],"Échéance":x["echeance"],"Statut":x["statut"],"Priorité":x["priorite"]})
-            for x in missions:
-                upcoming.append({"Type":"Mission","Objet":x["objet"],"Échéance":x["echeance"],"Statut":x["statut"],"Priorité":x["priorite"]})
-            st.dataframe(pd.DataFrame(upcoming), use_container_width=True, hide_index=True)
-
-    with tabs[7]:
-        st.subheader("👑 Administration")
-        user = st.session_state.get("user") or {}
-        if user.get("role") != "Super-Admin":
-            st.warning("Accès réservé au Super-Admin.")
+            docs=db_exec("SELECT * FROM documents WHERE dossier_id=? ORDER BY created_at DESC",(did,),fetch=True)
+            acts=db_exec("SELECT * FROM actions WHERE dossier_id=? ORDER BY echeance",(did,),fetch=True)
+            st.markdown("#### Documents")
+            st.dataframe(pd.DataFrame(docs),use_container_width=True,hide_index=True) if docs else st.caption("Aucun document.")
+            st.markdown("#### Échéances")
+            st.dataframe(pd.DataFrame(acts),use_container_width=True,hide_index=True) if acts else st.caption("Aucune échéance.")
+    else:
+        user=st.session_state.get("user") or {}
+        if user.get("role")!="Super-Admin":
+            st.warning("Administration réservée au Super-Admin.")
         else:
-            with st.form("admin_user_form_pro"):
-                a,b,c1,d = st.columns(4)
-                email = a.text_input("Identifiant")
-                nom = b.text_input("Nom")
-                role = c1.selectbox("Rôle", ROLES)
-                zone = d.text_input("Zone")
-                pwd = st.text_input("Mot de passe", type="password")
-                if st.form_submit_button("Créer l'utilisateur"):
-                    if email and pwd:
-                        try:
-                            db_exec("""INSERT INTO users(email,password_hash,nom,role,zone,statut,created_at)
-                                       VALUES(?,?,?,?,?,?,?)""",
-                                    (email.strip(),sha256(pwd),nom or "Utilisateur",role,zone or "National","Actif",now()))
-                            audit("CREATION","user",email)
-                            st.success("Utilisateur créé.")
-                        except sqlite3.IntegrityError:
-                            st.error("Cet identifiant existe déjà.")
-            users = db_exec("SELECT email,nom,role,zone,statut,created_at FROM users ORDER BY created_at DESC", fetch=True)
-            st.dataframe(pd.DataFrame(users), use_container_width=True, hide_index=True)
-
-    with tabs[8]:
-        st.subheader("🛡️ Audit, synchronisation et traçabilité")
-        sync = db_exec("SELECT * FROM sync_log ORDER BY fetched_at DESC LIMIT 200", fetch=True)
-        aud = db_exec("SELECT * FROM audit ORDER BY created_at DESC LIMIT 300", fetch=True)
-        st.markdown("### Synchronisations")
-        st.dataframe(pd.DataFrame(sync), use_container_width=True, hide_index=True)
-        st.markdown("### Audit")
-        st.dataframe(pd.DataFrame(aud), use_container_width=True, hide_index=True)
-        if st.button("🔄 Synchroniser tout le HUB", key="audit_global_sync"):
-            messages = sync_all()
-            for m in messages:
-                st.write("•",m)
-            st.success("Synchronisation terminée avec conservation du dernier état connu.")
+            users=db_exec("SELECT email,nom,role,zone,statut,created_at FROM users ORDER BY created_at DESC",fetch=True)
+            st.dataframe(pd.DataFrame(users),use_container_width=True,hide_index=True)
+            if st.button("🔄 Synchroniser tout le dossier",key="v9_admin_sync"):
+                for m in sync_all(): st.write("•",m)
+                st.success("Synchronisation terminée.")
+            audit_rows=db_exec("SELECT * FROM audit ORDER BY created_at DESC LIMIT 200",fetch=True)
+            st.markdown("#### Traçabilité")
+            st.dataframe(pd.DataFrame(audit_rows),use_container_width=True,hide_index=True) if audit_rows else st.caption("Aucune trace.")
 
 
 # =========================================================
@@ -1930,7 +1730,7 @@ FEATURE_CATALOG = [
 
 def show_feature_catalog():
     st.subheader("🧩 Couverture fonctionnelle")
-    st.caption(f"{len(FEATURE_CATALOG)} fonctionnalités prévues dans cette architecture.")
+    st.caption("Les fonctions détaillées restent disponibles dans les espaces regroupés, sans multiplier les menus.")
     cols = st.columns(3)
     for i, item in enumerate(FEATURE_CATALOG):
         cols[i % 3].markdown(f"- {item}")
@@ -1968,10 +1768,10 @@ with st.sidebar:
         st.rerun()
 
 main_tabs = st.tabs([
-    "🌍 TERRAIN & DONNÉES",
-    "🗺️ SIG & DIAGNOSTIC",
-    "🤖 IA & DÉCISION",
-    "💼 CONSULTANCE & PILOTAGE",
+    "🌍 TERRAIN",
+    "🗺️ DIAGNOSTIC",
+    "🤖 DÉCISION",
+    "💼 CABINET",
 ])
 
 with main_tabs[0]:
