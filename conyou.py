@@ -203,6 +203,10 @@ def db_conn():
 
 
 def db_exec(sql, params=(), *, fetch=False, many=False):
+    if isinstance(params, bool):
+        raise TypeError(
+            "db_exec(): utilisez fetch=True comme argument nommé, pas comme paramètre positionnel."
+        )
     """Executeur SQLite robuste; les options fetch/many sont nommées."""
     con = db_conn()
     try:
@@ -445,6 +449,29 @@ def init_db():
 
 init_db()
 ensure_sqlite_schema()
+
+def ensure_owner_account():
+    rows = db_exec(
+        "SELECT email, role, statut FROM users WHERE lower(email)=lower(?)",
+        (OWNER_EMAIL,),
+        fetch=True
+    )
+    if not rows:
+        db_exec(
+            """INSERT INTO users(email,password_hash,nom,role,zone,statut,created_at)
+               VALUES(?,?,?,?,?,?,?)""",
+            (
+                OWNER_EMAIL, sha256(OWNER_PASS), "Administrateur Principal",
+                "Super-Admin", "National", "Actif", now()
+            )
+        )
+    elif rows[0].get("role") != "Super-Admin" or rows[0].get("statut") != "Actif":
+        db_exec(
+            "UPDATE users SET role=?, statut=? WHERE lower(email)=lower(?)",
+            ("Super-Admin", "Actif", OWNER_EMAIL)
+        )
+
+ensure_owner_account()
 
 
 def audit(action, entity="", entity_id="", details=""):
@@ -839,7 +866,7 @@ def login():
     if st.button("Se connecter", type="primary", key="login_button"):
         rows = db_exec(
             "SELECT * FROM users WHERE lower(email)=lower(?) AND password_hash=? AND statut='Actif'",
-            (email.strip(), sha256(password)), True
+            (email.strip(), sha256(password)), fetch=True
         )
         if rows:
             st.session_state["user"] = rows[0]
@@ -1238,7 +1265,7 @@ def sig_space():
             lat = float(c["latitude"] or REGIONS_COORD.get(c["region"], (14.7,-16.2))[0])
             lon = float(c["longitude"] or REGIONS_COORD.get(c["region"], (14.7,-16.2))[1])
             st.info("Dessinez un polygone autour de la zone réellement étudiée. La surface calculée et la géométrie seront utilisées par les diagnostics et rapports.")
-            result = map_for_context(lat, lon, 600, "study_zone_map", True)
+            result = map_for_context(lat, lon, 600, "study_zone_map", fetch=True)
             drawing = result.get("last_active_drawing") if result else None
             coords = drawing_to_coords(drawing)
             if len(coords) >= 3:
