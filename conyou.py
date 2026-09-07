@@ -149,7 +149,8 @@ def db_conn():
     return con
 
 
-def db_exec(sql, params=(), fetch=False, many=False):
+def db_exec(sql, params=(), *, fetch=False, many=False):
+    """Executeur SQLite robuste; les options fetch/many sont nommées."""
     con = db_conn()
     try:
         cur = con.cursor()
@@ -382,7 +383,7 @@ def init_db():
     con.commit()
     con.close()
 
-    if not db_exec("SELECT email FROM users WHERE lower(email)=lower(?)", (OWNER_EMAIL,), True):
+    if not db_exec("SELECT email FROM users WHERE lower(email)=lower(?)", (OWNER_EMAIL,), fetch=True):
         db_exec(
             "INSERT INTO users(email,password_hash,nom,role,zone,statut,created_at) VALUES(?,?,?,?,?,?,?)",
             (OWNER_EMAIL, sha256(OWNER_PASS), "Administrateur Principal", "Super-Admin", "National", "Actif", now())
@@ -428,25 +429,25 @@ init_state()
 
 def active_client():
     cid = st.session_state.get("client_id")
-    rows = db_exec("SELECT * FROM clients WHERE id=?", (cid,), True) if cid else []
+    rows = db_exec("SELECT * FROM clients WHERE id=?", (cid,), fetch=True) if cid else []
     return rows[0] if rows else None
 
 
 def active_dossier():
     did = st.session_state.get("dossier_id")
-    rows = db_exec("SELECT * FROM dossiers WHERE id=?", (did,), True) if did else []
+    rows = db_exec("SELECT * FROM dossiers WHERE id=?", (did,), fetch=True) if did else []
     return rows[0] if rows else None
 
 
 def active_parcelle():
     pid = st.session_state.get("parcelle_id")
-    rows = db_exec("SELECT * FROM parcelles WHERE id=?", (pid,), True) if pid else []
+    rows = db_exec("SELECT * FROM parcelles WHERE id=?", (pid,), fetch=True) if pid else []
     return rows[0] if rows else None
 
 
 def active_zone():
     zid = st.session_state.get("zone_feature_id")
-    rows = db_exec("SELECT * FROM gis_features WHERE id=?", (zid,), True) if zid else []
+    rows = db_exec("SELECT * FROM gis_features WHERE id=?", (zid,), fetch=True) if zid else []
     return rows[0] if rows else None
 
 
@@ -605,8 +606,8 @@ def data_quality():
     check("Surface valide", c["zone_surface_ha"] > 0 or c["surface_ha"] > 0, 10, "Définir la surface")
     check("Culture renseignée", bool(c["culture"]), 6, "Renseigner la culture")
     did = c["dossier_id"]
-    obs_n = len(db_exec("SELECT id FROM observations WHERE dossier_id=?", (did,), True)) if did else 0
-    ana_n = len(db_exec("SELECT id FROM analyses WHERE dossier_id=?", (did,), True)) if did else 0
+    obs_n = len(db_exec("SELECT id FROM observations WHERE dossier_id=?", (did,), fetch=True)) if did else 0
+    ana_n = len(db_exec("SELECT id FROM analyses WHERE dossier_id=?", (did,), fetch=True)) if did else 0
     check("Observations terrain", obs_n > 0, 8, "Ajouter une observation")
     check("Analyses disponibles", ana_n > 0, 5, "Ajouter une analyse ou justifier l'absence")
     return max(0, min(100, score)), checks
@@ -631,7 +632,7 @@ def risk_score():
     if not c["culture"]:
         risk += 5
     obs = db_exec("SELECT gravite,incidence FROM observations WHERE dossier_id=? ORDER BY created_at DESC LIMIT 50",
-                  (c["dossier_id"],), True) if c["dossier_id"] else []
+                  (c["dossier_id"],), fetch=True) if c["dossier_id"] else []
     for o in obs:
         risk += {"Faible": 2, "Moyenne": 7, "Élevée": 14, "Critique": 25, "Information": 0}.get(o.get("gravite"), 0)
         risk += min(10, float(o.get("incidence") or 0)/10)
@@ -741,8 +742,8 @@ def local_expert(question, actor="Technicien"):
         f"Qualité du dossier : {quality}/100",
         f"Risque séparé de la confiance : {risk}/100",
         f"Zone d'étude : {c['zone_nom'] or 'non délimitée'}",
-        f"Observations : {len(db_exec('SELECT id FROM observations WHERE dossier_id=?', (c['dossier_id'],), True)) if c['dossier_id'] else 0}",
-        f"Analyses : {len(db_exec('SELECT id FROM analyses WHERE dossier_id=?', (c['dossier_id'],), True)) if c['dossier_id'] else 0}",
+        f"Observations : {len(db_exec('SELECT id FROM observations WHERE dossier_id=?', (c['dossier_id'],), fetch=True)) if c['dossier_id'] else 0}",
+        f"Analyses : {len(db_exec('SELECT id FROM analyses WHERE dossier_id=?', (c['dossier_id'],), fetch=True)) if c['dossier_id'] else 0}",
         "Météo : synchronisée" if st.session_state.get("weather") else "Météo : non synchronisée",
     ]
     text = f"""## 🧠 Avis expert local — {actor}
@@ -800,7 +801,7 @@ def login():
 # =========================================================
 def global_selector():
     st.markdown("### 🎯 Dossier de consultance actif")
-    clients = db_exec("SELECT * FROM clients ORDER BY COALESCE(updated_at, created_at, '') DESC, COALESCE(created_at, '') DESC", True)
+    clients = db_exec("SELECT * FROM clients ORDER BY COALESCE(updated_at, created_at, '') DESC, COALESCE(created_at, '') DESC", fetch=True)
     client_labels = ["➕ Nouveau client"] + [f"{x['id']} · {x['nom']}" for x in clients]
     current_client = st.session_state.get("client_id")
     cidx = next((i+1 for i,x in enumerate(clients) if x["id"] == current_client), 0)
@@ -831,7 +832,7 @@ def global_selector():
 
     cid = st.session_state.get("client_id")
     if cid:
-        dossiers = db_exec("SELECT * FROM dossiers WHERE client_id=? ORDER BY updated_at DESC", (cid,), True)
+        dossiers = db_exec("SELECT * FROM dossiers WHERE client_id=? ORDER BY COALESCE(updated_at, created_at, '') DESC", (cid,), fetch=True)
         labels = ["➕ Nouveau dossier"] + [f"{x['id']} · {x['nom']}" for x in dossiers]
         cur = st.session_state.get("dossier_id")
         didx = next((i+1 for i,x in enumerate(dossiers) if x["id"] == cur), 0)
@@ -859,7 +860,7 @@ def global_selector():
 
         did = st.session_state.get("dossier_id")
         if did:
-            pars = db_exec("SELECT * FROM parcelles WHERE dossier_id=? ORDER BY updated_at DESC", (did,), True)
+            pars = db_exec("SELECT * FROM parcelles WHERE dossier_id=? ORDER BY COALESCE(updated_at, created_at, '') DESC", (did,), fetch=True)
             plabels = ["— Aucune parcelle sélectionnée —"] + [f"{x['id']} · {x['nom']} ({x['surface_ha']:.2f} ha)" for x in pars]
             curp = st.session_state.get("parcelle_id")
             pidx = next((i+1 for i,x in enumerate(pars) if x["id"] == curp), 0)
@@ -874,30 +875,38 @@ def global_selector():
 # 9. EN-TÊTE PROFESSIONNEL
 # =========================================================
 def professional_header():
+    """En-tête du cabinet : identité, contexte actif et indicateurs essentiels."""
     st.markdown("""
     <style>
-    .hero{padding:22px 26px;border-radius:18px;background:linear-gradient(135deg,#0f5132,#198754);
-    color:white;margin-bottom:16px}
-    .hero h1{color:white!important;margin:0}
-    .hero p{margin:.3rem 0 0}
-    .badge{padding:8px 12px;border-radius:10px;background:#f5f7f5;border:1px solid #dce4dc}
+    .block-container{padding-top:1.15rem;padding-bottom:2.5rem;max-width:1500px}
+    [data-testid="stSidebar"]{border-right:1px solid #dfe8e2}
+    .ya-hero{background:linear-gradient(135deg,#103d2c 0%,#146c43 58%,#198754 100%);color:#fff;border-radius:22px;padding:24px 28px;box-shadow:0 10px 30px rgba(16,61,44,.16);margin-bottom:14px}
+    .ya-hero h1{margin:0;color:#fff!important;font-size:2rem;letter-spacing:-.03em}
+    .ya-hero p{margin:7px 0 0;color:#e9f6ef;font-size:.96rem}
+    .ya-strip{display:flex;gap:8px;flex-wrap:wrap;margin-top:15px}
+    .ya-pill{background:rgba(255,255,255,.13);border:1px solid rgba(255,255,255,.22);border-radius:999px;padding:6px 11px;font-size:.81rem}
+    .ya-section{background:#f5f8f6;border:1px solid #dfe8e2;border-radius:16px;padding:12px 15px;margin:8px 0 14px}
+    .ya-section-title{font-weight:750;color:#18322a;font-size:1.02rem}
+    .ya-kicker{color:#66756e;font-size:.84rem;margin-top:2px}
+    div[data-testid="stTabs"] button{font-weight:650}
     </style>
     """, unsafe_allow_html=True)
-    st.markdown(
-        "<div class='hero'><h1>🌾 YouAgronoMe — Cabinet de Consultance Agricole 360°</h1>"
-        "<p>Qualification de la demande → zone d'étude → données → analyse → décision → mission → rapport → suivi</p></div>",
-        unsafe_allow_html=True
-    )
-    c = context()
-    q, _ = data_quality()
-    risk = risk_score()
-    cols = st.columns(6)
-    cols[0].metric("Client", c["client"] or "—")
-    cols[1].metric("Dossier", c["dossier"] or "—")
-    cols[2].metric("Zone", f"{c['zone_surface_ha']:.2f} ha" if c["zone_surface_ha"] else "—")
-    cols[3].metric("Qualité", f"{q}/100")
-    cols[4].metric("Risque", f"{risk}/100")
-    cols[5].metric("Synchro", st.session_state.get("sync_status", "—"))
+    c=context(); q,_=data_quality(); risk=risk_score()
+    surface=c["zone_surface_ha"] or c["surface_ha"] or 0
+    st.markdown(f"""
+    <div class='ya-hero'>
+      <h1>🌾 YouAgronoMe</h1>
+      <p>Cabinet numérique de consultance agricole 360° — qualifier, étudier, décider, suivre.</p>
+      <div class='ya-strip'>
+        <span class='ya-pill'>👤 {c['client'] or 'Client non sélectionné'}</span>
+        <span class='ya-pill'>📁 {c['dossier'] or 'Dossier non sélectionné'}</span>
+        <span class='ya-pill'>📍 {c['zone_nom'] or 'Zone non délimitée'}</span>
+        <span class='ya-pill'>📐 {surface:.2f} ha</span>
+        <span class='ya-pill'>🛡️ Qualité {q}/100</span>
+        <span class='ya-pill'>⚠️ Risque {risk}/100</span>
+      </div>
+    </div>
+    """, unsafe_allow_html=True)
 
 
 # =========================================================
@@ -1001,7 +1010,7 @@ def terrain_space():
                          vaccination,reproduction,now(),notes))
                     audit("SUIVI_ELEVAGE", "dossier", did)
                     st.success("Suivi enregistré.")
-            rows = db_exec("SELECT * FROM livestock WHERE dossier_id=? ORDER BY date_suivi DESC", (did,), True)
+            rows = db_exec("SELECT * FROM livestock WHERE dossier_id=? ORDER BY date_suivi DESC", (did,), fetch=True)
             st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
     with tabs[4]:
@@ -1115,7 +1124,7 @@ def terrain_space():
                          now(),"Laboratoire" if labo else "Terrain",conf,validation,notes,now()))
                     audit("ANALYSE", "analyse", c["dossier_id"], {"param":param,"value":valeur})
                     st.success("Analyse enregistrée.")
-            rows = db_exec("SELECT * FROM analyses WHERE dossier_id=? ORDER BY date_analyse DESC", (c["dossier_id"],), True)
+            rows = db_exec("SELECT * FROM analyses WHERE dossier_id=? ORDER BY date_analyse DESC", (c["dossier_id"],), fetch=True)
             st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
     with tabs[8]:
@@ -1149,7 +1158,7 @@ def terrain_space():
             ]
             hist = []
             for typ, sql in tables:
-                for row in db_exec(sql,(did,),True):
+                for row in db_exec(sql,(did,), fetch=True):
                     hist.append({"Date":row["created_at"],"Type":typ,"Événement":row["texte"]})
             hist.sort(key=lambda x:x["Date"], reverse=True)
             st.dataframe(pd.DataFrame(hist), use_container_width=True, hide_index=True)
@@ -1226,7 +1235,7 @@ def sig_space():
         st.subheader("🧭 Couches SIG du dossier")
         did = context()["dossier_id"]
         if did:
-            rows = db_exec("SELECT * FROM gis_features WHERE dossier_id=? ORDER BY created_at DESC", (did,), True)
+            rows = db_exec("SELECT * FROM gis_features WHERE dossier_id=? ORDER BY created_at DESC", (did,), fetch=True)
             st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
             if rows:
                 options = [f"{r['id']} · {r['nom']} ({r['type_feature']})" for r in rows]
@@ -1339,8 +1348,8 @@ def decision_space():
         if not c["dossier_id"]:
             st.info("Sélectionnez un dossier.")
         else:
-            obs = db_exec("SELECT * FROM observations WHERE dossier_id=? ORDER BY created_at DESC LIMIT 50", (c["dossier_id"],), True)
-            ana = db_exec("SELECT * FROM analyses WHERE dossier_id=? ORDER BY date_analyse DESC LIMIT 50", (c["dossier_id"],), True)
+            obs = db_exec("SELECT * FROM observations WHERE dossier_id=? ORDER BY created_at DESC LIMIT 50", (c["dossier_id"],), fetch=True)
+            ana = db_exec("SELECT * FROM analyses WHERE dossier_id=? ORDER BY date_analyse DESC LIMIT 50", (c["dossier_id"],), fetch=True)
             a,b,c1 = st.columns(3)
             a.metric("Observations", len(obs))
             b.metric("Analyses", len(ana))
@@ -1391,7 +1400,7 @@ def decision_space():
                         VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
                         (new_id("FIN"),did,st.session_state.get("selected_mission"),typ,cat,lib,amount,now(),"Enregistré","", ""))
                     audit("FINANCE","finance",did)
-            rows = db_exec("SELECT type_operation,SUM(montant_fcfa) montant FROM finance WHERE dossier_id=? GROUP BY type_operation",(did,),True)
+            rows = db_exec("SELECT type_operation,SUM(montant_fcfa) montant FROM finance WHERE dossier_id=? GROUP BY type_operation",(did,), fetch=True)
             df = pd.DataFrame(rows)
             recettes = float(df.loc[df["type_operation"]=="Recette","montant"].sum()) if not df.empty else 0
             depenses = float(df.loc[df["type_operation"]=="Dépense","montant"].sum()) if not df.empty else 0
@@ -1415,7 +1424,7 @@ def decision_space():
                          "Compléter la zone GPS, les observations et les analyses avant décision sensible.",
                          "Moteur qualité",str(date.today()+timedelta(days=2)),now()))
                 audit("GENERATION_ALERTES","alerts",did)
-            rows = db_exec("SELECT * FROM alerts WHERE dossier_id=? ORDER BY created_at DESC",(did,),True)
+            rows = db_exec("SELECT * FROM alerts WHERE dossier_id=? ORDER BY created_at DESC",(did,), fetch=True)
             if rows: st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
             else: st.success("Aucune alerte enregistrée.")
 
@@ -1424,9 +1433,9 @@ def decision_space():
         c = context()
         q,_ = data_quality()
         risk = risk_score()
-        obs = len(db_exec("SELECT id FROM observations WHERE dossier_id=?",(c["dossier_id"],),True)) if c["dossier_id"] else 0
-        ana = len(db_exec("SELECT id FROM analyses WHERE dossier_id=?",(c["dossier_id"],),True)) if c["dossier_id"] else 0
-        actions = len(db_exec("SELECT id FROM actions WHERE dossier_id=?",(c["dossier_id"],),True)) if c["dossier_id"] else 0
+        obs = len(db_exec("SELECT id FROM observations WHERE dossier_id=?",(c["dossier_id"],), fetch=True)) if c["dossier_id"] else 0
+        ana = len(db_exec("SELECT id FROM analyses WHERE dossier_id=?",(c["dossier_id"],), fetch=True)) if c["dossier_id"] else 0
+        actions = len(db_exec("SELECT id FROM actions WHERE dossier_id=?",(c["dossier_id"],), fetch=True)) if c["dossier_id"] else 0
         scores = {
             "Qualité données": q,
             "Preuves terrain": min(100,obs*15),
@@ -1465,7 +1474,7 @@ def decision_space():
                         (new_id("ACT"),did,st.session_state.get("selected_mission"),domaine,titre,resp,str(echeance),
                          priorite,statut,cout,"",notes,now(),now()))
                     audit("CREATION","action",did,titre)
-            rows = db_exec("SELECT * FROM actions WHERE dossier_id=? ORDER BY echeance",(did,),True)
+            rows = db_exec("SELECT * FROM actions WHERE dossier_id=? ORDER BY echeance",(did,), fetch=True)
             st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
     with tabs[7]:
@@ -1498,7 +1507,7 @@ def consultancy_space():
 
     with tabs[0]:
         st.subheader("👥 Portefeuille clients")
-        rows = db_exec("SELECT * FROM clients ORDER BY updated_at DESC", True)
+        rows = db_exec("SELECT * FROM clients ORDER BY COALESCE(updated_at, created_at, '') DESC", fetch=True)
         st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
     with tabs[1]:
@@ -1525,7 +1534,7 @@ def consultancy_space():
                          budget,0,"",now(),now()))
                     st.session_state["selected_mission"] = mid
                     audit("CREATION","mission",mid,objet)
-            rows = db_exec("SELECT * FROM missions WHERE dossier_id=? ORDER BY updated_at DESC",(did,),True)
+            rows = db_exec("SELECT * FROM missions WHERE dossier_id=? ORDER BY COALESCE(updated_at, created_at, '') DESC",(did,), fetch=True)
             st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
     with tabs[2]:
@@ -1546,14 +1555,14 @@ def consultancy_space():
                         VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
                         (new_id("QTE"),cid,did,ref,objet,ht,taxes,ht+taxes,statut,now(),str(valid),""))
                     audit("DEVIS","quote",cid,ref)
-            rows = db_exec("SELECT * FROM quotes WHERE client_id=? ORDER BY date_creation DESC",(cid,),True)
+            rows = db_exec("SELECT * FROM quotes WHERE client_id=? ORDER BY date_creation DESC",(cid,), fetch=True)
             st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
     with tabs[3]:
         st.subheader("💳 Finance et rentabilité du cabinet")
         did = context()["dossier_id"]
         if did:
-            rows = db_exec("SELECT * FROM finance WHERE dossier_id=? ORDER BY date_operation DESC",(did,),True)
+            rows = db_exec("SELECT * FROM finance WHERE dossier_id=? ORDER BY date_operation DESC",(did,), fetch=True)
             st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
     with tabs[4]:
@@ -1567,8 +1576,8 @@ def consultancy_space():
             title = st.text_input("Titre du rapport", "Rapport YouAgronoMe")
             q,_ = data_quality()
             if st.button("Préparer la synthèse", key="report_prepare_pro"):
-                obs = db_exec("SELECT * FROM observations WHERE dossier_id=? ORDER BY created_at DESC LIMIT 20",(c["dossier_id"],),True)
-                ana = db_exec("SELECT * FROM analyses WHERE dossier_id=? ORDER BY date_analyse DESC LIMIT 20",(c["dossier_id"],),True)
+                obs = db_exec("SELECT * FROM observations WHERE dossier_id=? ORDER BY created_at DESC LIMIT 20",(c["dossier_id"],), fetch=True)
+                ana = db_exec("SELECT * FROM analyses WHERE dossier_id=? ORDER BY date_analyse DESC LIMIT 20",(c["dossier_id"],), fetch=True)
                 text = (
                     f"CLIENT : {c['client'] or '—'}\n"
                     f"DOSSIER : {c['dossier'] or '—'}\n"
@@ -1628,8 +1637,8 @@ def consultancy_space():
         st.subheader("📆 Agenda des échéances")
         did = context()["dossier_id"]
         if did:
-            actions = db_exec("SELECT * FROM actions WHERE dossier_id=? ORDER BY echeance",(did,),True)
-            missions = db_exec("SELECT * FROM missions WHERE dossier_id=? ORDER BY echeance",(did,),True)
+            actions = db_exec("SELECT * FROM actions WHERE dossier_id=? ORDER BY echeance",(did,), fetch=True)
+            missions = db_exec("SELECT * FROM missions WHERE dossier_id=? ORDER BY echeance",(did,), fetch=True)
             upcoming = []
             for x in actions:
                 upcoming.append({"Type":"Action","Objet":x["titre"],"Échéance":x["echeance"],"Statut":x["statut"],"Priorité":x["priorite"]})
@@ -1660,13 +1669,13 @@ def consultancy_space():
                             st.success("Utilisateur créé.")
                         except sqlite3.IntegrityError:
                             st.error("Cet identifiant existe déjà.")
-            users = db_exec("SELECT email,nom,role,zone,statut,created_at FROM users ORDER BY created_at DESC",True)
+            users = db_exec("SELECT email,nom,role,zone,statut,created_at FROM users ORDER BY created_at DESC", fetch=True)
             st.dataframe(pd.DataFrame(users), use_container_width=True, hide_index=True)
 
     with tabs[8]:
         st.subheader("🛡️ Audit, synchronisation et traçabilité")
-        sync = db_exec("SELECT * FROM sync_log ORDER BY fetched_at DESC LIMIT 200",True)
-        aud = db_exec("SELECT * FROM audit ORDER BY created_at DESC LIMIT 300",True)
+        sync = db_exec("SELECT * FROM sync_log ORDER BY fetched_at DESC LIMIT 200", fetch=True)
+        aud = db_exec("SELECT * FROM audit ORDER BY created_at DESC LIMIT 300", fetch=True)
         st.markdown("### Synchronisations")
         st.dataframe(pd.DataFrame(sync), use_container_width=True, hide_index=True)
         st.markdown("### Audit")
@@ -1689,10 +1698,10 @@ def dashboard():
         return
     c = context()
     q,_ = data_quality()
-    obs = len(db_exec("SELECT id FROM observations WHERE dossier_id=?",(did,),True))
-    missions = len(db_exec("SELECT id FROM missions WHERE dossier_id=?",(did,),True))
-    actions = len(db_exec("SELECT id FROM actions WHERE dossier_id=?",(did,),True))
-    alerts = len(db_exec("SELECT id FROM alerts WHERE dossier_id=? AND statut='Ouverte'",(did,),True))
+    obs = len(db_exec("SELECT id FROM observations WHERE dossier_id=?",(did,), fetch=True))
+    missions = len(db_exec("SELECT id FROM missions WHERE dossier_id=?",(did,), fetch=True))
+    actions = len(db_exec("SELECT id FROM actions WHERE dossier_id=?",(did,), fetch=True))
+    alerts = len(db_exec("SELECT id FROM alerts WHERE dossier_id=? AND statut='Ouverte'",(did,), fetch=True))
     a,b,c1,d = st.columns(4)
     a.metric("Qualité données",f"{q}/100")
     b.metric("Missions",missions)
@@ -1703,9 +1712,9 @@ def dashboard():
         "Étape":["Client","Dossier","Zone GPS","Observations","Analyses","Décision","Mission","Rapport"],
         "État":[
             bool(c["client_id"]),bool(c["dossier_id"]),bool(c["zone_geometry"]),obs>0,
-            len(db_exec("SELECT id FROM analyses WHERE dossier_id=?",(did,),True))>0,
+            len(db_exec("SELECT id FROM analyses WHERE dossier_id=?",(did,), fetch=True))>0,
             bool(st.session_state.get("last_ai")),missions>0,
-            len(db_exec("SELECT id FROM reports WHERE dossier_id=?",(did,),True))>0
+            len(db_exec("SELECT id FROM reports WHERE dossier_id=?",(did,), fetch=True))>0
         ]
     })
     flow["État"] = flow["État"].map({True:"✓ OK",False:"À compléter"})
@@ -1857,55 +1866,49 @@ if st.session_state.get("user") is None:
 professional_header()
 
 with st.sidebar:
+    st.markdown("### 🎯 CONTEXTE DE MISSION")
     global_selector()
+    c=context(); q,_=data_quality()
     st.markdown("---")
-    c = context()
-    st.markdown("### 🔗 CONTEXTE SYNCHRONISÉ")
-    st.write(f"**Client :** {c['client'] or '—'}")
-    st.write(f"**Dossier :** {c['dossier'] or '—'}")
-    st.write(f"**Parcelle :** {c['parcelle'] or '—'}")
-    st.write(f"**Zone :** {c['zone_nom'] or 'Non délimitée'}")
-    st.write(f"**Surface étudiée :** {c['zone_surface_ha'] or c['surface_ha']:.3f} ha")
-    st.write(f"**GPS :** {c['latitude'] if c['latitude'] is not None else '—'}, {c['longitude'] if c['longitude'] is not None else '—'}")
-    q,_ = data_quality()
+    st.markdown("**Contexte synchronisé**")
+    st.caption(f"Client : {c['client'] or '—'}")
+    st.caption(f"Dossier : {c['dossier'] or '—'}")
+    st.caption(f"Zone : {c['zone_nom'] or 'Non délimitée'}")
+    st.caption(f"Surface : {(c['zone_surface_ha'] or c['surface_ha']):.2f} ha")
     st.progress(q/100)
     st.caption(f"Qualité des données : {q}/100")
-    if st.button("🔄 SYNCHRONISER TOUT", type="primary", key="sidebar_sync_pro"):
-        with st.spinner("Synchronisation du dossier, météo et référentiels..."):
-            msgs = sync_all()
+    if st.button("🔄 Synchroniser le dossier", type="primary", key="sidebar_sync_pro"):
+        with st.spinner("Synchronisation du contexte, météo et référentiels..."):
+            msgs=sync_all()
         for m in msgs: st.write("•",m)
         st.success("Synchronisation terminée.")
     if st.button("🚪 Déconnexion", key="logout_pro"):
         audit("DECONNEXION","user",(st.session_state.get("user") or {}).get("email",""))
-        st.session_state["user"] = None
+        st.session_state["user"]=None
         st.rerun()
 
 main_tabs = st.tabs([
-    "🏠 COCKPIT",
     "🌍 TERRAIN & DONNÉES",
     "🗺️ SIG & DIAGNOSTIC",
     "🤖 IA & DÉCISION",
     "💼 CONSULTANCE & PILOTAGE",
-    "🧩 FONCTIONNALITÉS"
 ])
 
 with main_tabs[0]:
-    dashboard()
-
-with main_tabs[1]:
+    st.markdown("<div class='ya-section'><div class='ya-section-title'>🌍 Terrain & données</div><div class='ya-kicker'>Le dossier client, les unités d'exploitation et les preuves terrain alimentent toutes les analyses.</div></div>", unsafe_allow_html=True)
     terrain_space()
 
-with main_tabs[2]:
+with main_tabs[1]:
+    st.markdown("<div class='ya-section'><div class='ya-section-title'>🗺️ SIG & diagnostic</div><div class='ya-kicker'>La zone réellement étudiée devient le périmètre géographique commun des diagnostics et rapports.</div></div>", unsafe_allow_html=True)
     sig_space()
 
-with main_tabs[3]:
+with main_tabs[2]:
+    st.markdown("<div class='ya-section'><div class='ya-section-title'>🤖 IA & décision</div><div class='ya-kicker'>Séparer systématiquement preuves, hypothèses, confiance, risque et décisions opérationnelles.</div></div>", unsafe_allow_html=True)
     decision_space()
 
-with main_tabs[4]:
+with main_tabs[3]:
+    st.markdown("<div class='ya-section'><div class='ya-section-title'>💼 Consultance & pilotage</div><div class='ya-kicker'>Clients → missions → devis → intervention → rapport → facturation → suivi → audit.</div></div>", unsafe_allow_html=True)
     consultancy_space()
-
-with main_tabs[5]:
-    show_feature_catalog()
 
 st.markdown("---")
 st.caption(
