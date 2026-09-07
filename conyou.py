@@ -51,6 +51,59 @@ except Exception:
     HAS_PDF = False
 
 
+
+# ============================================================
+# CONTRÔLE CENTRAL DES MODULES — DROITS PAR PROFIL
+# ============================================================
+MODULES_AUTORISABLES = {
+    "terrain": "🌍 Terrain & Données",
+    "sig": "🗺️ SIG & Diagnostic",
+    "ia": "🤖 IA & Décision",
+    "consultance": "💼 Consultance & Pilotage",
+    "agriculture": "🌾 Agriculture",
+    "elevage": "🐄 Élevage",
+    "aquaculture": "🐟 Aquaculture",
+    "agroalimentaire": "🏭 Agroalimentaire",
+    "analyses": "🧪 Analyses & Laboratoire",
+    "missions": "📋 Missions",
+    "finance": "💰 Devis / Finance",
+    "rapports": "📄 Rapports",
+    "documents": "📁 Documents",
+    "alertes": "🚨 Alertes",
+    "administration": "⚙️ Administration",
+    "audit": "🛡️ Audit",
+}
+
+PROFILS_MODULES = {
+    "Super-admin": list(MODULES_AUTORISABLES),
+    "Administrateur": [m for m in MODULES_AUTORISABLES if m != "audit"],
+    "Consultant": [
+        "terrain", "sig", "ia", "consultance", "agriculture", "elevage",
+        "aquaculture", "agroalimentaire", "analyses", "missions",
+        "rapports", "documents", "alertes",
+    ],
+    "Technicien": [
+        "terrain", "sig", "ia", "agriculture", "elevage", "aquaculture",
+        "agroalimentaire", "analyses", "alertes", "rapports",
+    ],
+    "Observateur": ["terrain", "sig", "rapports"],
+}
+
+def modules_autorises(role=None):
+    role = role or st.session_state.get("role", "Observateur")
+    personnalisés = st.session_state.get("modules_autorises")
+    if isinstance(personnalisés, (list, tuple, set)):
+        return [m for m in personnalisés if m in MODULES_AUTORISABLES]
+    return PROFILS_MODULES.get(role, PROFILS_MODULES["Observateur"])
+
+def module_autorise(module_key):
+    return module_key in modules_autorises()
+
+def enregistrer_sync_hub(statut="OK"):
+    from datetime import datetime
+    st.session_state["last_sync"] = datetime.now().isoformat(timespec="seconds")
+    st.session_state["sync_status"] = statut
+
 # =========================================================
 # 0. CONFIGURATION
 # =========================================================
