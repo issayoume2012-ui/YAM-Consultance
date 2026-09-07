@@ -203,11 +203,11 @@ def db_conn():
 
 
 def db_exec(sql, params=(), *, fetch=False, many=False):
+    """Executeur SQLite robuste; fetch et many sont des options nommées."""
     if isinstance(params, bool):
         raise TypeError(
             "db_exec(): utilisez fetch=True comme argument nommé, pas comme paramètre positionnel."
         )
-    """Executeur SQLite robuste; les options fetch/many sont nommées."""
     con = db_conn()
     try:
         cur = con.cursor()
@@ -1401,7 +1401,7 @@ def _legacy_sig_space(selected=None):
             lat = float(c["latitude"] or REGIONS_COORD.get(c["region"], (14.7,-16.2))[0])
             lon = float(c["longitude"] or REGIONS_COORD.get(c["region"], (14.7,-16.2))[1])
             st.info("Dessinez un polygone autour de la zone réellement étudiée. La surface calculée et la géométrie seront utilisées par les diagnostics et rapports.")
-            result = map_for_context(lat, lon, 600, "study_zone_map", fetch=True)
+            result = map_for_context(lat, lon, 600, "study_zone_map")
             drawing = result.get("last_active_drawing") if result else None
             coords = drawing_to_coords(drawing)
             if len(coords) >= 3:
