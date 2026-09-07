@@ -43,6 +43,19 @@ except Exception:
     HAS_MAP = False
 
 try:
+    import geopandas as gpd
+    from shapely.geometry import Polygon
+    from shapely.ops import transform as shapely_transform
+    from pyproj import Transformer
+    HAS_PEDO = True
+except Exception:
+    gpd = None
+    Polygon = None
+    shapely_transform = None
+    Transformer = None
+    HAS_PEDO = False
+
+try:
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import getSampleStyleSheet
     from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
@@ -661,6 +674,129 @@ def save_zone(coords, feature_type, name, dossier_id, parcelle_id=None):
          "Géométrie dessinée par l'utilisateur.", now(), now()))
     audit("CREATION_GEOMETRIE", "gis_features", fid, {"area_ha": area, "perimeter_m": perim})
     return fid
+
+
+
+# =========================================================
+# COUCHE PÉDOLOGIQUE — Morpho_Pedo
+# =========================================================
+PEDO_CANDIDATES = [
+    "Morpho_Pedo.shp",
+    "data/Morpho_Pedo.shp",
+    "Morpho_Pedo.geojson",
+    "data/Morpho_Pedo.geojson",
+]
+PEDO_DEFAULT_CRS = "EPSG:32628"  # UTM 28N, uniquement comme hypothèse si le fichier n'indique pas son CRS.
+
+
+@st.cache_data(show_spinner=False)
+def load_pedo_layer():
+    """Charge la couche Morpho_Pedo sans inventer d'attributs absents."""
+    if not HAS_PEDO:
+        return None, "GeoPandas/Shapely/PyProj n'est pas installé."
+
+    path = next((p for p in PEDO_CANDIDATES if os.path.exists(p)), None)
+    if not path:
+        return None, "Couche Morpho_Pedo introuvable. Placez Morpho_Pedo.shp dans le projet."
+
+    try:
+        gdf = gpd.read_file(path)
+        if gdf.empty:
+            return gdf, "La couche Morpho_Pedo est vide."
+
+        # Le fichier fourni peut ne pas contenir de .prj : on ne prétend pas connaître
+        # son CRS. Ici les coordonnées observées correspondent à de l'UTM 28N,
+        # mais cette hypothèse est explicitement signalée.
+        assumed_crs = False
+        if gdf.crs is None:
+            gdf = gdf.set_crs(PEDO_DEFAULT_CRS, allow_override=True)
+            assumed_crs = True
+
+        gdf = gdf[gdf.geometry.notna()].copy()
+        gdf = gdf[~gdf.geometry.is_empty].copy()
+
+        msg = f"{len(gdf):,} unités géométriques chargées depuis {path}."
+        if assumed_crs:
+            msg += f" CRS absent du fichier : hypothèse {PEDO_DEFAULT_CRS}. À confirmer avec le .prj/source SIG."
+        return gdf, msg
+    except Exception as exc:
+        return None, f"Lecture Morpho_Pedo impossible : {exc}"
+
+
+def pedo_lookup(coords):
+    """
+    Recherche les unités pédologiques qui intersectent un polygone en coordonnées
+    latitude/longitude. Retourne toujours (DataFrame, message), même en cas d'erreur,
+    afin qu'un problème de couche ne bloque jamais toute l'application.
+    """
+    empty = pd.DataFrame()
+
+    if not coords or len(coords) < 3:
+        return empty, "Zone insuffisamment définie pour une recherche pédologique."
+
+    gdf, load_msg = load_pedo_layer()
+    if gdf is None:
+        return empty, load_msg
+
+    try:
+        # drawing_to_coords fournit [latitude, longitude].
+        polygon_wgs84 = Polygon([(float(lon), float(lat)) for lat, lon in coords])
+        if polygon_wgs84.is_empty or not polygon_wgs84.is_valid:
+            polygon_wgs84 = polygon_wgs84.buffer(0)
+        if polygon_wgs84.is_empty:
+            return empty, "Géométrie de la zone invalide."
+
+        source_crs = gdf.crs
+        if source_crs is None:
+            source_crs = PEDO_DEFAULT_CRS
+
+        polygon_src = gpd.GeoSeries([polygon_wgs84], crs="EPSG:4326").to_crs(source_crs).iloc[0]
+        candidates = gdf[gdf.geometry.intersects(polygon_src)].copy()
+
+        if candidates.empty:
+            return empty, load_msg + " Aucune unité pédologique ne recoupe la zone active."
+
+        # Calcul fiable de l'intersection dans un CRS métrique si possible.
+        try:
+            metric_crs = candidates.estimate_utm_crs()
+            candidates_metric = candidates.to_crs(metric_crs)
+            zone_metric = gpd.GeoSeries([polygon_src], crs=source_crs).to_crs(metric_crs).iloc[0]
+            candidates_metric["surface_intersection_m2"] = candidates_metric.geometry.intersection(zone_metric).area
+            candidates_metric["surface_intersection_ha"] = candidates_metric["surface_intersection_m2"] / 10000.0
+            candidates_metric["part_zone_pct"] = (
+                candidates_metric["surface_intersection_m2"] / max(zone_metric.area, 1e-9) * 100.0
+            )
+        except Exception:
+            candidates_metric = candidates.copy()
+            candidates_metric["surface_intersection_m2"] = np.nan
+            candidates_metric["surface_intersection_ha"] = np.nan
+            candidates_metric["part_zone_pct"] = np.nan
+
+        # Ne pas afficher la géométrie brute dans le tableau.
+        attribute_cols = [c for c in candidates_metric.columns if c != "geometry"]
+        # Ajouter un identifiant stable si aucun champ attributaire n'existe.
+        if not attribute_cols:
+            candidates_metric["unite_pedologique"] = [f"Unité {i+1}" for i in range(len(candidates_metric))]
+        elif "unite_pedologique" not in candidates_metric.columns:
+            candidates_metric["unite_pedologique"] = [f"Unité {i+1}" for i in range(len(candidates_metric))]
+
+        cols = [c for c in candidates_metric.columns if c != "geometry"]
+        # Priorité aux attributs réels du fichier, puis aux indicateurs spatiaux.
+        priority = [c for c in ["unite_pedologique", "code", "CODE", "classe", "CLASSE",
+                                "type", "TYPE", "sol", "SOL", "description", "DESCRIPTION",
+                                "surface_intersection_ha", "part_zone_pct"] if c in cols]
+        remaining = [c for c in cols if c not in priority]
+        cols = priority + remaining
+
+        result = candidates_metric[cols].copy()
+        if "surface_intersection_ha" in result.columns:
+            result["surface_intersection_ha"] = result["surface_intersection_ha"].round(4)
+        if "part_zone_pct" in result.columns:
+            result["part_zone_pct"] = result["part_zone_pct"].round(2)
+
+        return result.reset_index(drop=True), load_msg + f" {len(result)} unité(s) intersectée(s)."
+    except Exception as exc:
+        return empty, f"Recherche pédologique non disponible pour cette zone : {exc}"
 
 
 def map_for_context(lat, lon, height=560, key="main_map", allow_draw=False):
