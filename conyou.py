@@ -153,10 +153,24 @@ def db_exec(sql, params=(), fetch=False, many=False):
     con = db_conn()
     try:
         cur = con.cursor()
-        if many:
-            cur.executemany(sql, params)
-        else:
-            cur.execute(sql, params)
+        try:
+            if many:
+                cur.executemany(sql, params)
+            else:
+                cur.execute(sql, params)
+        except sqlite3.OperationalError as exc:
+            # Une base SQLite ancienne peut ne pas avoir reçu une nouvelle
+            # colonne malgré CREATE TABLE IF NOT EXISTS.
+            msg = str(exc).lower()
+            if "no such column" in msg:
+                con.rollback()
+                ensure_sqlite_schema()
+                if many:
+                    cur.executemany(sql, params)
+                else:
+                    cur.execute(sql, params)
+            else:
+                raise
         rows = cur.fetchall() if fetch else None
         con.commit()
         return [dict(r) for r in rows] if rows is not None else cur.lastrowid
@@ -167,6 +181,80 @@ def db_exec(sql, params=(), fetch=False, many=False):
 def sha256(value):
     return hashlib.sha256(str(value).encode("utf-8")).hexdigest()
 
+
+
+def ensure_sqlite_schema():
+    """Met à niveau une base SQLite existante sans supprimer les données.
+    CREATE TABLE IF NOT EXISTS ne modifie pas une table déjà créée : les
+    colonnes ajoutées dans les nouvelles versions doivent donc être migrées.
+    """
+    migrations = {
+        "clients": {
+            "updated_at": "TEXT",
+            "created_at": "TEXT",
+            "nom": "TEXT",
+            "telephone": "TEXT",
+            "email": "TEXT",
+            "organisation": "TEXT",
+            "adresse": "TEXT",
+            "region": "TEXT",
+            "notes": "TEXT",
+        },
+        "dossiers": {
+            "updated_at": "TEXT",
+            "created_at": "TEXT",
+            "client_id": "TEXT",
+            "nom": "TEXT",
+            "type_exploitation": "TEXT",
+            "region": "TEXT",
+            "commune": "TEXT",
+            "village": "TEXT",
+            "latitude": "REAL",
+            "longitude": "REAL",
+            "notes": "TEXT",
+            "statut": "TEXT DEFAULT 'Actif'",
+        },
+    }
+
+    con = db_conn()
+    try:
+        cur = con.cursor()
+        for table, columns in migrations.items():
+            existing = {
+                row[1] for row in cur.execute(f'PRAGMA table_info("{table}")').fetchall()
+            }
+            if not existing:
+                continue
+            for column, definition in columns.items():
+                if column not in existing:
+                    cur.execute(
+                        f'ALTER TABLE "{table}" ADD COLUMN "{column}" {definition}'
+                    )
+
+        # Répare les anciennes lignes qui n'ont pas de date de mise à jour.
+        cur.execute(
+            "UPDATE clients SET updated_at=COALESCE(updated_at, created_at, ?) "
+            "WHERE updated_at IS NULL OR TRIM(updated_at)=''",
+            (now(),),
+        )
+        cur.execute(
+            "UPDATE clients SET created_at=COALESCE(created_at, ?) "
+            "WHERE created_at IS NULL OR TRIM(created_at)=''",
+            (now(),),
+        )
+        cur.execute(
+            "UPDATE dossiers SET updated_at=COALESCE(updated_at, created_at, ?) "
+            "WHERE updated_at IS NULL OR TRIM(updated_at)=''",
+            (now(),),
+        )
+        cur.execute(
+            "UPDATE dossiers SET created_at=COALESCE(created_at, ?) "
+            "WHERE created_at IS NULL OR TRIM(created_at)=''",
+            (now(),),
+        )
+        con.commit()
+    finally:
+        con.close()
 
 def init_db():
     con = db_conn()
@@ -302,6 +390,7 @@ def init_db():
 
 
 init_db()
+ensure_sqlite_schema()
 
 
 def audit(action, entity="", entity_id="", details=""):
@@ -711,7 +800,7 @@ def login():
 # =========================================================
 def global_selector():
     st.markdown("### 🎯 Dossier de consultance actif")
-    clients = db_exec("SELECT * FROM clients ORDER BY updated_at DESC, created_at DESC", True)
+    clients = db_exec("SELECT * FROM clients ORDER BY COALESCE(updated_at, created_at, '') DESC, COALESCE(created_at, '') DESC", True)
     client_labels = ["➕ Nouveau client"] + [f"{x['id']} · {x['nom']}" for x in clients]
     current_client = st.session_state.get("client_id")
     cidx = next((i+1 for i,x in enumerate(clients) if x["id"] == current_client), 0)
