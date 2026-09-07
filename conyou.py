@@ -1,63 +1,67 @@
 # -*- coding: utf-8 -*-
 """
-YouAgronoMe — HUB Analyse & Consultance 360°
-Refonte complète de l'architecture.
+YouAgronoMe — PLATEFORME PROFESSIONNELLE DE CONSULTANCE AGRICOLE 360°
+Refonte orientée cabinet de consultance : client -> mission -> zone d'étude -> données
+-> contrôle qualité -> analyse -> décision -> plan d'action -> rapport -> suivi.
 
-Architecture unique :
-1) 🌍 TERRAIN & DONNÉES
-2) 🗺️ SIG & DIAGNOSTIC
-3) 🤖 IA & DÉCISION
-4) 💼 CONSULTANCE & PILOTAGE
+100+ fonctionnalités opérationnelles sont regroupées dans des espaces cohérents.
+Aucune clé API IA n'est requise : moteur local, règles, calculs, scoring et traçabilité.
+La carte permet de DESSINER LA ZONE CONCERNÉE : parcelle, périmètre d'étude,
+zone d'observation, point d'eau ou zone à risque. Cette géométrie devient le
+périmètre commun des analyses.
 
-Principe central :
-Dossier -> Parcelle -> Contexte synchronisé -> Analyses -> Décision -> Mission -> Rapport
-
-Aucune ancienne navigation radio n'est conservée.
-Les données SIG, terrain, analyses, IA, économie et rapports utilisent le même
-contexte actif et une base SQLite persistante.
+Dépendances principales :
+streamlit, pandas, numpy
+Optionnelles : folium, streamlit-folium, reportlab, requests
 """
-from datetime import datetime, timedelta
+
+from datetime import datetime, date, timedelta
+import hashlib
 import io
 import json
 import math
 import os
-import hashlib
 import sqlite3
 import uuid
 
-import pandas as pd
 import numpy as np
+import pandas as pd
 import streamlit as st
-import requests
+
+try:
+    import requests
+    HAS_REQUESTS = True
+except Exception:
+    HAS_REQUESTS = False
 
 try:
     import folium
     from folium.plugins import Draw
     from streamlit_folium import st_folium
-    HAS_FOLIUM = True
+    HAS_MAP = True
 except Exception:
-    HAS_FOLIUM = False
+    HAS_MAP = False
 
 try:
-    from reportlab.lib import colors
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import getSampleStyleSheet
     from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
-    HAS_REPORTLAB = True
+    HAS_PDF = True
 except Exception:
-    HAS_REPORTLAB = False
+    HAS_PDF = False
 
 
 # =========================================================
-# CONFIGURATION
+# 0. CONFIGURATION
 # =========================================================
 st.set_page_config(
-    page_title="YouAgronoMe — HUB Analyse 360°",
+    page_title="YouAgronoMe — Consultance Pro 360°",
     page_icon="🌾",
     layout="wide",
+    initial_sidebar_state="expanded",
 )
 
-DB_FILE = os.getenv("YOUAGRONOME_HUB_DB", "youagronome_hub.sqlite3")
+DB_FILE = os.getenv("YOUAGRONOME_DB", "youagronome_consultance_pro.sqlite3")
 OWNER_EMAIL = os.getenv("YOUAGRONOME_OWNER_EMAIL", "iy@2012")
 OWNER_PASS = os.getenv("YOUAGRONOME_OWNER_PASS", "issayoume2026")
 
@@ -68,86 +72,77 @@ SOURCES = {
     "ISRA": "https://isra.sn/",
     "SAED": "https://www.saed.sn/",
     "CSE": "https://www.cse.sn/",
-    "Ministère Agriculture": "https://agriculture.gouv.sn/",
+    "Ministère de l'Agriculture": "https://agriculture.gouv.sn/",
+    "Open-Meteo": "https://open-meteo.com/",
 }
 
 REGIONS_COORD = {
-    "Dakar": (14.7167, -17.4677),
-    "Thiès": (14.7886, -16.9260),
-    "Diourbel": (14.6510, -16.2340),
-    "Saint-Louis": (16.0326, -16.4818),
-    "Louga": (15.6140, -16.2240),
-    "Matam": (15.6559, -13.2554),
-    "Fatick": (14.3390, -16.4160),
-    "Kaolack": (14.1510, -16.0720),
-    "Kaffrine": (14.1059, -15.5500),
-    "Tambacounda": (13.7707, -13.6673),
-    "Kédougou": (12.5605, -12.1747),
-    "Kolda": (12.8939, -14.9410),
-    "Sédhiou": (12.7081, -15.5569),
-    "Ziguinchor": (12.5833, -16.2719),
+    "Dakar": (14.7167, -17.4677), "Thiès": (14.7886, -16.9260),
+    "Diourbel": (14.6510, -16.2340), "Saint-Louis": (16.0326, -16.4818),
+    "Louga": (15.6140, -16.2240), "Matam": (15.6559, -13.2554),
+    "Fatick": (14.3390, -16.4160), "Kaolack": (14.1510, -16.0720),
+    "Kaffrine": (14.1059, -15.5500), "Tambacounda": (13.7707, -13.6673),
+    "Kédougou": (12.5605, -12.1747), "Kolda": (12.8939, -14.9410),
+    "Sédhiou": (12.7081, -15.5569), "Ziguinchor": (12.5833, -16.2719),
 }
 
 CULTURES = [
-    "Riz", "Mil", "Sorgho", "Maïs", "Arachide", "Niébé", "Sésame",
-    "Bissap", "Oignon", "Pomme de terre", "Tomate", "Gombo", "Chou",
-    "Carotte", "Pastèque", "Melon", "Manioc", "Anacarde", "Coton", "Fonio"
+    "Riz", "Mil", "Sorgho", "Maïs", "Arachide", "Niébé", "Sésame", "Bissap",
+    "Oignon", "Pomme de terre", "Tomate", "Gombo", "Chou", "Carotte",
+    "Pastèque", "Melon", "Manioc", "Anacarde", "Coton", "Fonio", "Autre"
 ]
-
-STADES = [
-    "Préparation du sol", "Semis / plantation", "Levée / installation",
-    "Croissance végétative", "Floraison", "Remplissage / tubérisation",
-    "Maturation", "Récolte", "Post-récolte"
+STAGES = [
+    "Préparation", "Semis / plantation", "Levée", "Croissance",
+    "Floraison", "Remplissage", "Maturation", "Récolte", "Post-récolte"
 ]
+DOMAINS = ["Agriculture", "Élevage", "Aquaculture", "Agroalimentaire", "Sol", "Eau", "Phytosanitaire", "Économie"]
+ROLES = ["Producteur", "Technicien", "Conseiller", "Expert", "Projet / ONG", "Investisseur", "Super-Admin"]
 
 AGROZONES = {
     "Vallée du Fleuve Sénégal": {
         "regions": ["Saint-Louis", "Matam"],
-        "sol": "Alluvions, sols hydromorphes et zones salées localisées",
-        "climat": "Sahélien à très chaud; irrigation déterminante",
-        "risques": "Salinité, forte évapotranspiration, vent, gestion de l'eau",
+        "sol": "Alluvions; secteurs hydromorphes et zones salées localisées",
+        "risques": "Salinité, évapotranspiration, vent, gestion de l'eau",
     },
     "Niayes & Littoral": {
         "regions": ["Dakar", "Thiès", "Louga"],
         "sol": "Sables des Niayes; drainage généralement rapide",
-        "climat": "Influence maritime, maraîchage intensif",
-        "risques": "Salinité, pression ravageurs, déficit hydrique, vent",
+        "risques": "Salinité, ravageurs, déficit hydrique, vent",
     },
     "Bassin arachidier": {
         "regions": ["Kaolack", "Fatick", "Kaffrine", "Diourbel", "Thiès"],
         "sol": "Sols sableux à sablo-argileux; fertilité variable",
-        "climat": "Pluvial saisonnier, variabilité des pluies",
-        "risques": "Poches de sécheresse, érosion, baisse de matière organique",
+        "risques": "Sécheresse, érosion, baisse de matière organique",
     },
     "Casamance": {
         "regions": ["Ziguinchor", "Sédhiou", "Kolda"],
         "sol": "Sols ferrallitiques, hydromorphes et bas-fonds",
-        "climat": "Plus humide; saison des pluies plus longue",
-        "risques": "Maladies fongiques, ruissellement, engorgement local",
+        "risques": "Maladies, engorgement, ruissellement",
     },
     "Sénégal Oriental": {
         "regions": ["Tambacounda", "Kédougou"],
-        "sol": "Sols ferrugineux/ferrallitiques et secteurs cuirassés",
-        "climat": "Chaud; pluies plus importantes vers le Sud-Est",
-        "risques": "Ravageurs, ruissellement, érosion, variabilité climatique",
+        "sol": "Sols ferrugineux/ferrallitiques",
+        "risques": "Ravageurs, ruissellement, érosion",
     },
 }
 
-ACTEURS = {
-    "Producteur / Exploitant": "Décisions pratiques, coût, urgence et faisabilité.",
-    "Technicien / Conseiller": "Analyse technique, hypothèses, contrôles et suivi.",
-    "Agent protection végétale": "Surveillance phytosanitaire prudente et escalade officielle.",
-    "Conseiller ANCAR": "Conseil de proximité, adoption et suivi.",
-    "Projet / ONG": "Indicateurs, risques, résultats et traçabilité.",
-    "Investisseur / Agrobusiness": "Rentabilité, risques, hypothèses et scénarios.",
-    "Expert / Chercheur": "Données manquantes, hypothèses et protocole d'observation.",
-    "Gestionnaire eau": "Eau, irrigation, drainage et risques hydriques.",
-}
+FEATURE_TYPES = [
+    "Parcelle", "Zone d'étude", "Zone d'observation", "Point d'eau",
+    "Bâtiment", "Bassin / étang", "Zone d'élevage", "Zone à risque", "Autre"
+]
 
 
 # =========================================================
-# BASE DE DONNÉES — MODÈLE UNIQUE
+# 1. OUTILS GÉNÉRAUX / BASE
 # =========================================================
+def now():
+    return datetime.now().isoformat(timespec="seconds")
+
+
+def new_id(prefix):
+    return f"{prefix}_{uuid.uuid4().hex[:10]}"
+
+
 def db_conn():
     con = sqlite3.connect(DB_FILE, check_same_thread=False)
     con.row_factory = sqlite3.Row
@@ -169,104 +164,170 @@ def db_exec(sql, params=(), fetch=False, many=False):
         con.close()
 
 
+def sha256(value):
+    return hashlib.sha256(str(value).encode("utf-8")).hexdigest()
+
+
 def init_db():
     con = db_conn()
-    cur = con.cursor()
-    cur.executescript("""
-    CREATE TABLE IF NOT EXISTS dossiers (
-        id TEXT PRIMARY KEY, nom TEXT NOT NULL, client TEXT, region TEXT,
-        commune TEXT, village TEXT, type_exploitation TEXT,
-        latitude REAL, longitude REAL, notes TEXT, created_at TEXT, updated_at TEXT
+    con.executescript("""
+    CREATE TABLE IF NOT EXISTS users(
+        email TEXT PRIMARY KEY, password_hash TEXT, nom TEXT, role TEXT,
+        zone TEXT, statut TEXT DEFAULT 'Actif', created_at TEXT
     );
-    CREATE TABLE IF NOT EXISTS parcelles (
-        id TEXT PRIMARY KEY, dossier_id TEXT NOT NULL, nom TEXT NOT NULL,
-        culture TEXT, stade TEXT, surface_ha REAL DEFAULT 0, perimetre_m REAL DEFAULT 0,
-        latitude REAL, longitude REAL, geometry_json TEXT, statut TEXT DEFAULT 'active',
-        source TEXT DEFAULT 'Terrain', confidence REAL DEFAULT 1.0,
-        date_observation TEXT, created_at TEXT, updated_at TEXT
+    CREATE TABLE IF NOT EXISTS clients(
+        id TEXT PRIMARY KEY, nom TEXT, telephone TEXT, email TEXT, organisation TEXT,
+        adresse TEXT, region TEXT, notes TEXT, created_at TEXT, updated_at TEXT
     );
-    CREATE TABLE IF NOT EXISTS observations (
+    CREATE TABLE IF NOT EXISTS dossiers(
+        id TEXT PRIMARY KEY, client_id TEXT, nom TEXT, type_exploitation TEXT,
+        region TEXT, commune TEXT, village TEXT, latitude REAL, longitude REAL,
+        notes TEXT, statut TEXT DEFAULT 'Actif', created_at TEXT, updated_at TEXT
+    );
+    CREATE TABLE IF NOT EXISTS parcelles(
+        id TEXT PRIMARY KEY, dossier_id TEXT, nom TEXT, culture TEXT, stade TEXT,
+        surface_ha REAL DEFAULT 0, perimeter_m REAL DEFAULT 0, latitude REAL,
+        longitude REAL, geometry_json TEXT DEFAULT '[]', feature_type TEXT DEFAULT 'Parcelle',
+        source_type TEXT DEFAULT 'Terrain', confidence REAL DEFAULT 0.9,
+        validation_status TEXT DEFAULT 'À vérifier', notes TEXT,
+        created_at TEXT, updated_at TEXT
+    );
+    CREATE TABLE IF NOT EXISTS observations(
         id TEXT PRIMARY KEY, dossier_id TEXT, parcelle_id TEXT, domaine TEXT,
-        description TEXT, gravite TEXT, incidence REAL, surface_affectee_ha REAL,
-        date_observation TEXT, latitude REAL, longitude REAL, photo_name TEXT,
-        source TEXT DEFAULT 'Terrain', confidence REAL DEFAULT 0.8,
+        type_observation TEXT, description TEXT, gravite TEXT, incidence REAL,
+        surface_affectee_ha REAL, latitude REAL, longitude REAL, photo_name TEXT,
+        date_observation TEXT, source_type TEXT DEFAULT 'Terrain',
+        confidence REAL DEFAULT 0.8, validation_status TEXT DEFAULT 'À vérifier',
         created_at TEXT
     );
-    CREATE TABLE IF NOT EXISTS analyses (
+    CREATE TABLE IF NOT EXISTS analyses(
         id TEXT PRIMARY KEY, dossier_id TEXT, parcelle_id TEXT, type_analyse TEXT,
-        parametre TEXT, valeur REAL, unite TEXT, reference TEXT, source TEXT,
-        date_analyse TEXT, statut_validation TEXT DEFAULT 'À vérifier',
-        confidence REAL DEFAULT 0.8, notes TEXT, created_at TEXT
+        parametre TEXT, valeur REAL, unite TEXT, methode TEXT, laboratoire TEXT,
+        date_analyse TEXT, source_type TEXT DEFAULT 'Laboratoire',
+        confidence REAL DEFAULT 0.9, validation_status TEXT DEFAULT 'À vérifier',
+        notes TEXT, created_at TEXT
     );
-    CREATE TABLE IF NOT EXISTS assets (
+    CREATE TABLE IF NOT EXISTS cultures(
+        id TEXT PRIMARY KEY, dossier_id TEXT, parcelle_id TEXT, culture TEXT,
+        variete TEXT, date_semis TEXT, date_recolte_prevue TEXT, irrigation TEXT,
+        rendement_cible REAL, rendement_reel REAL, fertilisation TEXT,
+        protection TEXT, notes TEXT, created_at TEXT
+    );
+    CREATE TABLE IF NOT EXISTS livestock(
+        id TEXT PRIMARY KEY, dossier_id TEXT, espece TEXT, categorie TEXT,
+        effectif INTEGER, poids_moyen REAL, alimentation TEXT, mortalite INTEGER,
+        vaccination TEXT, reproduction TEXT, date_suivi TEXT, notes TEXT
+    );
+    CREATE TABLE IF NOT EXISTS aquaculture(
+        id TEXT PRIMARY KEY, dossier_id TEXT, unite TEXT, espece TEXT,
+        volume_m3 REAL, densite REAL, oxygene REAL, ph REAL, temperature REAL,
+        mortalite INTEGER, aliment_kg REAL, poids_moyen_g REAL, date_suivi TEXT, notes TEXT
+    );
+    CREATE TABLE IF NOT EXISTS agrofood(
+        id TEXT PRIMARY KEY, dossier_id TEXT, produit TEXT, quantite REAL,
+        unite TEXT, transformation TEXT, stockage TEXT, pertes_pct REAL,
+        qualite TEXT, lot TEXT, date_operation TEXT, notes TEXT
+    );
+    CREATE TABLE IF NOT EXISTS assets(
         id TEXT PRIMARY KEY, dossier_id TEXT, type_asset TEXT, nom TEXT,
-        quantite REAL, unite TEXT, etat TEXT, notes TEXT, created_at TEXT
+        quantite REAL, unite TEXT, etat TEXT, valeur_fcfa REAL, notes TEXT, created_at TEXT
     );
-    CREATE TABLE IF NOT EXISTS missions (
-        id TEXT PRIMARY KEY, dossier_id TEXT, client TEXT, objet TEXT,
-        statut TEXT, priorite TEXT, responsable TEXT, debut TEXT, echeance TEXT,
-        budget REAL DEFAULT 0, notes TEXT, created_at TEXT, updated_at TEXT
+    CREATE TABLE IF NOT EXISTS missions(
+        id TEXT PRIMARY KEY, dossier_id TEXT, client_id TEXT, objet TEXT, type_mission TEXT,
+        statut TEXT, priorite TEXT, responsable TEXT, date_debut TEXT, echeance TEXT,
+        budget_fcfa REAL, avancement REAL DEFAULT 0, notes TEXT, created_at TEXT, updated_at TEXT
     );
-    CREATE TABLE IF NOT EXISTS actions (
-        id TEXT PRIMARY KEY, dossier_id TEXT, mission_id TEXT, titre TEXT,
-        responsable TEXT, echeance TEXT, statut TEXT, priorite TEXT,
-        preuve TEXT, created_at TEXT, updated_at TEXT
+    CREATE TABLE IF NOT EXISTS actions(
+        id TEXT PRIMARY KEY, dossier_id TEXT, mission_id TEXT, domaine TEXT, titre TEXT,
+        responsable TEXT, echeance TEXT, priorite TEXT, statut TEXT, cout_estime REAL,
+        preuve TEXT, notes TEXT, created_at TEXT, updated_at TEXT
     );
-    CREATE TABLE IF NOT EXISTS finance (
-        id TEXT PRIMARY KEY, dossier_id TEXT, mission_id TEXT, type TEXT,
-        libelle TEXT, montant REAL, date_operation TEXT, statut TEXT, notes TEXT
+    CREATE TABLE IF NOT EXISTS finance(
+        id TEXT PRIMARY KEY, dossier_id TEXT, mission_id TEXT, type_operation TEXT,
+        categorie TEXT, libelle TEXT, montant_fcfa REAL, date_operation TEXT,
+        statut TEXT, reference TEXT, notes TEXT
     );
-    CREATE TABLE IF NOT EXISTS sync_records (
-        id TEXT PRIMARY KEY, source TEXT, type_donnee TEXT, url TEXT,
-        statut TEXT, message TEXT, nb_elements INTEGER DEFAULT 0,
-        fetched_at TEXT
+    CREATE TABLE IF NOT EXISTS quotes(
+        id TEXT PRIMARY KEY, client_id TEXT, dossier_id TEXT, reference TEXT,
+        objet TEXT, montant_ht REAL, taxes REAL, total REAL, statut TEXT,
+        date_creation TEXT, date_validite TEXT, notes TEXT
     );
-    CREATE TABLE IF NOT EXISTS alerts (
+    CREATE TABLE IF NOT EXISTS reports(
+        id TEXT PRIMARY KEY, dossier_id TEXT, mission_id TEXT, type_rapport TEXT,
+        titre TEXT, contenu TEXT, confidence REAL, created_at TEXT
+    );
+    CREATE TABLE IF NOT EXISTS documents(
+        id TEXT PRIMARY KEY, dossier_id TEXT, mission_id TEXT, nom TEXT,
+        type_document TEXT, chemin TEXT, description TEXT, source TEXT, created_at TEXT
+    );
+    CREATE TABLE IF NOT EXISTS alerts(
         id TEXT PRIMARY KEY, dossier_id TEXT, parcelle_id TEXT, domaine TEXT,
-        niveau TEXT, titre TEXT, message TEXT, source TEXT,
+        niveau TEXT, titre TEXT, message TEXT, source TEXT, due_date TEXT,
         statut TEXT DEFAULT 'Ouverte', created_at TEXT
     );
-    CREATE TABLE IF NOT EXISTS ai_history (
-        id TEXT PRIMARY KEY, dossier_id TEXT, parcelle_id TEXT, acteur TEXT,
-        question TEXT, answer TEXT, evidence TEXT, confidence REAL, created_at TEXT
+    CREATE TABLE IF NOT EXISTS gis_features(
+        id TEXT PRIMARY KEY, dossier_id TEXT, parcelle_id TEXT, type_feature TEXT,
+        nom TEXT, geometry_json TEXT, surface_ha REAL, perimeter_m REAL,
+        latitude REAL, longitude REAL, source TEXT, confidence REAL,
+        validation_status TEXT, notes TEXT, created_at TEXT, updated_at TEXT
     );
-    CREATE TABLE IF NOT EXISTS audit (
+    CREATE TABLE IF NOT EXISTS weather_cache(
+        id TEXT PRIMARY KEY, dossier_id TEXT, parcelle_id TEXT, latitude REAL, longitude REAL,
+        payload_json TEXT, fetched_at TEXT, source TEXT
+    );
+    CREATE TABLE IF NOT EXISTS sync_log(
+        id TEXT PRIMARY KEY, dossier_id TEXT, source TEXT, type_data TEXT,
+        status TEXT, message TEXT, fetched_at TEXT, duration_ms INTEGER
+    );
+    CREATE TABLE IF NOT EXISTS audit(
         id TEXT PRIMARY KEY, user_email TEXT, action TEXT, entity TEXT,
         entity_id TEXT, details TEXT, created_at TEXT
     );
-    CREATE TABLE IF NOT EXISTS users (
-        email TEXT PRIMARY KEY, password_hash TEXT, nom TEXT, role TEXT,
-        zone TEXT, statut TEXT DEFAULT 'Actif', created_at TEXT
+    CREATE TABLE IF NOT EXISTS ai_history(
+        id TEXT PRIMARY KEY, dossier_id TEXT, parcelle_id TEXT, question TEXT,
+        answer TEXT, confidence REAL, evidence TEXT, created_at TEXT
+    );
+    CREATE TABLE IF NOT EXISTS settings(
+        key TEXT PRIMARY KEY, value TEXT
     );
     """)
     con.commit()
     con.close()
 
-    owner_hash = hashlib.sha256(OWNER_PASS.encode("utf-8")).hexdigest()
-    existing = db_exec("SELECT email FROM users WHERE lower(email)=lower(?)", (OWNER_EMAIL,), True)
-    if not existing:
+    if not db_exec("SELECT email FROM users WHERE lower(email)=lower(?)", (OWNER_EMAIL,), True):
         db_exec(
             "INSERT INTO users(email,password_hash,nom,role,zone,statut,created_at) VALUES(?,?,?,?,?,?,?)",
-            (OWNER_EMAIL, owner_hash, "Administrateur Principal", "Super-Admin",
-             "National Sénégal", "Actif", datetime.now().isoformat(timespec="seconds"))
+            (OWNER_EMAIL, sha256(OWNER_PASS), "Administrateur Principal", "Super-Admin", "National", "Actif", now())
         )
 
 
 init_db()
 
 
+def audit(action, entity="", entity_id="", details=""):
+    user = st.session_state.get("user") or {}
+    db_exec(
+        "INSERT INTO audit(id,user_email,action,entity,entity_id,details,created_at) VALUES(?,?,?,?,?,?,?)",
+        (new_id("AUD"), user.get("email", "anonymous"), action, entity, entity_id, str(details), now())
+    )
+
+
 # =========================================================
-# SESSION / CONTEXTE CENTRAL
+# 2. ÉTAT ET CONTEXTE UNIQUE
 # =========================================================
 def init_state():
     defaults = {
         "user": None,
+        "client_id": None,
         "dossier_id": None,
         "parcelle_id": None,
-        "sync_status": "Non synchronisé",
+        "zone_feature_id": None,
+        "weather": None,
+        "sync_status": "Jamais synchronisé",
         "sync_time": None,
         "last_ai": "",
-        "last_quality": None,
+        "selected_mission": None,
+        "map_nonce": 0,
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -276,21 +337,85 @@ def init_state():
 init_state()
 
 
-def audit(action, entity="", entity_id="", details=""):
-    user = st.session_state.get("user") or {}
-    db_exec(
-        "INSERT INTO audit(id,user_email,action,entity,entity_id,details,created_at) VALUES(?,?,?,?,?,?,?)",
-        (str(uuid.uuid4()), user.get("email", "anonymous"), action, entity, entity_id,
-         str(details), datetime.now().isoformat(timespec="seconds"))
-    )
+def active_client():
+    cid = st.session_state.get("client_id")
+    rows = db_exec("SELECT * FROM clients WHERE id=?", (cid,), True) if cid else []
+    return rows[0] if rows else None
 
 
-def now():
-    return datetime.now().isoformat(timespec="seconds")
+def active_dossier():
+    did = st.session_state.get("dossier_id")
+    rows = db_exec("SELECT * FROM dossiers WHERE id=?", (did,), True) if did else []
+    return rows[0] if rows else None
 
 
-def new_id(prefix):
-    return f"{prefix}_{uuid.uuid4().hex[:10]}"
+def active_parcelle():
+    pid = st.session_state.get("parcelle_id")
+    rows = db_exec("SELECT * FROM parcelles WHERE id=?", (pid,), True) if pid else []
+    return rows[0] if rows else None
+
+
+def active_zone():
+    zid = st.session_state.get("zone_feature_id")
+    rows = db_exec("SELECT * FROM gis_features WHERE id=?", (zid,), True) if zid else []
+    return rows[0] if rows else None
+
+
+def load_geometry(obj):
+    try:
+        return json.loads(obj or "[]")
+    except Exception:
+        return []
+
+
+def context():
+    d = active_dossier() or {}
+    p = active_parcelle() or {}
+    z = active_zone() or {}
+    geom = load_geometry(z.get("geometry_json")) if z else load_geometry(p.get("geometry_json"))
+    return {
+        "client_id": d.get("client_id"),
+        "client": (active_client() or {}).get("nom"),
+        "dossier_id": d.get("id"),
+        "dossier": d.get("nom"),
+        "region": d.get("region"),
+        "commune": d.get("commune"),
+        "village": d.get("village"),
+        "parcelle_id": p.get("id"),
+        "parcelle": p.get("nom"),
+        "culture": p.get("culture"),
+        "stade": p.get("stade"),
+        "surface_ha": float(p.get("surface_ha") or 0),
+        "latitude": p.get("latitude", d.get("latitude")),
+        "longitude": p.get("longitude", d.get("longitude")),
+        "zone_id": z.get("id"),
+        "zone_nom": z.get("nom"),
+        "zone_type": z.get("type_feature"),
+        "zone_surface_ha": float(z.get("surface_ha") or 0),
+        "zone_geometry": geom,
+    }
+
+
+def set_active_dossier(did):
+    st.session_state["dossier_id"] = did
+    st.session_state["parcelle_id"] = None
+    st.session_state["zone_feature_id"] = None
+    d = active_dossier()
+    if d:
+        st.session_state["client_id"] = d.get("client_id")
+    audit("SELECTION", "dossier", did)
+
+
+# =========================================================
+# 3. GÉOMÉTRIE : ZONE CONCERNÉE
+# =========================================================
+def haversine_m(a, b):
+    R = 6371000.0
+    lat1, lon1 = map(math.radians, a)
+    lat2, lon2 = map(math.radians, b)
+    dlat, dlon = lat2 - lat1, lon2 - lon1
+    q = math.sin(dlat/2)**2 + math.cos(lat1)*math.cos(lat2)*math.sin(dlon/2)**2
+    return 2 * R * math.asin(min(1, math.sqrt(q)))
 
 
 def polygon_area_ha(coords):
@@ -300,106 +425,151 @@ def polygon_area_ha(coords):
     R = 6371000.0
     xy = []
     for lat, lon in coords:
-        xy.append((
-            math.radians(float(lon)) * R * math.cos(lat0),
-            math.radians(float(lat)) * R
-        ))
-    area = 0
+        xy.append((math.radians(float(lon))*R*math.cos(lat0), math.radians(float(lat))*R))
+    area = 0.0
     for i in range(len(xy)):
         x1, y1 = xy[i]
-        x2, y2 = xy[(i + 1) % len(xy)]
+        x2, y2 = xy[(i+1) % len(xy)]
         area += x1*y2 - x2*y1
     return abs(area) / 2 / 10000
 
 
 def polygon_perimeter_m(coords):
-    if not coords or len(coords) < 2:
+    if len(coords) < 2:
         return 0.0
-    R = 6371000.0
-    total = 0
-    for i in range(len(coords)):
-        lat1, lon1 = map(float, coords[i])
-        lat2, lon2 = map(float, coords[(i + 1) % len(coords)])
-        p1, p2 = math.radians(lat1), math.radians(lat2)
-        dp, dl = math.radians(lat2-lat1), math.radians(lon2-lon1)
-        a = math.sin(dp/2)**2 + math.cos(p1)*math.cos(p2)*math.sin(dl/2)**2
-        total += 2*R*math.asin(min(1, math.sqrt(a)))
-    return total
+    return sum(haversine_m(coords[i], coords[(i+1) % len(coords)]) for i in range(len(coords)))
 
 
-def drawing_coords(drawing):
+def centroid(coords):
+    if not coords:
+        return None, None
+    return sum(p[0] for p in coords)/len(coords), sum(p[1] for p in coords)/len(coords)
+
+
+def drawing_to_coords(drawing):
     if not drawing:
-        return None
+        return []
     g = drawing.get("geometry", {})
     typ, c = g.get("type"), g.get("coordinates")
     if typ == "Polygon" and c:
-        return [[float(x[1]), float(x[0])] for x in c[0]]
+        return [[float(y), float(x)] for x, y in c[0]]
     if typ == "MultiPolygon" and c:
-        return [[float(x[1]), float(x[0])] for x in c[0][0]]
-    if typ == "Point" and c:
-        return [[float(c[1]), float(c[0])]]
-    return None
+        return [[float(y), float(x)] for x, y in c[0][0]]
+    return []
 
 
-def active_dossier():
-    if not st.session_state.get("dossier_id"):
+def coords_inside_bbox(coords):
+    return bool(coords and len(coords) >= 3)
+
+
+def save_zone(coords, feature_type, name, dossier_id, parcelle_id=None):
+    if not coords_inside_bbox(coords):
         return None
-    rows = db_exec("SELECT * FROM dossiers WHERE id=?", (st.session_state.dossier_id,), True)
-    return rows[0] if rows else None
+    area = polygon_area_ha(coords)
+    perim = polygon_perimeter_m(coords)
+    lat, lon = centroid(coords)
+    fid = new_id("GIS")
+    db_exec("""INSERT INTO gis_features
+        (id,dossier_id,parcelle_id,type_feature,nom,geometry_json,surface_ha,perimeter_m,
+         latitude,longitude,source,confidence,validation_status,notes,created_at,updated_at)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (fid, dossier_id, parcelle_id, feature_type, name, json.dumps(coords),
+         area, perim, lat, lon, "Terrain/GPS", 0.98, "À valider",
+         "Géométrie dessinée par l'utilisateur.", now(), now()))
+    audit("CREATION_GEOMETRIE", "gis_features", fid, {"area_ha": area, "perimeter_m": perim})
+    return fid
 
 
-def active_parcelle():
-    if not st.session_state.get("parcelle_id"):
-        return None
-    rows = db_exec("SELECT * FROM parcelles WHERE id=?", (st.session_state.parcelle_id,), True)
-    return rows[0] if rows else None
+def map_for_context(lat, lon, height=560, key="main_map", allow_draw=False):
+    m = folium.Map(location=[lat, lon], zoom_start=14, control_scale=True, tiles="OpenStreetMap")
+    if allow_draw:
+        Draw(
+            export=True,
+            draw_options={
+                "polyline": False, "rectangle": True, "circle": False,
+                "circlemarker": False, "marker": True, "polygon": True
+            },
+            edit_options={"edit": True, "remove": True},
+        ).add_to(m)
+    return st_folium(m, width=None, height=height, key=key)
 
 
-def context():
-    d = active_dossier() or {}
-    p = active_parcelle() or {}
-    geometry = json.loads(p.get("geometry_json") or "[]") if p else []
-    return {
-        "dossier_id": d.get("id"),
-        "dossier": d.get("nom"),
-        "client": d.get("client"),
-        "region": d.get("region"),
-        "commune": d.get("commune"),
-        "village": d.get("village"),
-        "latitude": p.get("latitude", d.get("latitude")),
-        "longitude": p.get("longitude", d.get("longitude")),
-        "parcelle_id": p.get("id"),
-        "parcelle": p.get("nom"),
-        "culture": p.get("culture"),
-        "stade": p.get("stade"),
-        "surface_ha": p.get("surface_ha", 0),
-        "perimetre_m": p.get("perimetre_m", 0),
-        "geometry": geometry,
-    }
-
-
-def quality_score():
+# =========================================================
+# 4. QUALITÉ, CONFIANCE, RISQUE
+# =========================================================
+def data_quality():
     c = context()
     score = 100
-    if not c["dossier_id"]: score -= 30
-    if not c["parcelle_id"]: score -= 20
-    if c["latitude"] is None or c["longitude"] is None: score -= 15
-    if not c["surface_ha"] or c["surface_ha"] <= 0: score -= 10
-    if not c["culture"]: score -= 10
-    obs = db_exec("SELECT COUNT(*) n FROM observations WHERE dossier_id=?", (c["dossier_id"],), True) if c["dossier_id"] else [{"n": 0}]
-    ana = db_exec("SELECT COUNT(*) n FROM analyses WHERE dossier_id=?", (c["dossier_id"],), True) if c["dossier_id"] else [{"n": 0}]
-    if int(obs[0]["n"]) == 0: score -= 5
-    if int(ana[0]["n"]) == 0: score -= 5
-    return max(0, min(100, score))
+    checks = []
+
+    def check(label, ok, penalty, action):
+        nonlocal score
+        if not ok:
+            score -= penalty
+        checks.append({"Contrôle": label, "État": "OK" if ok else "À corriger", "Impact": penalty, "Action": action})
+
+    check("Client identifié", bool(c["client_id"]), 8, "Créer/sélectionner le client")
+    check("Dossier actif", bool(c["dossier_id"]), 15, "Créer/sélectionner le dossier")
+    check("Parcelle active", bool(c["parcelle_id"]), 10, "Créer une parcelle")
+    check("Coordonnées GPS", c["latitude"] is not None and c["longitude"] is not None, 10, "Renseigner le GPS")
+    check("Zone d'étude délimitée", bool(c["zone_geometry"]), 18, "Dessiner la zone concernée")
+    check("Surface valide", c["zone_surface_ha"] > 0 or c["surface_ha"] > 0, 10, "Définir la surface")
+    check("Culture renseignée", bool(c["culture"]), 6, "Renseigner la culture")
+    did = c["dossier_id"]
+    obs_n = len(db_exec("SELECT id FROM observations WHERE dossier_id=?", (did,), True)) if did else 0
+    ana_n = len(db_exec("SELECT id FROM analyses WHERE dossier_id=?", (did,), True)) if did else 0
+    check("Observations terrain", obs_n > 0, 8, "Ajouter une observation")
+    check("Analyses disponibles", ana_n > 0, 5, "Ajouter une analyse ou justifier l'absence")
+    return max(0, min(100, score)), checks
+
+
+def confidence_from_sources():
+    q, _ = data_quality()
+    c = context()
+    source_bonus = 0
+    if c["zone_geometry"]:
+        source_bonus += 0.10
+    if c["dossier_id"]:
+        source_bonus += 0.05
+    return min(0.98, 0.35 + q/200 + source_bonus)
+
+
+def risk_score():
+    c = context()
+    risk = 20
+    if not c["zone_geometry"]:
+        risk += 15
+    if not c["culture"]:
+        risk += 5
+    obs = db_exec("SELECT gravite,incidence FROM observations WHERE dossier_id=? ORDER BY created_at DESC LIMIT 50",
+                  (c["dossier_id"],), True) if c["dossier_id"] else []
+    for o in obs:
+        risk += {"Faible": 2, "Moyenne": 7, "Élevée": 14, "Critique": 25, "Information": 0}.get(o.get("gravite"), 0)
+        risk += min(10, float(o.get("incidence") or 0)/10)
+    return int(min(100, risk))
 
 
 # =========================================================
-# SYNCHRONISATION — UN SEUL CENTRE
+# 5. SYNCHRONISATION
 # =========================================================
-def sync_weather(lat, lon):
+def log_sync(source, dtype, status, message, dossier_id=None, duration=0):
+    db_exec("""INSERT INTO sync_log(id,dossier_id,source,type_data,status,message,fetched_at,duration_ms)
+               VALUES(?,?,?,?,?,?,?,?)""",
+            (new_id("SYN"), dossier_id or context()["dossier_id"], source, dtype,
+             status, message, now(), int(duration)))
+
+
+def sync_weather():
+    c = context()
+    if not HAS_REQUESTS:
+        raise RuntimeError("requests n'est pas installé.")
+    if c["latitude"] is None or c["longitude"] is None:
+        raise ValueError("Coordonnées GPS manquantes.")
+    import time
+    t0 = time.time()
     url = "https://api.open-meteo.com/v1/forecast"
     params = {
-        "latitude": lat, "longitude": lon,
+        "latitude": float(c["latitude"]), "longitude": float(c["longitude"]),
         "current": "temperature_2m,relative_humidity_2m,precipitation,wind_speed_10m",
         "daily": "temperature_2m_max,temperature_2m_min,precipitation_sum,wind_speed_10m_max",
         "forecast_days": 7, "timezone": "auto"
@@ -407,523 +577,617 @@ def sync_weather(lat, lon):
     r = requests.get(url, params=params, timeout=12)
     r.raise_for_status()
     data = r.json()
-    db_exec(
-        "INSERT INTO sync_records(id,source,type_donnee,url,statut,message,nb_elements,fetched_at) VALUES(?,?,?,?,?,?,?,?)",
-        (new_id("sync"), "Open-Meteo", "Météo opérationnelle", url, "OK",
-         "Prévision météo récupérée pour la parcelle active.", 7, now())
-    )
+    st.session_state["weather"] = data
+    db_exec("""INSERT INTO weather_cache(id,dossier_id,parcelle_id,latitude,longitude,payload_json,fetched_at,source)
+               VALUES(?,?,?,?,?,?,?,?)""",
+            (new_id("WTH"), c["dossier_id"], c["parcelle_id"], c["latitude"], c["longitude"],
+             json.dumps(data), now(), "Open-Meteo"))
+    log_sync("Open-Meteo", "Météo", "OK", "Prévision 7 jours récupérée.", c["dossier_id"], (time.time()-t0)*1000)
     return data
 
 
-def sync_official_catalog():
-    # La synchronisation officielle ne fabrique pas de données.
-    # Elle enregistre les portails de référence et leur date de contrôle.
-    n = 0
+def sync_reference_catalog():
+    did = context()["dossier_id"]
     for name, url in SOURCES.items():
-        db_exec(
-            "INSERT INTO sync_records(id,source,type_donnee,url,statut,message,nb_elements,fetched_at) VALUES(?,?,?,?,?,?,?,?)",
-            (new_id("sync"), name, "Portail institutionnel", url, "RÉFÉRENCE",
-             "Portail enregistré comme source à vérifier; aucune statistique inventée.", 0, now())
-        )
-        n += 1
-    return n
+        log_sync(name, "Référentiel", "RÉFÉRENCE",
+                 f"Portail enregistré; vérifier le contenu au moment de la décision. {url}", did)
+    return len(SOURCES)
 
 
 def sync_all():
     c = context()
     results = []
-    if c["latitude"] is not None and c["longitude"] is not None:
-        try:
-            weather = sync_weather(float(c["latitude"]), float(c["longitude"]))
-            st.session_state["weather"] = weather
-            results.append("Météo opérationnelle")
-        except Exception as exc:
-            results.append(f"Météo indisponible: {exc}")
-            db_exec(
-                "INSERT INTO sync_records(id,source,type_donnee,url,statut,message,nb_elements,fetched_at) VALUES(?,?,?,?,?,?,?,?)",
-                (new_id("sync"), "Open-Meteo", "Météo opérationnelle",
-                 "https://api.open-meteo.com/", "ERREUR", str(exc), 0, now())
-            )
-    results.append(f"{sync_official_catalog()} portails institutionnels contrôlés")
+    if not c["dossier_id"]:
+        return ["Aucun dossier actif."]
+    try:
+        sync_weather()
+        results.append("Météo synchronisée")
+    except Exception as exc:
+        results.append(f"Météo non disponible : {exc}")
+        log_sync("Open-Meteo", "Météo", "ERREUR", str(exc), c["dossier_id"])
+    n = sync_reference_catalog()
+    results.append(f"{n} sources institutionnelles enregistrées")
+    q, _ = data_quality()
     st.session_state["sync_status"] = "Synchronisé"
     st.session_state["sync_time"] = now()
-    audit("SYNCHRONISATION_GLOBALE", "contexte", c["parcelle_id"] or "", results)
+    audit("SYNCHRONISATION_GLOBALE", "hub", c["dossier_id"], results)
     return results
 
 
 # =========================================================
-# IA LOCALE — SANS CLÉ API
+# 6. MOTEUR DE DÉCISION LOCAL
 # =========================================================
-def local_ai(question, actor):
+def local_expert(question, actor="Technicien"):
     c = context()
     q = (question or "").lower()
     zone = next((z for z, v in AGROZONES.items() if c["region"] in v["regions"]), None)
     zinfo = AGROZONES.get(zone or "", {})
+    quality, checks = data_quality()
+    risk = risk_score()
+
+    hypotheses = []
     actions = [
-        "Décrire et dater précisément le problème.",
-        "Contrôler plusieurs points représentatifs de la parcelle.",
-        "Croiser observation, sol, eau, météo et historique avant décision.",
-        "Documenter l'intervention et programmer un contrôle sous 48–72 h.",
+        "Confirmer le problème sur plusieurs points représentatifs de la zone délimitée.",
+        "Comparer observation actuelle, historique, sol/eau et conditions météo.",
+        "Documenter les preuves : photos, dates, localisation et incidence.",
+        "Définir un contrôle de suivi avec échéance et responsable.",
     ]
-    if any(x in q for x in ["jaun", "chlorose", "pâle"]):
-        actions.insert(1, "Vérifier humidité, drainage, racines et répartition du jaunissement.")
+    if any(x in q for x in ["jaun", "chlorose", "pale", "pâle"]):
+        hypotheses += ["Carence ou déséquilibre nutritionnel", "Excès d'eau / problème racinaire", "Stress hydrique ou autre facteur environnemental"]
+        actions.insert(1, "Vérifier pH, disponibilité des éléments, humidité et état racinaire avant correction.")
     if any(x in q for x in ["insect", "chenille", "puceron", "ravageur"]):
-        actions.insert(1, "Quantifier l'incidence et rechercher le ravageur sur plusieurs plants.")
-    if any(x in q for x in ["maladie", "tache", "flétr", "pourrit"]):
-        actions.insert(1, "Photographier plusieurs plants atteints et sains et vérifier la progression.")
+        hypotheses += ["Pression de ravageurs", "Dommages non entomologiques à différencier"]
+        actions.insert(1, "Quantifier l'incidence sur plusieurs placettes et rechercher les stades du ravageur.")
+    if any(x in q for x in ["tache", "maladie", "flétr", "pourrit"]):
+        hypotheses += ["Maladie potentiellement infectieuse", "Stress abiotique à différencier"]
+        actions.insert(1, "Comparer plants sains/atteints et rechercher une progression spatiale et temporelle.")
     if any(x in q for x in ["eau", "irrig", "sécher", "pluie"]):
-        actions.insert(1, "Contrôler l'humidité réelle, l'uniformité d'irrigation et le drainage.")
+        hypotheses += ["Stress hydrique", "Irrigation non uniforme", "Drainage insuffisant"]
+        actions.insert(1, "Contrôler humidité, uniformité d'irrigation, drainage et pluviométrie locale.")
+    if not hypotheses:
+        hypotheses = ["Hypothèse indéterminée : données supplémentaires nécessaires."]
 
+    confidence = min(0.97, 0.35 + quality/200 + (0.10 if c["zone_geometry"] else 0))
     evidence = [
-        "Contexte dossier/parcelle enregistré",
-        "Données terrain disponibles" if c["dossier_id"] else "Données terrain absentes",
-        "Référentiel agroécologique indicatif",
-        "Météo opérationnelle si synchronisée",
+        f"Qualité du dossier : {quality}/100",
+        f"Risque séparé de la confiance : {risk}/100",
+        f"Zone d'étude : {c['zone_nom'] or 'non délimitée'}",
+        f"Observations : {len(db_exec('SELECT id FROM observations WHERE dossier_id=?', (c['dossier_id'],), True)) if c['dossier_id'] else 0}",
+        f"Analyses : {len(db_exec('SELECT id FROM analyses WHERE dossier_id=?', (c['dossier_id'],), True)) if c['dossier_id'] else 0}",
+        "Météo : synchronisée" if st.session_state.get("weather") else "Météo : non synchronisée",
     ]
-    confidence = min(0.95, 0.45 + quality_score()/200)
-    text = f"""### 🧠 Analyse YouAgronoMe — {actor}
+    text = f"""## 🧠 Avis expert local — {actor}
 
-**Contexte actif :** {c['dossier'] or 'non sélectionné'} · {c['parcelle'] or 'non sélectionnée'} · {c['culture'] or 'culture non renseignée'} · {c['region'] or 'région non renseignée'}
+**Contexte**
+- Client : {c['client'] or '—'}
+- Dossier : {c['dossier'] or '—'}
+- Parcelle : {c['parcelle'] or '—'}
+- Zone étudiée : {c['zone_nom'] or 'non délimitée'} ({c['zone_surface_ha']:.3f} ha)
+- Culture : {c['culture'] or '—'} · Stade : {c['stade'] or '—'}
+- Zone agroécologique indicative : {zone or 'à déterminer'}
 
-**Lecture contextuelle**
-- Zone agroécologique : {zone or 'à déterminer'}
-- Sol de référence : {zinfo.get('sol', 'à confirmer par observation/analyse')}
-- Climat : {zinfo.get('climat', 'à confirmer')}
-- Risques indicatifs : {zinfo.get('risques', 'à évaluer')}
+**Hypothèses à tester**
+{chr(10).join('- '+h for h in hypotheses)}
 
-**Hypothèse de travail**
-La question doit être confrontée aux observations réelles. Cette IA locale ne transforme pas une hypothèse en diagnostic officiel.
-
-**Plan priorisé**
+**Plan de vérification**
 {chr(10).join(f'{i+1}. {a}' for i,a in enumerate(actions))}
 
-**Niveau de confiance du dossier :** {confidence*100:.0f} %
-**Qualité des données :** {quality_score()}/100
+**Confiance de l'analyse :** {confidence*100:.0f} %
+**Qualité des données :** {quality}/100
+**Risque estimé :** {risk}/100
 
-**Preuves mobilisées**
-{chr(10).join('- '+x for x in evidence)}
+**Preuves / limites**
+{chr(10).join('- '+e for e in evidence)}
 
-**Sécurité**
-Aucune dose ou prescription phytosanitaire spécifique ne doit être décidée uniquement à partir de cette réponse. Pour une suspicion importante, faire confirmer par le technicien/organisme compétent.
+> Cet avis est un outil d'aide à la décision. Il ne transforme pas une hypothèse en diagnostic officiel et ne remplace pas un laboratoire, un technicien compétent ou les organismes officiels.
 """
-    return text, confidence
+    return text, confidence, evidence
 
 
 # =========================================================
-# AUTHENTIFICATION
+# 7. AUTHENTIFICATION
 # =========================================================
-def login_box():
-    st.markdown("## 🔐 Accès professionnel")
-    st.caption("Les comptes sont stockés avec un hash de mot de passe dans SQLite.")
-    email = st.text_input("E-mail / identifiant", key="auth_email")
-    password = st.text_input("Mot de passe", type="password", key="auth_password")
-    if st.button("Se connecter", type="primary", key="auth_login"):
-        h = hashlib.sha256(password.encode("utf-8")).hexdigest()
+def login():
+    st.markdown("## 🔐 Accès au cabinet YouAgronoMe")
+    st.caption("Les mots de passe sont stockés sous forme de hash.")
+    a, b = st.columns(2)
+    email = a.text_input("Identifiant", key="login_email")
+    password = b.text_input("Mot de passe", type="password", key="login_password")
+    if st.button("Se connecter", type="primary", key="login_button"):
         rows = db_exec(
             "SELECT * FROM users WHERE lower(email)=lower(?) AND password_hash=? AND statut='Actif'",
-            (email.strip(), h), True
+            (email.strip(), sha256(password)), True
         )
         if rows:
             st.session_state["user"] = rows[0]
             audit("CONNEXION", "user", rows[0]["email"])
             st.rerun()
-        st.error("Identifiants invalides ou compte inactif.")
+        else:
+            st.error("Identifiants invalides ou compte inactif.")
 
 
 # =========================================================
-# EN-TÊTE + CONTEXTE
+# 8. SÉLECTEUR GLOBAL CLIENT / DOSSIER / PARCELLE / ZONE
 # =========================================================
-def header():
+def global_selector():
+    st.markdown("### 🎯 Dossier de consultance actif")
+    clients = db_exec("SELECT * FROM clients ORDER BY updated_at DESC, created_at DESC", True)
+    client_labels = ["➕ Nouveau client"] + [f"{x['id']} · {x['nom']}" for x in clients]
+    current_client = st.session_state.get("client_id")
+    cidx = next((i+1 for i,x in enumerate(clients) if x["id"] == current_client), 0)
+    cc = st.selectbox("Client", client_labels, index=cidx, key="global_client")
+
+    if cc == "➕ Nouveau client":
+        with st.form("global_new_client"):
+            nom = st.text_input("Nom / exploitation")
+            tel = st.text_input("Téléphone")
+            email = st.text_input("E-mail")
+            org = st.text_input("Organisation")
+            region = st.selectbox("Région", list(REGIONS_COORD))
+            if st.form_submit_button("Créer le client"):
+                cid = new_id("CLI")
+                db_exec("""INSERT INTO clients(id,nom,telephone,email,organisation,adresse,region,notes,created_at,updated_at)
+                           VALUES(?,?,?,?,?,?,?,?,?,?)""",
+                        (cid, nom or "Client sans nom", tel, email, org, "", region, "", now(), now()))
+                st.session_state["client_id"] = cid
+                audit("CREATION", "client", cid)
+                st.rerun()
+    else:
+        cid = cc.split(" · ", 1)[0]
+        if cid != current_client:
+            st.session_state["client_id"] = cid
+            st.session_state["dossier_id"] = None
+            st.session_state["parcelle_id"] = None
+            st.session_state["zone_feature_id"] = None
+
+    cid = st.session_state.get("client_id")
+    if cid:
+        dossiers = db_exec("SELECT * FROM dossiers WHERE client_id=? ORDER BY updated_at DESC", (cid,), True)
+        labels = ["➕ Nouveau dossier"] + [f"{x['id']} · {x['nom']}" for x in dossiers]
+        cur = st.session_state.get("dossier_id")
+        didx = next((i+1 for i,x in enumerate(dossiers) if x["id"] == cur), 0)
+        dd = st.selectbox("Dossier / mission d'étude", labels, index=didx, key="global_dossier")
+        if dd == "➕ Nouveau dossier":
+            with st.form("global_new_dossier"):
+                nom = st.text_input("Nom du dossier")
+                typ = st.selectbox("Type", ["Agriculture", "Élevage", "Aquaculture", "Agroalimentaire", "Mixte"])
+                region = st.selectbox("Région", list(REGIONS_COORD))
+                commune = st.text_input("Commune")
+                village = st.text_input("Village")
+                if st.form_submit_button("Créer le dossier", type="primary"):
+                    did = new_id("DOS")
+                    lat, lon = REGIONS_COORD[region]
+                    db_exec("""INSERT INTO dossiers
+                        (id,client_id,nom,type_exploitation,region,commune,village,latitude,longitude,notes,created_at,updated_at)
+                        VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
+                        (did,cid,nom or "Dossier sans nom",typ,region,commune,village,lat,lon,"",now(),now()))
+                    set_active_dossier(did)
+                    st.rerun()
+        else:
+            did = dd.split(" · ", 1)[0]
+            if did != st.session_state.get("dossier_id"):
+                set_active_dossier(did)
+
+        did = st.session_state.get("dossier_id")
+        if did:
+            pars = db_exec("SELECT * FROM parcelles WHERE dossier_id=? ORDER BY updated_at DESC", (did,), True)
+            plabels = ["— Aucune parcelle sélectionnée —"] + [f"{x['id']} · {x['nom']} ({x['surface_ha']:.2f} ha)" for x in pars]
+            curp = st.session_state.get("parcelle_id")
+            pidx = next((i+1 for i,x in enumerate(pars) if x["id"] == curp), 0)
+            pp = st.selectbox("Unité / parcelle", plabels, index=pidx, key="global_parcelle")
+            if pp.startswith("—"):
+                st.session_state["parcelle_id"] = None
+            else:
+                st.session_state["parcelle_id"] = pp.split(" · ", 1)[0]
+
+
+# =========================================================
+# 9. EN-TÊTE PROFESSIONNEL
+# =========================================================
+def professional_header():
     st.markdown("""
     <style>
-    .hero{padding:20px;border-radius:16px;background:linear-gradient(135deg,#14532d,#166534);
+    .hero{padding:22px 26px;border-radius:18px;background:linear-gradient(135deg,#0f5132,#198754);
     color:white;margin-bottom:16px}
     .hero h1{color:white!important;margin:0}
-    .ctx{padding:12px;border:1px solid #dbe5dd;border-radius:12px;background:#f7faf7}
+    .hero p{margin:.3rem 0 0}
+    .badge{padding:8px 12px;border-radius:10px;background:#f5f7f5;border:1px solid #dce4dc}
     </style>
     """, unsafe_allow_html=True)
     st.markdown(
-        "<div class='hero'><h1>🌾 YouAgronoMe — HUB Analyse & Consultance 360°</h1>"
-        "<p>Données → SIG → Diagnostic → IA → Décision → Mission → Rapport</p></div>",
+        "<div class='hero'><h1>🌾 YouAgronoMe — Cabinet de Consultance Agricole 360°</h1>"
+        "<p>Qualification de la demande → zone d'étude → données → analyse → décision → mission → rapport → suivi</p></div>",
         unsafe_allow_html=True
     )
     c = context()
-    q = quality_score()
+    q, _ = data_quality()
+    risk = risk_score()
     cols = st.columns(6)
-    cols[0].metric("Dossier", c["dossier"] or "—")
-    cols[1].metric("Parcelle", c["parcelle"] or "—")
-    cols[2].metric("Surface", f"{c['surface_ha'] or 0:.2f} ha")
-    cols[3].metric("Région", c["region"] or "—")
-    cols[4].metric("Qualité", f"{q}/100")
+    cols[0].metric("Client", c["client"] or "—")
+    cols[1].metric("Dossier", c["dossier"] or "—")
+    cols[2].metric("Zone", f"{c['zone_surface_ha']:.2f} ha" if c["zone_surface_ha"] else "—")
+    cols[3].metric("Qualité", f"{q}/100")
+    cols[4].metric("Risque", f"{risk}/100")
     cols[5].metric("Synchro", st.session_state.get("sync_status", "—"))
 
 
-def context_selector():
-    dossiers = db_exec("SELECT * FROM dossiers ORDER BY updated_at DESC", fetch=True)
-    names = ["➕ Nouveau dossier"] + [f"{d['id']} · {d['nom']}" for d in dossiers]
-    current = st.session_state.get("dossier_id")
-    idx = 0
-    if current:
-        for i, d in enumerate(dossiers, 1):
-            if d["id"] == current:
-                idx = i
-                break
-    choice = st.selectbox("📁 Dossier d'exploitation actif", names, index=idx, key="global_dossier")
-    if choice == "➕ Nouveau dossier":
-        with st.form("new_dossier_global"):
-            a,b,c = st.columns(3)
-            nom = a.text_input("Nom exploitation")
-            client = b.text_input("Client / producteur")
-            region = c.selectbox("Région", list(REGIONS_COORD))
-            commune = a.text_input("Commune")
-            village = b.text_input("Village")
-            typ = c.selectbox("Type", ["Agriculture", "Élevage", "Aquaculture", "Agroalimentaire", "Mixte"])
-            if st.form_submit_button("Créer le dossier", type="primary"):
-                did = new_id("DOS")
-                lat, lon = REGIONS_COORD[region]
-                db_exec(
-                    """INSERT INTO dossiers(id,nom,client,region,commune,village,type_exploitation,
-                    latitude,longitude,notes,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
-                    (did, nom or "Exploitation sans nom", client, region, commune, village, typ,
-                     lat, lon, "", now(), now())
-                )
-                st.session_state["dossier_id"] = did
-                st.session_state["parcelle_id"] = None
-                audit("CREATION", "dossier", did)
-                st.rerun()
-    else:
-        did = choice.split(" · ", 1)[0]
-        if did != current:
-            st.session_state["dossier_id"] = did
-            st.session_state["parcelle_id"] = None
-            audit("SELECTION", "dossier", did)
-    if st.session_state.get("dossier_id"):
-        pars = db_exec("SELECT * FROM parcelles WHERE dossier_id=? ORDER BY updated_at DESC",
-                       (st.session_state["dossier_id"],), True)
-        if pars:
-            pnames = [f"{p['id']} · {p['nom']} ({p['surface_ha']:.2f} ha)" for p in pars]
-            pidx = next((i for i,p in enumerate(pars) if p["id"] == st.session_state.get("parcelle_id")), 0)
-            pc = st.selectbox("📍 Parcelle active — source géographique commune", pnames, index=pidx, key="global_parcelle")
-            pid = pc.split(" · ", 1)[0]
-            st.session_state["parcelle_id"] = pid
-        else:
-            st.info("Aucune parcelle. Créez-la dans SIG & Diagnostic → GPS / Polygones.")
-
-
 # =========================================================
-# ONGLET 1 — TERRAIN & DONNÉES
+# 10. ESPACE 1 — TERRAIN & DONNÉES
 # =========================================================
-def terrain_tab():
-    subs = st.tabs([
-        "📁 Dossier 360°", "🌾 Agriculture", "🐄 Élevage", "🐟 Aquaculture",
-        "🏭 Agroalimentaire", "🧪 Analyses", "👁️ Observations", "📋 Historique"
+def terrain_space():
+    tabs = st.tabs([
+        "📁 Dossier 360°", "👥 Client", "🌾 Agriculture", "🐄 Élevage",
+        "🐟 Aquaculture", "🏭 Agroalimentaire", "👁️ Observations", "🧪 Analyses",
+        "📦 Équipements", "📚 Historique"
     ])
 
-    with subs[0]:
-        d = active_dossier()
-        if not d:
-            st.info("Sélectionnez ou créez un dossier.")
+    with tabs[0]:
+        c = context()
+        st.subheader("📁 Dossier d'exploitation / étude")
+        if not c["dossier_id"]:
+            st.info("Sélectionnez ou créez un dossier dans la barre latérale.")
         else:
-            st.subheader("📁 Dossier d'exploitation 360°")
-            a,b,c = st.columns(3)
-            a.write(f"**Nom :** {d['nom']}")
-            b.write(f"**Client :** {d['client'] or '—'}")
-            c.write(f"**Type :** {d['type_exploitation']}")
-            a.write(f"**Région :** {d['region']}")
-            b.write(f"**Commune :** {d['commune'] or '—'}")
-            c.write(f"**Village :** {d['village'] or '—'}")
-            st.success("Le dossier actif est partagé automatiquement avec tous les autres modules.")
-            st.caption("Source du contexte : base persistante YouAgronoMe.")
+            d = active_dossier()
+            a,b,c1,d1 = st.columns(4)
+            a.write(f"**Client**\n\n{context()['client'] or '—'}")
+            b.write(f"**Type**\n\n{d['type_exploitation']}")
+            c1.write(f"**Localisation**\n\n{d['commune'] or '—'} / {d['region']}")
+            d1.write(f"**Statut**\n\n{d['statut']}")
+            st.success("Ce dossier est la source de contexte commune aux analyses, à la carte, aux missions et aux rapports.")
+            st.text_area("Notes générales", value=d["notes"] or "", key="dossier_notes_view", disabled=True)
 
-    with subs[1]:
-        st.subheader("🌾 Registre Agriculture")
-        if not st.session_state.get("dossier_id"):
-            st.warning("Sélectionnez un dossier.")
+    with tabs[1]:
+        c = active_client()
+        if not c:
+            st.info("Sélectionnez un client.")
+        else:
+            st.subheader("👥 Fiche client professionnelle")
+            with st.form("client_update"):
+                nom = st.text_input("Nom", c["nom"])
+                tel = st.text_input("Téléphone", c["telephone"] or "")
+                email = st.text_input("E-mail", c["email"] or "")
+                org = st.text_input("Organisation", c["organisation"] or "")
+                region = st.selectbox("Région", list(REGIONS_COORD), index=list(REGIONS_COORD).index(c["region"]) if c["region"] in REGIONS_COORD else 0)
+                notes = st.text_area("Notes", c["notes"] or "")
+                if st.form_submit_button("Mettre à jour le client"):
+                    db_exec("UPDATE clients SET nom=?,telephone=?,email=?,organisation=?,region=?,notes=?,updated_at=? WHERE id=?",
+                            (nom,tel,email,org,region,notes,now(),c["id"]))
+                    audit("MISE_A_JOUR", "client", c["id"])
+                    st.success("Client mis à jour.")
+
+    with tabs[2]:
+        st.subheader("🌾 Registre technique des cultures")
+        c = context()
+        if not c["parcelle_id"]:
+            st.info("Sélectionnez une parcelle.")
         else:
             p = active_parcelle()
-            if p:
-                st.info(f"Parcelle active : {p['nom']} · {p['surface_ha']:.2f} ha")
-            st.write("Les cultures sont enregistrées au niveau de la parcelle active.")
-            with st.form("agri_update"):
-                culture = st.selectbox("Culture", CULTURES, index=CULTURES.index(p["culture"]) if p and p["culture"] in CULTURES else 0)
-                stade = st.selectbox("Stade", STADES, index=STADES.index(p["stade"]) if p and p["stade"] in STADES else 0)
-                rendement = st.number_input("Rendement cible (t/ha)", 0.0, 100.0, 3.0)
-                irrigation = st.selectbox("Mode eau", ["Pluvial", "Irrigué", "Mixte"])
-                if st.form_submit_button("Enregistrer l'itinéraire"):
-                    if p:
-                        db_exec("UPDATE parcelles SET culture=?,stade=?,updated_at=? WHERE id=?",
-                                (culture, stade, now(), p["id"]))
-                    else:
-                        st.warning("Créez d'abord une parcelle.")
-                    if p:
-                        db_exec("INSERT INTO observations(id,dossier_id,parcelle_id,domaine,description,gravite,incidence,date_observation,source,confidence,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
-                                (new_id("OBS"), st.session_state["dossier_id"], p["id"], "Agriculture",
-                                 f"Rendement cible {rendement} t/ha · {irrigation}", "Information", 0,
-                                 now(), "Utilisateur", 1.0, now()))
-                        audit("MISE_A_JOUR", "parcelle", p["id"], {"culture": culture, "stade": stade})
+            with st.form("agri_form"):
+                a,b,c1,d = st.columns(4)
+                culture = a.selectbox("Culture", CULTURES, index=CULTURES.index(p["culture"]) if p["culture"] in CULTURES else 0)
+                stade = b.selectbox("Stade", STAGES, index=STAGES.index(p["stade"]) if p["stade"] in STAGES else 0)
+                variete = c1.text_input("Variété")
+                irrigation = d.selectbox("Irrigation", ["Pluvial", "Irrigué", "Mixte", "Goutte-à-goutte", "Aspersion"])
+                a2,b2,c2,d2 = st.columns(4)
+                semis = a2.date_input("Date semis", date.today())
+                recolte = b2.date_input("Récolte prévue", date.today()+timedelta(days=90))
+                cible = c2.number_input("Rendement cible t/ha", 0.0, 100.0, 3.0)
+                reel = d2.number_input("Rendement réel t/ha", 0.0, 100.0, 0.0)
+                fert = st.text_area("Fertilisation / amendements")
+                prot = st.text_area("Protection / interventions")
+                if st.form_submit_button("Enregistrer le suivi"):
+                    db_exec("UPDATE parcelles SET culture=?,stade=?,updated_at=? WHERE id=?",
+                            (culture,stade,now(),p["id"]))
+                    db_exec("""INSERT INTO cultures
+                        (id,dossier_id,parcelle_id,culture,variete,date_semis,date_recolte_prevue,irrigation,
+                         rendement_cible,rendement_reel,fertilisation,protection,notes,created_at)
+                        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                        (new_id("CUL"),c["dossier_id"],p["id"],culture,variete,str(semis),str(recolte),
+                         irrigation,cible,reel,fert,prot,"",now()))
+                    audit("SUIVI_CULTURE", "parcelle", p["id"])
+                    st.success("Suivi agricole enregistré.")
 
-    with subs[2]:
-        st.subheader("🐄 Élevage — registre du cheptel")
-        did = st.session_state.get("dossier_id")
-        if not did:
-            st.warning("Sélectionnez un dossier.")
-        else:
-            with st.form("livestock_form"):
-                a,b,c = st.columns(3)
-                espece = a.selectbox("Espèce", ["Bovin", "Ovin", "Caprin", "Volaille", "Porcin", "Autre"])
-                quantite = b.number_input("Effectif", 0, 100000, 0)
-                etat = c.selectbox("État", ["Normal", "Surveillance", "Alerte"])
-                notes = st.text_area("Observations")
-                if st.form_submit_button("Enregistrer le cheptel"):
-                    db_exec("INSERT INTO assets(id,dossier_id,type_asset,nom,quantite,unite,etat,notes,created_at) VALUES(?,?,?,?,?,?,?,?,?)",
-                            (new_id("AST"), did, "Élevage", espece, quantite, "têtes", etat, notes, now()))
-                    audit("AJOUT", "elevage", did)
-            rows = db_exec("SELECT * FROM assets WHERE dossier_id=? AND type_asset='Élevage' ORDER BY created_at DESC",
-                           (did,), True)
-            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
-
-    with subs[3]:
-        st.subheader("🐟 Aquaculture — unités de production")
-        did = st.session_state.get("dossier_id")
-        if not did:
-            st.warning("Sélectionnez un dossier.")
-        else:
-            with st.form("aqua_form"):
-                a,b,c = st.columns(3)
-                espece = a.text_input("Espèce", "Tilapia")
-                volume = b.number_input("Volume / capacité", 0.0, 1e9, 0.0)
-                unite = c.selectbox("Unité", ["m³", "étang", "bassin", "cage"])
-                oxy = a.number_input("Oxygène dissous (mg/L)", 0.0, 30.0, 0.0)
-                ph = b.number_input("pH", 0.0, 14.0, 7.0)
-                temp = c.number_input("Température (°C)", 0.0, 50.0, 25.0)
-                if st.form_submit_button("Enregistrer unité"):
-                    desc = f"O2={oxy} mg/L · pH={ph} · T={temp} °C"
-                    db_exec("INSERT INTO assets(id,dossier_id,type_asset,nom,quantite,unite,etat,notes,created_at) VALUES(?,?,?,?,?,?,?,?,?)",
-                            (new_id("AST"), did, "Aquaculture", espece, volume, unite, "Normal", desc, now()))
-                    audit("AJOUT", "aquaculture", did)
-            rows = db_exec("SELECT * FROM assets WHERE dossier_id=? AND type_asset='Aquaculture' ORDER BY created_at DESC",
-                           (did,), True)
-            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
-
-    with subs[4]:
-        st.subheader("🏭 Agroalimentaire")
-        did = st.session_state.get("dossier_id")
-        if not did:
-            st.warning("Sélectionnez un dossier.")
-        else:
-            with st.form("agrofood_form"):
-                a,b,c = st.columns(3)
-                produit = a.text_input("Produit transformé")
-                volume = b.number_input("Volume", 0.0, 1e9, 0.0)
-                unite = c.selectbox("Unité", ["kg", "t", "litres", "unités"])
-                pertes = a.number_input("Pertes estimées (%)", 0.0, 100.0, 0.0)
-                conservation = b.selectbox("Conservation", ["À définir", "Séchage", "Froid", "Stockage sec", "Transformation"])
-                qualite = c.selectbox("Qualité", ["Non évaluée", "Conforme", "À surveiller", "Non conforme"])
-                if st.form_submit_button("Enregistrer"):
-                    notes = f"Pertes={pertes}% · Conservation={conservation} · Qualité={qualite}"
-                    db_exec("INSERT INTO assets(id,dossier_id,type_asset,nom,quantite,unite,etat,notes,created_at) VALUES(?,?,?,?,?,?,?,?,?)",
-                            (new_id("AST"), did, "Agroalimentaire", produit, volume, unite, qualite, notes, now()))
-                    audit("AJOUT", "agroalimentaire", did)
-            rows = db_exec("SELECT * FROM assets WHERE dossier_id=? AND type_asset='Agroalimentaire' ORDER BY created_at DESC",
-                           (did,), True)
-            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
-
-    with subs[5]:
-        st.subheader("🧪 Analyses & laboratoire")
-        did, pid = st.session_state.get("dossier_id"), st.session_state.get("parcelle_id")
-        if not did:
-            st.warning("Sélectionnez un dossier.")
-        else:
-            with st.form("analysis_form"):
-                a,b,c = st.columns(3)
-                typ = a.selectbox("Type", ["Sol", "Eau", "Végétal", "Aliment", "Autre"])
-                param = b.text_input("Paramètre", "pH")
-                valeur = c.number_input("Valeur", -1e9, 1e9, 0.0)
-                unite = a.text_input("Unité", "")
-                ref = b.text_input("Référence / méthode")
-                source = c.selectbox("Source", ["Laboratoire", "Terrain", "Officiel", "Utilisateur"])
-                validation = st.selectbox("Validation", ["Validé", "À vérifier", "Rejeté"])
-                if st.form_submit_button("Enregistrer l'analyse"):
-                    db_exec("""INSERT INTO analyses(id,dossier_id,parcelle_id,type_analyse,parametre,valeur,unite,reference,source,date_analyse,statut_validation,confidence,notes,created_at)
-                    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                            (new_id("ANA"), did, pid, typ, param, valeur, unite, ref, source, now(), validation,
-                             0.95 if validation == "Validé" else 0.7, "", now()))
-                    audit("AJOUT", "analyse", did, {"parametre": param, "valeur": valeur})
-            rows = db_exec("SELECT * FROM analyses WHERE dossier_id=? ORDER BY date_analyse DESC", (did,), True)
-            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
-
-    with subs[6]:
-        st.subheader("👁️ Observation terrain géolocalisée")
-        did, pid = st.session_state.get("dossier_id"), st.session_state.get("parcelle_id")
-        if not did:
-            st.warning("Sélectionnez un dossier.")
-        else:
-            c = context()
-            with st.form("observation_form"):
-                a,b,c1 = st.columns(3)
-                domaine = a.selectbox("Domaine", ["Agriculture", "Élevage", "Aquaculture", "Agroalimentaire", "Sol", "Eau", "Phytosanitaire"])
-                gravite = b.selectbox("Gravité", ["Information", "Faible", "Moyenne", "Élevée", "Critique"])
-                incidence = c1.number_input("Incidence (%)", 0.0, 100.0, 0.0)
-                desc = st.text_area("Description précise")
-                photo = st.file_uploader("Photo (optionnel)", type=["jpg","jpeg","png","webp"], key="terrain_photo")
-                if st.form_submit_button("Enregistrer l'observation"):
-                    photo_name = photo.name if photo else ""
-                    db_exec("""INSERT INTO observations(id,dossier_id,parcelle_id,domaine,description,gravite,incidence,surface_affectee_ha,date_observation,latitude,longitude,photo_name,source,confidence,created_at)
-                    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                            (new_id("OBS"), did, pid, domaine, desc, gravite, incidence, 0,
-                             now(), c["latitude"], c["longitude"], photo_name, "Terrain", 0.85, now()))
-                    if gravite in ["Élevée", "Critique"]:
-                        db_exec("""INSERT INTO alerts(id,dossier_id,parcelle_id,domaine,niveau,titre,message,source,created_at)
-                        VALUES(?,?,?,?,?,?,?,?,?)""",
-                                (new_id("ALT"), did, pid, domaine, gravite,
-                                 f"Observation {domaine}", desc or "Observation nécessitant un suivi.",
-                                 "Terrain", now()))
-                    audit("OBSERVATION", "terrain", did, domaine)
-                    st.success("Observation enregistrée dans le dossier central.")
-            rows = db_exec("SELECT * FROM observations WHERE dossier_id=? ORDER BY created_at DESC LIMIT 100", (did,), True)
-            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
-
-    with subs[7]:
-        st.subheader("📋 Historique unifié")
-        did = st.session_state.get("dossier_id")
+    with tabs[3]:
+        st.subheader("🐄 Élevage — suivi zootechnique")
+        did = context()["dossier_id"]
         if did:
-            obs = db_exec("SELECT created_at,'Observation' type,description texte FROM observations WHERE dossier_id=?", (did,), True)
-            ana = db_exec("SELECT created_at,'Analyse' type,parametre || ' = ' || valeur texte FROM analyses WHERE dossier_id=?", (did,), True)
-            act = db_exec("SELECT created_at,'Action' type,titre texte FROM actions WHERE dossier_id=?", (did,), True)
-            hist = sorted(obs+ana+act, key=lambda x: x["created_at"], reverse=True)
-            st.dataframe(pd.DataFrame(hist), use_container_width=True, hide_index=True)
-        else:
+            with st.form("livestock_form"):
+                a,b,c1,d = st.columns(4)
+                espece = a.selectbox("Espèce", ["Bovin","Ovin","Caprin","Volaille","Porcin","Autre"])
+                categorie = b.selectbox("Catégorie", ["Adulte","Jeune","Reproducteur","Engraissement","Pondeuse","Autre"])
+                effectif = c1.number_input("Effectif", 0, 100000, 0)
+                poids = d.number_input("Poids moyen kg", 0.0, 1000.0, 0.0)
+                a2,b2,c2,d2 = st.columns(4)
+                mortalite = a2.number_input("Mortalités période", 0, 100000, 0)
+                alimentation = b2.text_input("Alimentation")
+                vaccination = c2.text_input("Vaccination")
+                reproduction = d2.text_input("Reproduction")
+                notes = st.text_area("Observations zootechniques")
+                if st.form_submit_button("Enregistrer le suivi élevage"):
+                    db_exec("""INSERT INTO livestock
+                        (id,dossier_id,espece,categorie,effectif,poids_moyen,alimentation,mortalite,
+                         vaccination,reproduction,date_suivi,notes)
+                        VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
+                        (new_id("ELV"),did,espece,categorie,effectif,poids,alimentation,mortalite,
+                         vaccination,reproduction,now(),notes))
+                    audit("SUIVI_ELEVAGE", "dossier", did)
+                    st.success("Suivi enregistré.")
+            rows = db_exec("SELECT * FROM livestock WHERE dossier_id=? ORDER BY date_suivi DESC", (did,), True)
+            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+    with tabs[4]:
+        st.subheader("🐟 Aquaculture — suivi de production")
+        did = context()["dossier_id"]
+        if did:
+            with st.form("aqua_form"):
+                a,b,c1,d = st.columns(4)
+                unite = a.text_input("Unité / bassin", "Bassin 1")
+                espece = b.text_input("Espèce", "Tilapia")
+                volume = c1.number_input("Volume m³", 0.0, 1e9, 0.0)
+                densite = d.number_input("Densité ind./m³", 0.0, 10000.0, 0.0)
+                a2,b2,c2,d2 = st.columns(4)
+                oxy = a2.number_input("O₂ mg/L", 0.0, 30.0, 0.0)
+                ph = b2.number_input("pH", 0.0, 14.0, 7.0)
+                temp = c2.number_input("Température °C", 0.0, 50.0, 25.0)
+                mort = d2.number_input("Mortalités", 0, 100000, 0)
+                a3,b3 = st.columns(2)
+                aliment = a3.number_input("Aliment kg/j", 0.0, 100000.0, 0.0)
+                poids = b3.number_input("Poids moyen g", 0.0, 10000.0, 0.0)
+                notes = st.text_area("Notes")
+                if st.form_submit_button("Enregistrer le suivi aquacole"):
+                    db_exec("""INSERT INTO aquaculture
+                        (id,dossier_id,unite,espece,volume_m3,densite,oxygene,ph,temperature,
+                         mortalite,aliment_kg,poids_moyen_g,date_suivi,notes)
+                        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                        (new_id("AQU"),did,unite,espece,volume,densite,oxy,ph,temp,mort,aliment,poids,now(),notes))
+                    audit("SUIVI_AQUACULTURE", "dossier", did)
+                    st.success("Suivi aquacole enregistré.")
+
+    with tabs[5]:
+        st.subheader("🏭 Agroalimentaire — transformation, pertes et qualité")
+        did = context()["dossier_id"]
+        if did:
+            with st.form("agrofood_form"):
+                a,b,c1,d = st.columns(4)
+                produit = a.text_input("Produit")
+                quantite = b.number_input("Quantité", 0.0, 1e9, 0.0)
+                unite = c1.selectbox("Unité", ["kg","t","L","unités"])
+                lot = d.text_input("N° lot")
+                transformation = a.text_input("Transformation")
+                stockage = b.selectbox("Stockage", ["Sec","Froid","Congélation","Ambiant","Autre"])
+                pertes = c1.number_input("Pertes %", 0.0, 100.0, 0.0)
+                qualite = d.selectbox("Qualité", ["Non évaluée","Conforme","À surveiller","Non conforme"])
+                notes = st.text_area("Traçabilité / remarques")
+                if st.form_submit_button("Enregistrer l'opération"):
+                    db_exec("""INSERT INTO agrofood
+                        (id,dossier_id,produit,quantite,unite,transformation,stockage,pertes_pct,
+                         qualite,lot,date_operation,notes)
+                        VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
+                        (new_id("AGF"),did,produit,quantite,unite,transformation,stockage,pertes,qualite,lot,now(),notes))
+                    audit("SUIVI_AGROALIMENTAIRE", "dossier", did)
+                    st.success("Opération enregistrée.")
+
+    with tabs[6]:
+        st.subheader("👁️ Observation terrain")
+        c = context()
+        if not c["dossier_id"]:
             st.info("Sélectionnez un dossier.")
+        else:
+            with st.form("observation_form"):
+                a,b,c1,d = st.columns(4)
+                domaine = a.selectbox("Domaine", DOMAINS)
+                typ = b.selectbox("Type", ["Inspection","Incident","Symptôme","Mesure","Suivi","Photo","Autre"])
+                gravite = c1.selectbox("Gravité", ["Information","Faible","Moyenne","Élevée","Critique"])
+                incidence = d.number_input("Incidence %", 0.0, 100.0, 0.0)
+                surface = st.number_input("Surface affectée ha", 0.0, 100000.0, 0.0)
+                desc = st.text_area("Description factuelle et précise")
+                photo = st.file_uploader("Photo de preuve", type=["jpg","jpeg","png","webp"], key="obs_photo")
+                if st.form_submit_button("Enregistrer l'observation"):
+                    db_exec("""INSERT INTO observations
+                        (id,dossier_id,parcelle_id,domaine,type_observation,description,gravite,incidence,
+                         surface_affectee_ha,latitude,longitude,photo_name,date_observation,source_type,confidence,
+                         validation_status,created_at)
+                        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                        (new_id("OBS"),c["dossier_id"],c["parcelle_id"],domaine,typ,desc,gravite,incidence,
+                         surface,c["latitude"],c["longitude"],photo.name if photo else "",now(),"Terrain",0.85,
+                         "À vérifier",now()))
+                    if gravite in ["Élevée","Critique"]:
+                        db_exec("""INSERT INTO alerts
+                            (id,dossier_id,parcelle_id,domaine,niveau,titre,message,source,due_date,created_at)
+                            VALUES(?,?,?,?,?,?,?,?,?,?)""",
+                                (new_id("ALT"),c["dossier_id"],c["parcelle_id"],domaine,gravite,
+                                 f"Observation {domaine}",desc or "Contrôle requis.","Terrain",
+                                 str(date.today()+timedelta(days=2)),now()))
+                    audit("OBSERVATION", "observation", c["dossier_id"])
+                    st.success("Observation enregistrée et synchronisée au dossier.")
+
+    with tabs[7]:
+        st.subheader("🧪 Analyses laboratoire / terrain")
+        c = context()
+        if c["dossier_id"]:
+            with st.form("analysis_form"):
+                a,b,c1,d = st.columns(4)
+                typ = a.selectbox("Type analyse", ["Sol","Eau","Végétal","Aliment","Fourrage","Autre"])
+                param = b.text_input("Paramètre", "pH")
+                valeur = c1.number_input("Valeur", -1e12, 1e12, 0.0)
+                unite = d.text_input("Unité")
+                a2,b2,c2 = st.columns(3)
+                methode = a2.text_input("Méthode")
+                labo = b2.text_input("Laboratoire / source")
+                validation = c2.selectbox("Validation", ["Validé","À vérifier","Rejeté"])
+                notes = st.text_area("Commentaire")
+                if st.form_submit_button("Enregistrer l'analyse"):
+                    conf = 0.95 if validation == "Validé" else 0.65
+                    db_exec("""INSERT INTO analyses
+                        (id,dossier_id,parcelle_id,type_analyse,parametre,valeur,unite,methode,laboratoire,
+                         date_analyse,source_type,confidence,validation_status,notes,created_at)
+                        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                        (new_id("ANA"),c["dossier_id"],c["parcelle_id"],typ,param,valeur,unite,methode,labo,
+                         now(),"Laboratoire" if labo else "Terrain",conf,validation,notes,now()))
+                    audit("ANALYSE", "analyse", c["dossier_id"], {"param":param,"value":valeur})
+                    st.success("Analyse enregistrée.")
+            rows = db_exec("SELECT * FROM analyses WHERE dossier_id=? ORDER BY date_analyse DESC", (c["dossier_id"],), True)
+            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+    with tabs[8]:
+        st.subheader("📦 Parc matériel et actifs")
+        did = context()["dossier_id"]
+        if did:
+            with st.form("asset_form"):
+                a,b,c1,d = st.columns(4)
+                typ = a.selectbox("Type", ["Matériel","Bâtiment","Irrigation","Véhicule","Stock","Autre"])
+                nom = b.text_input("Désignation")
+                qte = c1.number_input("Quantité", 0.0, 1e9, 0.0)
+                unite = d.text_input("Unité")
+                valeur = st.number_input("Valeur estimée FCFA", 0.0, 1e12, 0.0)
+                etat = st.selectbox("État", ["Bon","Moyen","À réparer","Hors service"])
+                notes = st.text_area("Notes")
+                if st.form_submit_button("Ajouter l'actif"):
+                    db_exec("""INSERT INTO assets(id,dossier_id,type_asset,nom,quantite,unite,etat,valeur_fcfa,notes,created_at)
+                               VALUES(?,?,?,?,?,?,?,?,?,?)""",
+                            (new_id("AST"),did,typ,nom,qte,unite,etat,valeur,notes,now()))
+                    audit("AJOUT_ACTIF","asset",did)
+
+    with tabs[9]:
+        st.subheader("📚 Historique unifié")
+        did = context()["dossier_id"]
+        if did:
+            tables = [
+                ("Observation","SELECT created_at,description AS texte FROM observations WHERE dossier_id=?"),
+                ("Analyse","SELECT created_at,parametre || ' = ' || valeur AS texte FROM analyses WHERE dossier_id=?"),
+                ("Action","SELECT created_at,titre AS texte FROM actions WHERE dossier_id=?"),
+                ("Mission","SELECT created_at,objet AS texte FROM missions WHERE dossier_id=?"),
+            ]
+            hist = []
+            for typ, sql in tables:
+                for row in db_exec(sql,(did,),True):
+                    hist.append({"Date":row["created_at"],"Type":typ,"Événement":row["texte"]})
+            hist.sort(key=lambda x:x["Date"], reverse=True)
+            st.dataframe(pd.DataFrame(hist), use_container_width=True, hide_index=True)
 
 
 # =========================================================
-# ONGLET 2 — SIG & DIAGNOSTIC
+# 11. ESPACE 2 — SIG & DIAGNOSTIC
 # =========================================================
-def sig_tab():
-    subs = st.tabs([
-        "🗺️ Carte", "📍 GPS / Polygones", "🌱 Sols & Eau",
-        "🦠 Phytosanitaire", "🌦️ Climat & Risques", "🔎 Qualité des données"
+def sig_space():
+    tabs = st.tabs([
+        "🗺️ Zone concernée", "📍 GPS & polygones", "🧭 Couches SIG",
+        "🌱 Sols & Eau", "🦠 Phytosanitaire", "🌦️ Climat & risques",
+        "🔎 Qualité & preuves"
     ])
 
-    with subs[0]:
-        st.subheader("🗺️ Carte centrale du dossier")
+    with tabs[0]:
+        st.subheader("🗺️ Délimiter précisément la zone concernée")
         c = context()
         if not c["dossier_id"]:
             st.info("Créez/sélectionnez un dossier.")
-        elif HAS_FOLIUM:
-            lat = c["latitude"] or 14.7
-            lon = c["longitude"] or -16.2
-            m = folium.Map(location=[lat, lon], zoom_start=13, control_scale=True)
-            if c["geometry"]:
-                folium.Polygon(c["geometry"], popup=c["parcelle"] or "Parcelle active",
-                               tooltip=f"{c['surface_ha']:.2f} ha").add_to(m)
-            folium.Marker([lat, lon], tooltip="Contexte actif").add_to(m)
-            st_folium(m, width=1000, height=550, key="central_sig_map")
+        elif not HAS_MAP:
+            st.warning("Pour le dessin interactif, installez : folium streamlit-folium")
         else:
-            st.warning("Installez folium et streamlit-folium pour la carte interactive.")
-            st.write(c)
+            lat = float(c["latitude"] or REGIONS_COORD.get(c["region"], (14.7,-16.2))[0])
+            lon = float(c["longitude"] or REGIONS_COORD.get(c["region"], (14.7,-16.2))[1])
+            st.info("Dessinez un polygone autour de la zone réellement étudiée. La surface calculée et la géométrie seront utilisées par les diagnostics et rapports.")
+            result = map_for_context(lat, lon, 600, "study_zone_map", True)
+            drawing = result.get("last_active_drawing") if result else None
+            coords = drawing_to_coords(drawing)
+            if len(coords) >= 3:
+                area = polygon_area_ha(coords)
+                perim = polygon_perimeter_m(coords)
+                st.success(f"Zone détectée : {area:.3f} ha · périmètre {perim:.1f} m")
+                a,b,c1 = st.columns(3)
+                typ = a.selectbox("Type de zone", ["Zone d'étude","Parcelle","Zone d'observation","Zone à risque"], key="zone_type_draw")
+                nom = b.text_input("Nom de la zone", "Zone d'étude principale", key="zone_name_draw")
+                c1.write(f"**Centre**\n{centroid(coords)[0]:.6f}, {centroid(coords)[1]:.6f}")
+                if st.button("💾 Enregistrer cette zone comme périmètre officiel de l'étude", type="primary", key="save_zone_draw"):
+                    zid = save_zone(coords, typ, nom, c["dossier_id"], c["parcelle_id"])
+                    st.session_state["zone_feature_id"] = zid
+                    st.session_state["map_nonce"] += 1
+                    st.success("Zone enregistrée. Elle devient le périmètre géographique commun du dossier.")
+                    st.rerun()
+            if c["zone_geometry"]:
+                st.metric("Zone active", f"{c['zone_surface_ha']:.3f} ha")
+                st.caption(f"{c['zone_nom']} · {c['zone_type']} · source GPS/terrain")
 
-    with subs[1]:
-        st.subheader("📍 GPS & délimitation — source géographique unique")
-        did = st.session_state.get("dossier_id")
-        if not did:
-            st.warning("Sélectionnez un dossier.")
-        else:
+    with tabs[1]:
+        st.subheader("📍 GPS, coordonnées et création de parcelle")
+        did = context()["dossier_id"]
+        if did:
             d = active_dossier()
-            c1,c2 = st.columns(2)
-            with c1:
-                lat = st.number_input("Latitude", value=float(d.get("latitude") or 14.7), format="%.6f", key="sig_lat")
-                lon = st.number_input("Longitude", value=float(d.get("longitude") or -16.2), format="%.6f", key="sig_lon")
-                if st.button("📍 Enregistrer le point central", key="sig_save_point"):
-                    db_exec("UPDATE dossiers SET latitude=?,longitude=?,updated_at=? WHERE id=?",
-                            (lat, lon, now(), did))
-                    audit("GPS", "dossier", did, {"lat": lat, "lon": lon})
-                    st.success("Point GPS centralisé.")
-            with c2:
-                parcelles = db_exec("SELECT * FROM parcelles WHERE dossier_id=?", (did,), True)
-                with st.form("new_parcel"):
-                    nom = st.text_input("Nom de la parcelle", "Parcelle 1")
-                    culture = st.selectbox("Culture", CULTURES)
-                    if st.form_submit_button("Créer la parcelle"):
-                        pid = new_id("PAR")
-                        db_exec("""INSERT INTO parcelles(id,dossier_id,nom,culture,stade,latitude,longitude,geometry_json,created_at,updated_at)
+            a,b = st.columns(2)
+            lat = a.number_input("Latitude centrale", value=float(d["latitude"] or 14.7), format="%.6f", key="gps_lat_main")
+            lon = b.number_input("Longitude centrale", value=float(d["longitude"] or -16.2), format="%.6f", key="gps_lon_main")
+            if st.button("Enregistrer le point GPS", key="save_gps_main"):
+                db_exec("UPDATE dossiers SET latitude=?,longitude=?,updated_at=? WHERE id=?", (lat,lon,now(),did))
+                audit("GPS","dossier",did,{"lat":lat,"lon":lon})
+                st.success("GPS enregistré.")
+            with st.form("new_parcel_sig"):
+                nom = st.text_input("Nom de la parcelle", "Parcelle 1")
+                culture = st.selectbox("Culture", CULTURES)
+                if st.form_submit_button("Créer la parcelle"):
+                    pid = new_id("PAR")
+                    db_exec("""INSERT INTO parcelles
+                        (id,dossier_id,nom,culture,stade,latitude,longitude,geometry_json,created_at,updated_at)
                         VALUES(?,?,?,?,?,?,?,?,?,?)""",
-                                (pid,did,nom,culture,STADES[0],lat,lon,"[]",now(),now()))
-                        st.session_state["parcelle_id"] = pid
-                        audit("CREATION", "parcelle", pid)
-                        st.rerun()
+                        (pid,did,nom,culture,STAGES[0],lat,lon,"[]",now(),now()))
+                    st.session_state["parcelle_id"] = pid
+                    audit("CREATION","parcelle",pid)
+                    st.success("Parcelle créée.")
 
-            p = active_parcelle()
-            if p:
-                st.markdown(f"**Parcelle active : {p['nom']}**")
-                if HAS_FOLIUM:
-                    m = folium.Map(location=[p["latitude"] or lat, p["longitude"] or lon], zoom_start=15)
-                    geom = json.loads(p.get("geometry_json") or "[]")
-                    if geom:
-                        folium.Polygon(geom, color="green", fill=True, fill_opacity=0.2).add_to(m)
-                    Draw(export=True, draw_options={"polyline": False, "circle": False, "circlemarker": False},
-                         edit_options={"edit": True, "remove": True}).add_to(m)
-                    result = st_folium(m, width=900, height=500, key="sig_polygon_map")
-                    drawing = result.get("last_active_drawing") if result else None
-                    coords = drawing_coords(drawing)
-                    if coords and len(coords) >= 3:
-                        area = polygon_area_ha(coords)
-                        perim = polygon_perimeter_m(coords)
-                        db_exec("""UPDATE parcelles SET geometry_json=?,surface_ha=?,perimetre_m=?,latitude=?,longitude=?,source='Terrain',confidence=0.98,date_observation=?,updated_at=? WHERE id=?""",
-                                (json.dumps(coords), area, perim, coords[0][0], coords[0][1], now(), now(), p["id"]))
-                        db_exec("UPDATE dossiers SET latitude=?,longitude=?,updated_at=? WHERE id=?",
-                                (coords[0][0], coords[0][1], now(), did))
-                        audit("GEOMETRIE", "parcelle", p["id"], {"surface_ha": area, "perimetre_m": perim})
-                        st.success(f"Parcelle synchronisée : {area:.3f} ha · {perim:.1f} m")
-                st.metric("Surface", f"{p['surface_ha']:.3f} ha")
-                st.metric("Périmètre", f"{p['perimetre_m']:.1f} m")
+    with tabs[2]:
+        st.subheader("🧭 Couches SIG du dossier")
+        did = context()["dossier_id"]
+        if did:
+            rows = db_exec("SELECT * FROM gis_features WHERE dossier_id=? ORDER BY created_at DESC", (did,), True)
+            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+            if rows:
+                options = [f"{r['id']} · {r['nom']} ({r['type_feature']})" for r in rows]
+                cur = context()["zone_id"]
+                idx = next((i for i,r in enumerate(rows) if r["id"] == cur),0)
+                sel = st.selectbox("Périmètre géographique actif", options, index=idx, key="active_zone_select")
+                zid = sel.split(" · ",1)[0]
+                if zid != st.session_state.get("zone_feature_id"):
+                    st.session_state["zone_feature_id"] = zid
+                    st.rerun()
 
-    with subs[2]:
+    with tabs[3]:
         st.subheader("🌱 Sols & Eau")
         c = context()
         zone = next((z for z,v in AGROZONES.items() if c["region"] in v["regions"]), None)
         if zone:
             st.info(f"Zone agroécologique indicative : {zone}")
-            st.write("**Sol :**", AGROZONES[zone]["sol"])
-            st.write("**Climat :**", AGROZONES[zone]["climat"])
-            st.write("**Risques :**", AGROZONES[zone]["risques"])
-        st.markdown("#### Calcul irrigation")
+            st.write("**Profil de sol indicatif :**", AGROZONES[zone]["sol"])
+            st.write("**Risques indicatifs :**", AGROZONES[zone]["risques"])
+        st.markdown("#### Besoin d'irrigation")
         a,b,c1,d = st.columns(4)
-        eto = a.number_input("ETo (mm/j)", 0.0, 20.0, 5.5, key="sig_eto")
-        kc = b.number_input("Kc", 0.1, 1.5, 1.0, key="sig_kc")
-        surface = c1.number_input("Surface (ha)", 0.1, 100000.0, float(context()["surface_ha"] or 1), key="sig_surface")
-        effic = d.number_input("Efficacité", 0.1, 1.0, 0.75, key="sig_eff")
+        eto = a.number_input("ETo mm/j", 0.0, 20.0, 5.5, key="irrig_eto_pro")
+        kc = b.number_input("Kc", 0.1, 1.5, 1.0, key="irrig_kc_pro")
+        surf = c1.number_input("Surface ha", 0.1, 100000.0, float(c["zone_surface_ha"] or c["surface_ha"] or 1), key="irrig_surface_pro")
+        eff = d.number_input("Efficacité", 0.1, 1.0, 0.75, key="irrig_eff_pro")
         etc = eto * kc
-        m3 = etc * 10 * surface / effic
+        gross = etc * 10 * surf / eff
         st.metric("ETc", f"{etc:.2f} mm/j")
-        st.metric("Besoin brut", f"{m3:.1f} m³/j")
-        st.caption("Calcul indicatif; les paramètres doivent être adaptés aux conditions réelles de la parcelle.")
+        st.metric("Besoin brut", f"{gross:.1f} m³/j")
+        st.caption("Calcul indicatif; confirmer les paramètres par les conditions locales et les données techniques disponibles.")
 
-    with subs[3]:
-        st.subheader("🦠 Diagnostic phytosanitaire")
-        st.warning("Le diagnostic photographique ou textuel est un pré-diagnostic. Une prescription officielle doit être confirmée.")
-        symptom = st.text_area("Symptômes observés", key="phyt_symptoms")
-        severity = st.select_slider("Niveau", options=["Faible","Moyen","Élevé","Critique"], key="phyt_severity")
-        if st.button("🔬 Construire le pré-diagnostic", key="phyt_run"):
-            q = f"{symptom} niveau {severity}"
-            answer, conf = local_ai(q, "Technicien / Conseiller")
+    with tabs[4]:
+        st.subheader("🦠 Pré-diagnostic phytosanitaire")
+        st.warning("La sortie est un pré-diagnostic et une procédure de vérification, pas une prescription homologuée.")
+        symptoms = st.text_area("Symptômes / ravageurs observés", key="phyt_symptoms_pro")
+        severity = st.select_slider("Sévérité", ["Faible","Moyenne","Élevée","Critique"], key="phyt_level_pro")
+        if st.button("Construire le pré-diagnostic", key="phyt_run_pro"):
+            answer, conf, evidence = local_expert(f"{symptoms} sévérité {severity}", "Technicien")
             st.markdown(answer)
-            audit("PRE_DIAGNOSTIC", "phytosanitaire", st.session_state.get("parcelle_id",""))
+            audit("PRE_DIAGNOSTIC","phytosanitaire",context()["parcelle_id"] or "")
 
-    with subs[4]:
+    with tabs[5]:
         st.subheader("🌦️ Climat & risques")
         c = context()
-        if st.button("🔄 Synchroniser météo de la parcelle", key="sig_weather_sync"):
-            if c["latitude"] is not None:
-                try:
-                    data = sync_weather(float(c["latitude"]), float(c["longitude"]))
-                    st.session_state["weather"] = data
-                    st.session_state["sync_status"] = "Météo synchronisée"
-                    st.success("Météo synchronisée.")
-                except Exception as exc:
-                    st.error(f"Synchronisation météo impossible : {exc}")
-            else:
-                st.warning("Coordonnées absentes.")
+        if st.button("🔄 Synchroniser la météo de la zone", key="weather_sync_pro"):
+            try:
+                sync_weather()
+                st.success("Météo synchronisée.")
+            except Exception as exc:
+                st.error(str(exc))
         weather = st.session_state.get("weather")
         if weather:
             cur = weather.get("current", {})
@@ -932,359 +1196,632 @@ def sig_tab():
             b.metric("Humidité", f"{cur.get('relative_humidity_2m','—')} %")
             c1.metric("Pluie", f"{cur.get('precipitation','—')} mm")
             d.metric("Vent", f"{cur.get('wind_speed_10m','—')} km/h")
-            st.dataframe(pd.DataFrame(weather.get("daily", {})), use_container_width=True)
-        st.caption("La météo opérationnelle vient d'une source météo numérique; les vigilances officielles doivent être vérifiées auprès de l'ANACIM.")
+            daily = weather.get("daily", {})
+            if daily:
+                st.dataframe(pd.DataFrame(daily), use_container_width=True, hide_index=True)
+        st.caption("Pour les vigilances officielles, vérifier les communications ANACIM au moment de la décision.")
 
-    with subs[5]:
-        st.subheader("🔎 Centre de qualité des données")
-        score = quality_score()
-        st.progress(score / 100)
-        st.metric("Score qualité", f"{score}/100")
-        c = context()
-        checks = [
-            ("Dossier actif", bool(c["dossier_id"]), "Créer/sélectionner un dossier"),
-            ("Parcelle active", bool(c["parcelle_id"]), "Créer/sélectionner une parcelle"),
-            ("GPS", c["latitude"] is not None and c["longitude"] is not None, "Renseigner les coordonnées"),
-            ("Surface", bool(c["surface_ha"] and c["surface_ha"] > 0), "Dessiner/valider le polygone"),
-            ("Culture", bool(c["culture"]), "Renseigner la culture"),
-        ]
-        st.dataframe(pd.DataFrame([
-            {"Contrôle": a, "OK": "Oui" if b else "Non", "Action": d} for a,b,d in checks
-        ]), use_container_width=True, hide_index=True)
-        if st.button("🧹 Recalculer qualité", key="recalc_quality"):
-            st.session_state["last_quality"] = score
-            st.success(f"Score recalculé : {score}/100")
+    with tabs[6]:
+        st.subheader("🔎 Qualité des données, preuves et fiabilité")
+        q, checks = data_quality()
+        st.progress(q/100)
+        st.metric("Score de qualité", f"{q}/100")
+        st.dataframe(pd.DataFrame(checks), use_container_width=True, hide_index=True)
+        st.markdown(f"**Confiance calculée séparément :** {confidence_from_sources()*100:.0f} %")
+        st.markdown(f"**Risque séparé :** {risk_score()}/100")
+        st.caption("Une faible qualité de données ne signifie pas un faible risque. Qualité, confiance et risque sont volontairement séparés.")
 
 
 # =========================================================
-# ONGLET 3 — IA & DÉCISION
+# 12. ESPACE 3 — IA & DÉCISION
 # =========================================================
-def ia_tab():
-    subs = st.tabs([
-        "🧠 IA Expert 360°", "🔬 Diagnostic", "📊 Simulations",
-        "💰 Économie / ROI", "🚨 Alertes", "📈 KPI & Scoring", "✅ Plan d'action"
+def decision_space():
+    tabs = st.tabs([
+        "🧠 IA Expert 360°", "🔬 Diagnostic multi-domaine", "📊 Simulations",
+        "💰 Économie / ROI", "🚨 Alertes", "📈 KPI", "✅ Plan d'action",
+        "🧪 Contrôle de cohérence"
     ])
 
-    with subs[0]:
-        st.subheader("🧠 IA Expert 360° — contexte automatique")
-        c = context()
-        st.info("L'IA ne redemande pas le GPS, la surface ou la culture : elle lit le contexte central actif.")
-        actor = st.selectbox("Acteur", list(ACTEURS), key="ia360_actor")
-        st.caption(ACTEURS[actor])
-        question = st.text_area("Question / problème terrain", key="ia360_question",
-                                placeholder="Ex. Les feuilles du maïs jaunissent depuis quatre jours après une pluie.")
-        if st.button("🤖 Analyser avec le moteur local", type="primary", key="ia360_run"):
+    with tabs[0]:
+        st.subheader("🧠 IA Expert 360° sans clé API")
+        st.caption("Le moteur lit automatiquement le dossier, la parcelle, la zone GPS, les observations, analyses et météo disponibles.")
+        actor = st.selectbox("Profil d'analyse", ROLES, key="ia_actor_pro")
+        question = st.text_area("Question / problème", key="ia_question_pro",
+                                placeholder="Ex. La tomate présente des taches depuis 4 jours dans la zone nord délimitée.")
+        if st.button("🤖 Produire une analyse structurée", type="primary", key="ia_run_pro"):
             if not question.strip():
                 st.warning("Décrivez le problème.")
             else:
-                answer, conf = local_ai(question, actor)
+                answer, conf, evidence = local_expert(question, actor)
                 st.session_state["last_ai"] = answer
-                db_exec("""INSERT INTO ai_history(id,dossier_id,parcelle_id,acteur,question,answer,evidence,confidence,created_at)
-                VALUES(?,?,?,?,?,?,?,?,?)""",
-                        (new_id("AI"), c["dossier_id"], c["parcelle_id"], actor, question, answer,
-                         "Contexte central + règles locales; validation terrain requise", conf, now()))
-                audit("IA", "ai_history", c["parcelle_id"] or "", question)
+                c = context()
+                db_exec("""INSERT INTO ai_history
+                    (id,dossier_id,parcelle_id,question,answer,confidence,evidence,created_at)
+                    VALUES(?,?,?,?,?,?,?,?)""",
+                        (new_id("AI"),c["dossier_id"],c["parcelle_id"],question,answer,conf,
+                         json.dumps(evidence),now()))
+                audit("IA_ANALYSE","ai_history",c["dossier_id"],question)
         if st.session_state.get("last_ai"):
             st.markdown(st.session_state["last_ai"])
 
-    with subs[1]:
-        st.subheader("🔬 Diagnostic multi-domaine")
-        c = context()
-        obs = db_exec("SELECT * FROM observations WHERE dossier_id=? ORDER BY created_at DESC LIMIT 30",
-                      (c["dossier_id"],), True) if c["dossier_id"] else []
-        ana = db_exec("SELECT * FROM analyses WHERE dossier_id=? ORDER BY date_analyse DESC LIMIT 30",
-                      (c["dossier_id"],), True) if c["dossier_id"] else []
-        st.write("**Observations récentes :", len(obs))
-        st.write("**Analyses disponibles :", len(ana))
-        if obs:
-            st.dataframe(pd.DataFrame(obs), use_container_width=True, hide_index=True)
-        if ana:
-            st.dataframe(pd.DataFrame(ana), use_container_width=True, hide_index=True)
-
-    with subs[2]:
-        st.subheader("📊 Simulations")
-        c = context()
-        a,b,c1,d = st.columns(4)
-        rendement = a.number_input("Rendement (t/ha)", 0.0, 100.0, 4.0, key="sim_yield")
-        prix = b.number_input("Prix (FCFA/t)", 0.0, 10000000.0, 180000.0, key="sim_price")
-        cout = c1.number_input("Charges (FCFA/ha)", 0.0, 10000000.0, 500000.0, key="sim_cost")
-        perte = d.slider("Perte / aléa (%)", 0, 100, 10, key="sim_loss")
-        ha = float(c["surface_ha"] or 1)
-        production = rendement * ha * (1-perte/100)
-        ca = production * prix
-        charges = cout * ha
-        marge = ca - charges
-        x,y,z = st.columns(3)
-        x.metric("Production ajustée", f"{production:.2f} t")
-        y.metric("CA", f"{ca:,.0f} FCFA")
-        z.metric("Marge", f"{marge:,.0f} FCFA")
-        st.caption("Simulation d'aide à la décision, non donnée comptable certifiée.")
-
-    with subs[3]:
-        st.subheader("💰 Économie & ROI")
-        did = st.session_state.get("dossier_id")
-        if did:
-            rows = db_exec("SELECT type, SUM(montant) montant FROM finance WHERE dossier_id=? GROUP BY type", (did,), True)
-            df = pd.DataFrame(rows)
-            if not df.empty:
-                st.dataframe(df, use_container_width=True, hide_index=True)
-            else:
-                st.info("Aucune opération financière.")
-            with st.form("finance_ia_form"):
-                a,b,c = st.columns(3)
-                typ = a.selectbox("Type", ["Recette", "Dépense"])
-                lib = b.text_input("Libellé")
-                amount = c.number_input("Montant FCFA", 0.0, 1e12, 0.0)
-                if st.form_submit_button("Ajouter"):
-                    db_exec("INSERT INTO finance(id,dossier_id,type,libelle,montant,date_operation,statut,notes) VALUES(?,?,?,?,?,?,?,?)",
-                            (new_id("FIN"), did, typ, lib, amount, now(), "Enregistré", ""))
-                    audit("FINANCE", "finance", did)
-
-    with subs[4]:
-        st.subheader("🚨 Alertes")
-        did = st.session_state.get("dossier_id")
-        if did:
-            rows = db_exec("SELECT * FROM alerts WHERE dossier_id=? ORDER BY created_at DESC", (did,), True)
-            if rows:
-                st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
-            else:
-                st.success("Aucune alerte enregistrée.")
-            if st.button("🔎 Générer les alertes de cohérence", key="generate_alerts"):
-                c = context()
-                if not c["parcelle_id"]:
-                    st.warning("Pas de parcelle active.")
-                if quality_score() < 60:
-                    db_exec("""INSERT INTO alerts(id,dossier_id,parcelle_id,domaine,niveau,titre,message,source,created_at)
-                    VALUES(?,?,?,?,?,?,?,?,?)""",
-                            (new_id("ALT"), did, c["parcelle_id"], "Données", "Moyenne",
-                             "Qualité de données insuffisante",
-                             "Compléter GPS, surface, culture et observations avant une décision sensible.",
-                             "Moteur qualité", now()))
-                st.rerun()
-
-    with subs[5]:
-        st.subheader("📈 KPI & scoring de décision")
-        c = context()
-        q = quality_score()
-        obs_count = len(db_exec("SELECT id FROM observations WHERE dossier_id=?", (c["dossier_id"],), True)) if c["dossier_id"] else 0
-        ana_count = len(db_exec("SELECT id FROM analyses WHERE dossier_id=?", (c["dossier_id"],), True)) if c["dossier_id"] else 0
-        scores = {
-            "Données": q,
-            "Terrain": min(100, obs_count*15),
-            "Analyses": min(100, ana_count*20),
-            "Géospatial": 100 if c["geometry"] else 30,
-            "Contexte cultural": 100 if c["culture"] else 20,
-        }
-        overall = round(np.mean(list(scores.values())))
-        st.metric("Score décision global", f"{overall}/100")
-        st.dataframe(pd.DataFrame([{"Domaine":k,"Score":v} for k,v in scores.items()]),
-                     use_container_width=True, hide_index=True)
-        st.caption("Le score de qualité/confiance est distinct du risque agronomique : une donnée peu fiable ne doit pas être interprétée comme un faible risque.")
-
-    with subs[6]:
-        st.subheader("✅ Plan d'action")
-        did = st.session_state.get("dossier_id")
-        if not did:
-            st.warning("Sélectionnez un dossier.")
-        else:
-            with st.form("action_form"):
-                a,b,c,d = st.columns(4)
-                titre = a.text_input("Action")
-                resp = b.text_input("Responsable")
-                echeance = c.date_input("Échéance")
-                priorite = d.selectbox("Priorité", ["Basse","Normale","Haute","Critique"])
-                if st.form_submit_button("Créer action"):
-                    db_exec("""INSERT INTO actions(id,dossier_id,titre,responsable,echeance,statut,priorite,created_at,updated_at)
-                    VALUES(?,?,?,?,?,?,?,?,?)""",
-                            (new_id("ACT"), did, titre, resp, str(echeance), "À faire", priorite, now(), now()))
-                    audit("CREATION", "action", did)
-            rows = db_exec("SELECT * FROM actions WHERE dossier_id=? ORDER BY echeance", (did,), True)
-            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
-
-
-# =========================================================
-# ONGLET 4 — CONSULTANCE & PILOTAGE
-# =========================================================
-def consultancy_tab():
-    subs = st.tabs([
-        "👥 Clients", "📋 Missions", "📝 Devis / Finance",
-        "📄 Rapports", "📚 Documents", "👑 Administration", "🛡️ Audit"
-    ])
-
-    with subs[0]:
-        st.subheader("👥 Clients & dossiers")
-        rows = db_exec("SELECT id,nom,client,region,type_exploitation,updated_at FROM dossiers ORDER BY updated_at DESC", fetch=True)
-        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
-
-    with subs[1]:
-        st.subheader("📋 Missions de consultance")
-        did = st.session_state.get("dossier_id")
-        if not did:
-            st.warning("Sélectionnez un dossier.")
-        else:
-            with st.form("mission_form"):
-                a,b,c = st.columns(3)
-                objet = a.text_input("Objet")
-                client = b.text_input("Client", value=(active_dossier() or {}).get("client",""))
-                priorite = c.selectbox("Priorité", ["Normale","Haute","Critique"])
-                debut = a.date_input("Début")
-                echeance = b.date_input("Échéance")
-                budget = c.number_input("Budget FCFA", 0.0, 1e12, 0.0)
-                if st.form_submit_button("Créer mission", type="primary"):
-                    mid = new_id("MIS")
-                    db_exec("""INSERT INTO missions(id,dossier_id,client,objet,statut,priorite,responsable,debut,echeance,budget,notes,created_at,updated_at)
-                    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                            (mid,did,client,objet,"Ouverte",priorite,
-                             (st.session_state.get("user") or {}).get("nom",""),
-                             str(debut),str(echeance),budget,"",now(),now()))
-                    audit("CREATION", "mission", mid)
-            rows = db_exec("SELECT * FROM missions WHERE dossier_id=? ORDER BY updated_at DESC", (did,), True)
-            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
-
-    with subs[2]:
-        st.subheader("📝 Devis / Finance")
-        did = st.session_state.get("dossier_id")
-        if did:
-            rows = db_exec("SELECT * FROM finance WHERE dossier_id=? ORDER BY date_operation DESC", (did,), True)
-            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
-        st.caption("Pour une comptabilité réglementaire, connecter ultérieurement le module financier à un système comptable validé.")
-
-    with subs[3]:
-        st.subheader("📄 Rapport professionnel")
+    with tabs[1]:
+        st.subheader("🔬 Diagnostic transversal")
         c = context()
         if not c["dossier_id"]:
-            st.warning("Sélectionnez un dossier.")
+            st.info("Sélectionnez un dossier.")
         else:
-            st.write("Le rapport utilise automatiquement le contexte central actif.")
-            if st.button("Préparer le rapport", type="primary", key="prepare_report"):
-                st.session_state["report_ready"] = True
-            if st.session_state.get("report_ready"):
-                st.markdown(f"""
-                **Dossier :** {c['dossier']}  
-                **Client :** {c['client'] or '—'}  
-                **Parcelle :** {c['parcelle'] or '—'}  
-                **Culture :** {c['culture'] or '—'}  
-                **Surface :** {c['surface_ha']:.3f} ha  
-                **Qualité des données :** {quality_score()}/100
-                """)
-                if HAS_REPORTLAB:
+            obs = db_exec("SELECT * FROM observations WHERE dossier_id=? ORDER BY created_at DESC LIMIT 50", (c["dossier_id"],), True)
+            ana = db_exec("SELECT * FROM analyses WHERE dossier_id=? ORDER BY date_analyse DESC LIMIT 50", (c["dossier_id"],), True)
+            a,b,c1 = st.columns(3)
+            a.metric("Observations", len(obs))
+            b.metric("Analyses", len(ana))
+            c1.metric("Confiance", f"{confidence_from_sources()*100:.0f}%")
+            if obs: st.dataframe(pd.DataFrame(obs), use_container_width=True, hide_index=True)
+            if ana: st.dataframe(pd.DataFrame(ana), use_container_width=True, hide_index=True)
+
+    with tabs[2]:
+        st.subheader("📊 Simulations de scénarios")
+        c = context()
+        a,b,c1,d = st.columns(4)
+        yield_t = a.number_input("Rendement t/ha", 0.0, 100.0, 4.0, key="sim_yield_pro")
+        price = b.number_input("Prix FCFA/t", 0.0, 10000000.0, 180000.0, key="sim_price_pro")
+        cost = c1.number_input("Charges FCFA/ha", 0.0, 10000000.0, 500000.0, key="sim_cost_pro")
+        loss = d.slider("Pertes / aléas %", 0, 100, 10, key="sim_loss_pro")
+        ha = float(c["zone_surface_ha"] or c["surface_ha"] or 1)
+        production = yield_t * ha * (1-loss/100)
+        revenue = production * price
+        charges = cost * ha
+        margin = revenue - charges
+        x,y,z = st.columns(3)
+        x.metric("Production ajustée", f"{production:.2f} t")
+        y.metric("Chiffre d'affaires", f"{revenue:,.0f} FCFA")
+        z.metric("Marge simulée", f"{margin:,.0f} FCFA")
+        st.caption("Simulation : modifier les hypothèses pour comparer plusieurs scénarios.")
+        scenario = pd.DataFrame({
+            "Scénario":["Prudent","Central","Optimiste"],
+            "Rendement t/ha":[yield_t*0.75,yield_t,yield_t*1.20],
+            "Pertes %":[min(100,loss+15),loss,max(0,loss-7)]
+        })
+        scenario["Production t"] = scenario["Rendement t/ha"]*ha*(1-scenario["Pertes %"]/100)
+        scenario["CA FCFA"] = scenario["Production t"]*price
+        st.dataframe(scenario, use_container_width=True, hide_index=True)
+
+    with tabs[3]:
+        st.subheader("💰 Économie, coûts, ROI et marge")
+        did = context()["dossier_id"]
+        if did:
+            with st.form("finance_form_pro"):
+                a,b,c1,d = st.columns(4)
+                typ = a.selectbox("Type", ["Recette","Dépense"])
+                cat = b.selectbox("Catégorie", ["Intrants","Main-d'œuvre","Irrigation","Transport","Conseil","Vente","Autre"])
+                lib = c1.text_input("Libellé")
+                amount = d.number_input("Montant FCFA", 0.0, 1e12, 0.0)
+                if st.form_submit_button("Enregistrer l'opération"):
+                    db_exec("""INSERT INTO finance
+                        (id,dossier_id,mission_id,type_operation,categorie,libelle,montant_fcfa,date_operation,statut,reference,notes)
+                        VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+                        (new_id("FIN"),did,st.session_state.get("selected_mission"),typ,cat,lib,amount,now(),"Enregistré","", ""))
+                    audit("FINANCE","finance",did)
+            rows = db_exec("SELECT type_operation,SUM(montant_fcfa) montant FROM finance WHERE dossier_id=? GROUP BY type_operation",(did,),True)
+            df = pd.DataFrame(rows)
+            recettes = float(df.loc[df["type_operation"]=="Recette","montant"].sum()) if not df.empty else 0
+            depenses = float(df.loc[df["type_operation"]=="Dépense","montant"].sum()) if not df.empty else 0
+            a,b,c1 = st.columns(3)
+            a.metric("Recettes", f"{recettes:,.0f} FCFA")
+            b.metric("Dépenses", f"{depenses:,.0f} FCFA")
+            c1.metric("Solde", f"{recettes-depenses:,.0f} FCFA")
+
+    with tabs[4]:
+        st.subheader("🚨 Centre des alertes")
+        did = context()["dossier_id"]
+        if did:
+            if st.button("Générer les alertes de cohérence", key="generate_alerts_pro"):
+                q,_ = data_quality()
+                if q < 70:
+                    db_exec("""INSERT INTO alerts
+                        (id,dossier_id,parcelle_id,domaine,niveau,titre,message,source,due_date,created_at)
+                        VALUES(?,?,?,?,?,?,?,?,?,?)""",
+                        (new_id("ALT"),did,context()["parcelle_id"],"Données","Moyenne",
+                         "Qualité insuffisante",
+                         "Compléter la zone GPS, les observations et les analyses avant décision sensible.",
+                         "Moteur qualité",str(date.today()+timedelta(days=2)),now()))
+                audit("GENERATION_ALERTES","alerts",did)
+            rows = db_exec("SELECT * FROM alerts WHERE dossier_id=? ORDER BY created_at DESC",(did,),True)
+            if rows: st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+            else: st.success("Aucune alerte enregistrée.")
+
+    with tabs[5]:
+        st.subheader("📈 Tableau de bord décisionnel")
+        c = context()
+        q,_ = data_quality()
+        risk = risk_score()
+        obs = len(db_exec("SELECT id FROM observations WHERE dossier_id=?",(c["dossier_id"],),True)) if c["dossier_id"] else 0
+        ana = len(db_exec("SELECT id FROM analyses WHERE dossier_id=?",(c["dossier_id"],),True)) if c["dossier_id"] else 0
+        actions = len(db_exec("SELECT id FROM actions WHERE dossier_id=?",(c["dossier_id"],),True)) if c["dossier_id"] else 0
+        scores = {
+            "Qualité données": q,
+            "Preuves terrain": min(100,obs*15),
+            "Analyses": min(100,ana*20),
+            "SIG / zone": 100 if c["zone_geometry"] else 15,
+            "Contexte cultural": 100 if c["culture"] else 20,
+            "Suivi actions": min(100,actions*15),
+        }
+        decision = int(np.mean(list(scores.values())))
+        a,b,c1 = st.columns(3)
+        a.metric("Score décision", f"{decision}/100")
+        b.metric("Confiance", f"{confidence_from_sources()*100:.0f}%")
+        c1.metric("Risque", f"{risk}/100")
+        st.dataframe(pd.DataFrame([{"Indicateur":k,"Score":v} for k,v in scores.items()]),
+                     use_container_width=True, hide_index=True)
+
+    with tabs[6]:
+        st.subheader("✅ Plan d'action et suivi")
+        did = context()["dossier_id"]
+        if did:
+            with st.form("action_form_pro"):
+                a,b,c1,d = st.columns(4)
+                domaine = a.selectbox("Domaine", DOMAINS)
+                titre = b.text_input("Action")
+                resp = c1.text_input("Responsable")
+                echeance = d.date_input("Échéance", date.today()+timedelta(days=3))
+                a2,b2,c2 = st.columns(3)
+                priorite = a2.selectbox("Priorité", ["Basse","Normale","Haute","Critique"])
+                cout = b2.number_input("Coût estimé FCFA", 0.0, 1e12, 0.0)
+                statut = c2.selectbox("Statut", ["À faire","En cours","Bloquée","Terminée"])
+                notes = st.text_area("Notes / preuve attendue")
+                if st.form_submit_button("Créer l'action"):
+                    db_exec("""INSERT INTO actions
+                        (id,dossier_id,mission_id,domaine,titre,responsable,echeance,priorite,statut,cout_estime,preuve,notes,created_at,updated_at)
+                        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                        (new_id("ACT"),did,st.session_state.get("selected_mission"),domaine,titre,resp,str(echeance),
+                         priorite,statut,cout,"",notes,now(),now()))
+                    audit("CREATION","action",did,titre)
+            rows = db_exec("SELECT * FROM actions WHERE dossier_id=? ORDER BY echeance",(did,),True)
+            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+    with tabs[7]:
+        st.subheader("🧪 Contrôles automatiques de cohérence")
+        c = context()
+        issues = []
+        if c["surface_ha"] and c["zone_surface_ha"] and abs(c["surface_ha"]-c["zone_surface_ha"]) > max(0.5, c["surface_ha"]*0.20):
+            issues.append("La surface parcelle et la surface de zone diffèrent fortement.")
+        if c["latitude"] is not None and not (-90 <= float(c["latitude"]) <= 90):
+            issues.append("Latitude invalide.")
+        if c["longitude"] is not None and not (-180 <= float(c["longitude"]) <= 180):
+            issues.append("Longitude invalide.")
+        if not c["zone_geometry"]:
+            issues.append("Aucune zone d'étude délimitée.")
+        if issues:
+            for x in issues: st.error(x)
+        else:
+            st.success("Aucune incohérence critique détectée par les contrôles simples.")
+
+
+# =========================================================
+# 13. ESPACE 4 — CONSULTANCE & PILOTAGE
+# =========================================================
+def consultancy_space():
+    tabs = st.tabs([
+        "👥 Clients", "📋 Missions", "📝 Devis", "💳 Finance",
+        "📄 Rapports", "📚 Documents", "📆 Suivi & agenda",
+        "👑 Administration", "🛡️ Audit & synchronisation"
+    ])
+
+    with tabs[0]:
+        st.subheader("👥 Portefeuille clients")
+        rows = db_exec("SELECT * FROM clients ORDER BY updated_at DESC", True)
+        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+    with tabs[1]:
+        st.subheader("📋 Workflow professionnel des missions")
+        did = context()["dossier_id"]
+        if did:
+            with st.form("mission_form_pro"):
+                a,b,c1,d = st.columns(4)
+                objet = a.text_input("Objet de la mission")
+                typ = b.selectbox("Type", ["Diagnostic","Étude","Suivi","Conseil","Formation","Audit","Cartographie","Évaluation économique"])
+                priorite = c1.selectbox("Priorité", ["Normale","Haute","Critique"])
+                responsable = d.text_input("Consultant responsable", value=(st.session_state.get("user") or {}).get("nom",""))
+                a2,b2,c2,d2 = st.columns(4)
+                debut = a2.date_input("Début", date.today())
+                echeance = b2.date_input("Échéance", date.today()+timedelta(days=7))
+                budget = c2.number_input("Budget FCFA", 0.0, 1e12, 0.0)
+                statut = d2.selectbox("Étape", ["Demande","Devis","Validée","Intervention","Suivi","Rapport","Clôturée"])
+                if st.form_submit_button("Créer la mission", type="primary"):
+                    mid = new_id("MIS")
+                    db_exec("""INSERT INTO missions
+                        (id,dossier_id,client_id,objet,type_mission,statut,priorite,responsable,date_debut,echeance,budget_fcfa,avancement,notes,created_at,updated_at)
+                        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                        (mid,did,context()["client_id"],objet,typ,statut,priorite,responsable,str(debut),str(echeance),
+                         budget,0,"",now(),now()))
+                    st.session_state["selected_mission"] = mid
+                    audit("CREATION","mission",mid,objet)
+            rows = db_exec("SELECT * FROM missions WHERE dossier_id=? ORDER BY updated_at DESC",(did,),True)
+            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+    with tabs[2]:
+        st.subheader("📝 Devis et offres de consultance")
+        cid, did = context()["client_id"], context()["dossier_id"]
+        if cid:
+            with st.form("quote_form"):
+                a,b,c1,d = st.columns(4)
+                ref = a.text_input("Référence", new_id("DEV").upper())
+                objet = b.text_input("Objet")
+                ht = c1.number_input("Montant HT FCFA",0.0,1e12,0.0)
+                taxes = d.number_input("Taxes FCFA",0.0,1e12,0.0)
+                valid = st.date_input("Valide jusqu'au", date.today()+timedelta(days=15))
+                statut = st.selectbox("Statut", ["Brouillon","Envoyé","Accepté","Refusé","Expiré"])
+                if st.form_submit_button("Enregistrer le devis"):
+                    db_exec("""INSERT INTO quotes
+                        (id,client_id,dossier_id,reference,objet,montant_ht,taxes,total,statut,date_creation,date_validite,notes)
+                        VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
+                        (new_id("QTE"),cid,did,ref,objet,ht,taxes,ht+taxes,statut,now(),str(valid),""))
+                    audit("DEVIS","quote",cid,ref)
+            rows = db_exec("SELECT * FROM quotes WHERE client_id=? ORDER BY date_creation DESC",(cid,),True)
+            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+    with tabs[3]:
+        st.subheader("💳 Finance et rentabilité du cabinet")
+        did = context()["dossier_id"]
+        if did:
+            rows = db_exec("SELECT * FROM finance WHERE dossier_id=? ORDER BY date_operation DESC",(did,),True)
+            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+    with tabs[4]:
+        st.subheader("📄 Rapports professionnels")
+        c = context()
+        if not c["dossier_id"]:
+            st.info("Sélectionnez un dossier.")
+        else:
+            report_type = st.selectbox("Type de rapport",
+                                       ["Diagnostic initial","Rapport de mission","Rapport de suivi","Rapport économique","Rapport final","Note de conseil"])
+            title = st.text_input("Titre du rapport", "Rapport YouAgronoMe")
+            q,_ = data_quality()
+            if st.button("Préparer la synthèse", key="report_prepare_pro"):
+                obs = db_exec("SELECT * FROM observations WHERE dossier_id=? ORDER BY created_at DESC LIMIT 20",(c["dossier_id"],),True)
+                ana = db_exec("SELECT * FROM analyses WHERE dossier_id=? ORDER BY date_analyse DESC LIMIT 20",(c["dossier_id"],),True)
+                text = (
+                    f"CLIENT : {c['client'] or '—'}\n"
+                    f"DOSSIER : {c['dossier'] or '—'}\n"
+                    f"ZONE : {c['zone_nom'] or 'Non délimitée'} ({c['zone_surface_ha']:.3f} ha)\n"
+                    f"PARCELLE : {c['parcelle'] or '—'}\n"
+                    f"CULTURE : {c['culture'] or '—'}\n"
+                    f"QUALITÉ DES DONNÉES : {q}/100\n"
+                    f"CONFIANCE : {confidence_from_sources()*100:.0f}%\n"
+                    f"RISQUE : {risk_score()}/100\n\n"
+                    f"OBSERVATIONS RÉCENTES : {len(obs)}\n"
+                    f"ANALYSES DISPONIBLES : {len(ana)}\n\n"
+                    "Conclusion : les recommandations doivent être confirmées selon les preuves "
+                    "terrain, analyses disponibles et sources officielles applicables."
+                )
+                db_exec("""INSERT INTO reports(id,dossier_id,mission_id,type_rapport,titre,contenu,confidence,created_at)
+                           VALUES(?,?,?,?,?,?,?,?)""",
+                        (new_id("RPT"),c["dossier_id"],st.session_state.get("selected_mission"),
+                         report_type,title,text,confidence_from_sources(),now()))
+                st.session_state["report_text"] = text
+                audit("RAPPORT","report",c["dossier_id"],report_type)
+            if st.session_state.get("report_text"):
+                st.text_area("Synthèse", st.session_state["report_text"], height=300, key="report_text_view")
+                if HAS_PDF:
                     buf = io.BytesIO()
-                    doc = SimpleDocTemplate(buf, pagesize=A4)
+                    doc = SimpleDocTemplate(buf,pagesize=A4)
                     styles = getSampleStyleSheet()
-                    story = [
-                        Paragraph("YouAgronoMe — Rapport d'analyse 360°", styles["Title"]),
-                        Spacer(1, 12),
-                        Paragraph(f"Dossier : {c['dossier'] or '—'}", styles["Normal"]),
-                        Paragraph(f"Client : {c['client'] or '—'}", styles["Normal"]),
-                        Paragraph(f"Parcelle : {c['parcelle'] or '—'}", styles["Normal"]),
-                        Paragraph(f"Culture : {c['culture'] or '—'}", styles["Normal"]),
-                        Paragraph(f"Surface : {c['surface_ha']:.3f} ha", styles["Normal"]),
-                        Paragraph(f"Qualité des données : {quality_score()}/100", styles["Normal"]),
-                        Spacer(1, 12),
-                        Paragraph("Synthèse", styles["Heading2"]),
-                        Paragraph("Ce rapport est généré à partir des données enregistrées dans le dossier central. Les diagnostics sensibles doivent être validés par un professionnel compétent.", styles["Normal"]),
-                    ]
+                    story = [Paragraph(title,styles["Title"]),Spacer(1,12)]
+                    for line in st.session_state["report_text"].splitlines():
+                        if line.strip():
+                            story.append(Paragraph(line.replace("&","&amp;"),styles["Normal"]))
+                            story.append(Spacer(1,5))
                     doc.build(story)
                     buf.seek(0)
-                    st.download_button("📥 Télécharger le rapport PDF",
-                                       buf.getvalue(),
-                                       f"rapport_youagronome_{datetime.now():%Y%m%d}.pdf",
-                                       "application/pdf", key="download_report")
+                    st.download_button("📥 Télécharger le rapport PDF",buf.getvalue(),
+                                       f"rapport_youagronome_{datetime.now():%Y%m%d_%H%M}.pdf",
+                                       "application/pdf",key="report_pdf_pro")
 
-    with subs[4]:
-        st.subheader("📚 Documents & références")
+    with tabs[5]:
+        st.subheader("📚 Documents et référentiels")
         for name,url in SOURCES.items():
             st.markdown(f"- **{name}** — {url}")
-        st.caption("Les portails sont des références externes. Leur contenu doit être vérifié au moment de la décision.")
+        did = context()["dossier_id"]
+        if did:
+            with st.form("document_form"):
+                nom = st.text_input("Nom du document")
+                typ = st.selectbox("Type", ["Photo","Analyse","Contrat","Devis","Rapport","Carte","Autre"])
+                chemin = st.text_input("Chemin / référence")
+                desc = st.text_area("Description")
+                if st.form_submit_button("Enregistrer le document"):
+                    db_exec("""INSERT INTO documents
+                        (id,dossier_id,mission_id,nom,type_document,chemin,description,source,created_at)
+                        VALUES(?,?,?,?,?,?,?,?,?)""",
+                        (new_id("DOC"),did,st.session_state.get("selected_mission"),nom,typ,chemin,desc,"Utilisateur",now()))
+                    audit("DOCUMENT","document",did,nom)
 
-    with subs[5]:
+    with tabs[6]:
+        st.subheader("📆 Agenda des échéances")
+        did = context()["dossier_id"]
+        if did:
+            actions = db_exec("SELECT * FROM actions WHERE dossier_id=? ORDER BY echeance",(did,),True)
+            missions = db_exec("SELECT * FROM missions WHERE dossier_id=? ORDER BY echeance",(did,),True)
+            upcoming = []
+            for x in actions:
+                upcoming.append({"Type":"Action","Objet":x["titre"],"Échéance":x["echeance"],"Statut":x["statut"],"Priorité":x["priorite"]})
+            for x in missions:
+                upcoming.append({"Type":"Mission","Objet":x["objet"],"Échéance":x["echeance"],"Statut":x["statut"],"Priorité":x["priorite"]})
+            st.dataframe(pd.DataFrame(upcoming), use_container_width=True, hide_index=True)
+
+    with tabs[7]:
         st.subheader("👑 Administration")
         user = st.session_state.get("user") or {}
         if user.get("role") != "Super-Admin":
             st.warning("Accès réservé au Super-Admin.")
         else:
-            st.success("Accès Super-Admin actif.")
-            with st.form("admin_add_user"):
-                a,b,c = st.columns(3)
-                email = a.text_input("E-mail")
+            with st.form("admin_user_form_pro"):
+                a,b,c1,d = st.columns(4)
+                email = a.text_input("Identifiant")
                 nom = b.text_input("Nom")
-                role = c.selectbox("Rôle", ["Technicien", "Conseiller", "Expert", "Super-Admin"])
-                zone = a.text_input("Zone")
-                pwd = b.text_input("Mot de passe", type="password")
-                if st.form_submit_button("Créer utilisateur"):
+                role = c1.selectbox("Rôle", ROLES)
+                zone = d.text_input("Zone")
+                pwd = st.text_input("Mot de passe", type="password")
+                if st.form_submit_button("Créer l'utilisateur"):
                     if email and pwd:
-                        ph = hashlib.sha256(pwd.encode("utf-8")).hexdigest()
                         try:
-                            db_exec("INSERT INTO users(email,password_hash,nom,role,zone,statut,created_at) VALUES(?,?,?,?,?,?,?)",
-                                    (email.strip(),ph,nom or "Utilisateur",role,zone or "Sénégal","Actif",now()))
-                            audit("CREATION", "user", email)
+                            db_exec("""INSERT INTO users(email,password_hash,nom,role,zone,statut,created_at)
+                                       VALUES(?,?,?,?,?,?,?)""",
+                                    (email.strip(),sha256(pwd),nom or "Utilisateur",role,zone or "National","Actif",now()))
+                            audit("CREATION","user",email)
                             st.success("Utilisateur créé.")
                         except sqlite3.IntegrityError:
-                            st.error("Cet e-mail existe déjà.")
-            users = db_exec("SELECT email,nom,role,zone,statut,created_at FROM users ORDER BY created_at DESC", fetch=True)
+                            st.error("Cet identifiant existe déjà.")
+            users = db_exec("SELECT email,nom,role,zone,statut,created_at FROM users ORDER BY created_at DESC",True)
             st.dataframe(pd.DataFrame(users), use_container_width=True, hide_index=True)
-            if st.button("🔄 Synchroniser les portails de référence", key="admin_sync_sources"):
-                n = sync_official_catalog()
-                st.success(f"{n} portails enregistrés dans le journal de synchronisation.")
 
-    with subs[6]:
-        st.subheader("🛡️ Audit & synchronisation")
-        sync = db_exec("SELECT * FROM sync_records ORDER BY fetched_at DESC LIMIT 100", fetch=True)
-        audit_rows = db_exec("SELECT * FROM audit ORDER BY created_at DESC LIMIT 200", fetch=True)
-        st.markdown("### Historique synchronisation")
+    with tabs[8]:
+        st.subheader("🛡️ Audit, synchronisation et traçabilité")
+        sync = db_exec("SELECT * FROM sync_log ORDER BY fetched_at DESC LIMIT 200",True)
+        aud = db_exec("SELECT * FROM audit ORDER BY created_at DESC LIMIT 300",True)
+        st.markdown("### Synchronisations")
         st.dataframe(pd.DataFrame(sync), use_container_width=True, hide_index=True)
-        st.markdown("### Journal d'audit")
-        st.dataframe(pd.DataFrame(audit_rows), use_container_width=True, hide_index=True)
+        st.markdown("### Audit")
+        st.dataframe(pd.DataFrame(aud), use_container_width=True, hide_index=True)
+        if st.button("🔄 Synchroniser tout le HUB", key="audit_global_sync"):
+            messages = sync_all()
+            for m in messages:
+                st.write("•",m)
+            st.success("Synchronisation terminée avec conservation du dernier état connu.")
 
 
 # =========================================================
-# APPLICATION
+# 14. DASHBOARD CONSULTANCE
+# =========================================================
+def dashboard():
+    st.subheader("📊 Cockpit du cabinet")
+    did = context()["dossier_id"]
+    if not did:
+        st.info("Sélectionnez un dossier pour afficher les indicateurs.")
+        return
+    c = context()
+    q,_ = data_quality()
+    obs = len(db_exec("SELECT id FROM observations WHERE dossier_id=?",(did,),True))
+    missions = len(db_exec("SELECT id FROM missions WHERE dossier_id=?",(did,),True))
+    actions = len(db_exec("SELECT id FROM actions WHERE dossier_id=?",(did,),True))
+    alerts = len(db_exec("SELECT id FROM alerts WHERE dossier_id=? AND statut='Ouverte'",(did,),True))
+    a,b,c1,d = st.columns(4)
+    a.metric("Qualité données",f"{q}/100")
+    b.metric("Missions",missions)
+    c1.metric("Actions",actions)
+    d.metric("Alertes ouvertes",alerts)
+    st.markdown("### Chaîne de prise en charge")
+    flow = pd.DataFrame({
+        "Étape":["Client","Dossier","Zone GPS","Observations","Analyses","Décision","Mission","Rapport"],
+        "État":[
+            bool(c["client_id"]),bool(c["dossier_id"]),bool(c["zone_geometry"]),obs>0,
+            len(db_exec("SELECT id FROM analyses WHERE dossier_id=?",(did,),True))>0,
+            bool(st.session_state.get("last_ai")),missions>0,
+            len(db_exec("SELECT id FROM reports WHERE dossier_id=?",(did,),True))>0
+        ]
+    })
+    flow["État"] = flow["État"].map({True:"✓ OK",False:"À compléter"})
+    st.dataframe(flow,use_container_width=True,hide_index=True)
+
+
+# =========================================================
+# 15. CATALOGUE DES 100+ FONCTIONNALITÉS
+# =========================================================
+FEATURE_CATALOG = [
+"01. Gestion des clients",
+"02. Fiche client enrichie",
+"03. Gestion des dossiers d'exploitation",
+"04. Dossier 360°",
+"05. Sélection d'un contexte actif unique",
+"06. Gestion multi-parcelles",
+"07. Délimitation GPS par polygone",
+"08. Délimitation d'une zone d'étude",
+"09. Délimitation d'une zone d'observation",
+"10. Délimitation d'une zone à risque",
+"11. Calcul automatique de surface",
+"12. Calcul automatique de périmètre",
+"13. Calcul du centroïde",
+"14. Cartographie interactive",
+"15. Couches SIG",
+"16. Points GPS",
+"17. Parcelles agricoles",
+"18. Points d'eau",
+"19. Bâtiments / infrastructures",
+"20. Bassins aquacoles",
+"21. Zones d'élevage",
+"22. Historique géographique",
+"23. Culture et variété",
+"24. Stade cultural",
+"25. Dates semis/récolte",
+"26. Rendement cible",
+"27. Rendement réel",
+"28. Irrigation",
+"29. Fertilisation",
+"30. Protection des cultures",
+"31. Observations terrain",
+"32. Incidence des problèmes",
+"33. Surface affectée",
+"34. Gravité",
+"35. Photos de preuve",
+"36. Géolocalisation des observations",
+"37. Analyses de sol",
+"38. Analyses d'eau",
+"39. Analyses végétales",
+"40. Analyses alimentaires",
+"41. Validation des analyses",
+"42. Niveau de confiance des données",
+"43. Source de donnée",
+"44. Date de donnée",
+"45. Contrôle de qualité",
+"46. Contrôle de cohérence",
+"47. Score de qualité 0–100",
+"48. Score de risque séparé",
+"49. Score de confiance séparé",
+"50. Profil agroécologique indicatif",
+"51. Diagnostic phytosanitaire préliminaire",
+"52. Moteur IA local sans clé API",
+"53. IA multi-domaine",
+"54. Historique des questions IA",
+"55. Preuves mobilisées par l'IA",
+"56. Plan de vérification",
+"57. Alertes terrain",
+"58. Alertes qualité des données",
+"59. Alertes d'échéance",
+"60. Synchronisation météo",
+"61. Cache météo",
+"62. Journal de synchronisation",
+"63. Référentiels institutionnels",
+"64. Agriculture",
+"65. Élevage",
+"66. Suivi zootechnique",
+"67. Mortalité animale",
+"68. Vaccination",
+"69. Reproduction",
+"70. Aquaculture",
+"71. Qualité de l'eau aquacole",
+"72. Densité d'élevage aquacole",
+"73. Aliment aquacole",
+"74. Croissance aquacole",
+"75. Agroalimentaire",
+"76. Pertes post-récolte",
+"77. Traçabilité des lots",
+"78. Qualité produit",
+"79. Parc matériel",
+"80. Suivi des actifs",
+"81. Missions de consultance",
+"82. Workflow demande → clôture",
+"83. Responsable de mission",
+"84. Priorité de mission",
+"85. Avancement de mission",
+"86. Échéancier",
+"87. Plan d'action",
+"88. Responsable d'action",
+"89. Preuve attendue",
+"90. Devis",
+"91. Statut du devis",
+"92. Finance",
+"93. Recettes",
+"94. Dépenses",
+"95. Marge",
+"96. Simulation économique",
+"97. Scénarios prudent/central/optimiste",
+"98. ROI / rentabilité de base",
+"99. Rapports professionnels",
+"100. Rapport de diagnostic",
+"101. Rapport de mission",
+"102. Rapport de suivi",
+"103. Rapport économique",
+"104. Rapport final",
+"105. Export PDF",
+"106. Registre documentaire",
+"107. Agenda des échéances",
+"108. Administration utilisateurs",
+"109. Rôles et permissions",
+"110. Super-Admin",
+"111. Authentification par hash",
+"112. Journal d'audit",
+"113. Traçabilité des modifications",
+"114. Séparation données terrain/officielles/calculées/IA",
+"115. Conservation du dernier état connu hors ligne",
+"116. Indication de synchronisation",
+"117. Tableau de bord du cabinet",
+"118. KPI décisionnels",
+"119. Historique unifié",
+"120. Architecture extensible pour import/export et connecteurs futurs",
+]
+
+
+def show_feature_catalog():
+    st.subheader("🧩 Couverture fonctionnelle")
+    st.caption(f"{len(FEATURE_CATALOG)} fonctionnalités prévues dans cette architecture.")
+    cols = st.columns(3)
+    for i, item in enumerate(FEATURE_CATALOG):
+        cols[i % 3].markdown(f"- {item}")
+
+
+# =========================================================
+# 16. APPLICATION
 # =========================================================
 if st.session_state.get("user") is None:
-    login_box()
+    login()
     st.stop()
 
-header()
+professional_header()
 
 with st.sidebar:
-    st.markdown("### 🔗 CONTEXTE UNIQUE")
-    context_selector()
+    global_selector()
     st.markdown("---")
     c = context()
+    st.markdown("### 🔗 CONTEXTE SYNCHRONISÉ")
+    st.write(f"**Client :** {c['client'] or '—'}")
     st.write(f"**Dossier :** {c['dossier'] or '—'}")
     st.write(f"**Parcelle :** {c['parcelle'] or '—'}")
-    st.write(f"**Surface :** {c['surface_ha']:.3f} ha")
+    st.write(f"**Zone :** {c['zone_nom'] or 'Non délimitée'}")
+    st.write(f"**Surface étudiée :** {c['zone_surface_ha'] or c['surface_ha']:.3f} ha")
     st.write(f"**GPS :** {c['latitude'] if c['latitude'] is not None else '—'}, {c['longitude'] if c['longitude'] is not None else '—'}")
-    if st.button("🔄 SYNCHRONISER TOUT", type="primary", key="global_sync"):
-        with st.spinner("Synchronisation du contexte, météo et références..."):
-            messages = sync_all()
-        for msg in messages:
-            st.write("•", msg)
-        st.success("Contexte synchronisé.")
-    if st.button("🚪 Déconnexion", key="global_logout"):
-        audit("DECONNEXION", "user", (st.session_state.get("user") or {}).get("email",""))
+    q,_ = data_quality()
+    st.progress(q/100)
+    st.caption(f"Qualité des données : {q}/100")
+    if st.button("🔄 SYNCHRONISER TOUT", type="primary", key="sidebar_sync_pro"):
+        with st.spinner("Synchronisation du dossier, météo et référentiels..."):
+            msgs = sync_all()
+        for m in msgs: st.write("•",m)
+        st.success("Synchronisation terminée.")
+    if st.button("🚪 Déconnexion", key="logout_pro"):
+        audit("DECONNEXION","user",(st.session_state.get("user") or {}).get("email",""))
         st.session_state["user"] = None
         st.rerun()
 
-# EXACTEMENT 4 GRANDS ESPACES
-tab1, tab2, tab3, tab4 = st.tabs([
+main_tabs = st.tabs([
+    "🏠 COCKPIT",
     "🌍 TERRAIN & DONNÉES",
     "🗺️ SIG & DIAGNOSTIC",
     "🤖 IA & DÉCISION",
     "💼 CONSULTANCE & PILOTAGE",
+    "🧩 FONCTIONNALITÉS"
 ])
 
-with tab1:
-    terrain_tab()
+with main_tabs[0]:
+    dashboard()
 
-with tab2:
-    sig_tab()
+with main_tabs[1]:
+    terrain_space()
 
-with tab3:
-    ia_tab()
+with main_tabs[2]:
+    sig_space()
 
-with tab4:
-    consultancy_tab()
+with main_tabs[3]:
+    decision_space()
+
+with main_tabs[4]:
+    consultancy_space()
+
+with main_tabs[5]:
+    show_feature_catalog()
 
 st.markdown("---")
-st.caption("© 2026 YouAgronoMe — Architecture HUB 360°. Données officielles, terrain, calculées et IA sont distinguées. La synchronisation ne transforme jamais une donnée historique en alerte actuelle.")
+st.caption(
+    "© 2026 YouAgronoMe — Cabinet de consultance 360°. "
+    "Les données officielles, terrain, calculées et IA sont distinguées. "
+    "La zone géographique active constitue le périmètre commun des analyses. "
+    "Une recommandation sensible doit être validée selon les preuves disponibles et les référentiels applicables."
+)
