@@ -5,14 +5,14 @@ Refonte orientée cabinet de consultance : client -> mission -> zone d'étude ->
 -> contrôle qualité -> analyse -> décision -> plan d'action -> rapport -> suivi.
 
 100+ fonctionnalités opérationnelles sont regroupées dans des espaces cohérents.
-Moteur de règles, calculs, contrôles et traçabilité ; aucune IA n'est utilisée.
+Aucune clé API IA n'est requise : moteur local, règles, calculs, scoring et traçabilité.
 La carte permet de DESSINER LA ZONE CONCERNÉE : parcelle, périmètre d'étude,
 zone d'observation, point d'eau ou zone à risque. Cette géométrie devient le
 périmètre commun des analyses.
 
 Dépendances principales :
 streamlit, pandas, numpy
-Optionnelles : folium, streamlit-folium, reportlab, requests, geopandas, shapely
+Optionnelles : folium, streamlit-folium, reportlab, requests
 """
 
 from datetime import datetime, date, timedelta
@@ -43,19 +43,6 @@ except Exception:
     HAS_MAP = False
 
 try:
-    import geopandas as gpd
-    from shapely.geometry import Polygon
-    from shapely.ops import transform as shapely_transform
-    from pyproj import Transformer
-    HAS_PEDO = True
-except Exception:
-    gpd = None
-    Polygon = None
-    shapely_transform = None
-    Transformer = None
-    HAS_PEDO = False
-
-try:
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import getSampleStyleSheet
     from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
@@ -71,6 +58,7 @@ except Exception:
 MODULES_AUTORISABLES = {
     "terrain": "🌍 Terrain & Données",
     "sig": "🗺️ SIG & Diagnostic",
+    "ia": "🤖 IA & Décision",
     "consultance": "💼 Consultance & Pilotage",
     "agriculture": "🌾 Agriculture",
     "elevage": "🐄 Élevage",
@@ -90,12 +78,12 @@ PROFILS_MODULES = {
     "Super-admin": list(MODULES_AUTORISABLES),
     "Administrateur": [m for m in MODULES_AUTORISABLES if m != "audit"],
     "Consultant": [
-        "terrain", "sig", "consultance", "agriculture", "elevage",
+        "terrain", "sig", "ia", "consultance", "agriculture", "elevage",
         "aquaculture", "agroalimentaire", "analyses", "missions",
         "rapports", "documents", "alertes",
     ],
     "Technicien": [
-        "terrain", "sig", "agriculture", "elevage", "aquaculture",
+        "terrain", "sig", "ia", "agriculture", "elevage", "aquaculture",
         "agroalimentaire", "analyses", "alertes", "rapports",
     ],
     "Observateur": ["terrain", "sig", "rapports"],
@@ -453,16 +441,6 @@ def init_db():
         mode TEXT, question TEXT, reponse TEXT, auteur TEXT, ordre INTEGER,
         created_at TEXT
     );
-    CREATE TABLE IF NOT EXISTS user_data_access(
-        user_email TEXT NOT NULL, dossier_id TEXT NOT NULL,
-        access_level TEXT DEFAULT 'lecture', created_at TEXT,
-        PRIMARY KEY(user_email, dossier_id)
-    );
-    CREATE TABLE IF NOT EXISTS user_modules(
-        user_email TEXT NOT NULL, module_key TEXT NOT NULL,
-        allowed INTEGER DEFAULT 1, created_at TEXT,
-        PRIMARY KEY(user_email, module_key)
-    );
     """)
     con.commit()
     con.close()
@@ -522,8 +500,13 @@ def init_state():
         "weather": None,
         "sync_status": "Jamais synchronisé",
         "sync_time": None,
+        "last_ai": "",
         "selected_mission": None,
         "map_nonce": 0,
+        "v10_space": "🏠 Accueil",
+        "terrain_v10_target": None,
+        "diagnostic_v10_target": None,
+        "cabinet_v10_target": None,
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -676,251 +659,6 @@ def save_zone(coords, feature_type, name, dossier_id, parcelle_id=None):
     return fid
 
 
-
-# =========================================================
-# SYNCHRONISATION CENTRALE DE LA PARCELLE / ZONE
-# =========================================================
-def _coords_are_valid(coords):
-    if not coords or len(coords) < 3:
-        return False
-    try:
-        return all(-90 <= float(p[0]) <= 90 and -180 <= float(p[1]) <= 180 for p in coords)
-    except Exception:
-        return False
-
-
-def _geometry_to_coords(geom):
-    """Convertit une géométrie sauvegardée en liste [lat, lon]."""
-    if not geom:
-        return []
-    try:
-        obj = geom
-        if isinstance(geom, str):
-            obj = json.loads(geom)
-        if isinstance(obj, dict):
-            if obj.get("type") == "Feature":
-                obj = obj.get("geometry", {})
-            if obj.get("type") == "FeatureCollection":
-                feats = obj.get("features") or []
-                obj = feats[0].get("geometry", {}) if feats else {}
-            if obj.get("type") == "Polygon":
-                rings = obj.get("coordinates") or []
-                ring = rings[0] if rings else []
-                return [(float(x[1]), float(x[0])) for x in ring if len(x) >= 2]
-            if obj.get("type") == "LineString":
-                return [(float(x[1]), float(x[0])) for x in obj.get("coordinates", [])]
-        if isinstance(obj, list):
-            # Déjà au format [lat, lon]
-            if obj and isinstance(obj[0], (list, tuple)) and len(obj[0]) >= 2:
-                pts = [(float(x[0]), float(x[1])) for x in obj]
-                if _coords_are_valid(pts):
-                    return pts
-    except Exception:
-        pass
-    return []
-
-
-def _save_active_parcel_geometry(coords, label="Parcelle délimitée"):
-    """Sauvegarde la géométrie ET resynchronise le contexte de la parcelle."""
-    if not _coords_are_valid(coords):
-        return False, "Le polygone GPS est invalide ou incomplet."
-
-    c = context()
-    parcel_id = c.get("parcelle_id")
-    dossier_id = c.get("dossier_id")
-    client_id = c.get("client_id")
-    if not parcel_id:
-        return False, "Sélectionnez d'abord une parcelle active."
-
-    area = 0.0
-    perimeter = 0.0
-    try:
-        area = float(polygon_area_ha(coords))
-        perimeter = float(polygon_perimeter_m(coords))
-    except Exception:
-        pass
-
-    geometry_json = json.dumps(
-        {"type": "Polygon", "coordinates": [[[lon, lat] for lat, lon in coords]]},
-        ensure_ascii=False
-    )
-    centroid_lat = sum(float(p[0]) for p in coords) / len(coords)
-    centroid_lon = sum(float(p[1]) for p in coords) / len(coords)
-
-    try:
-        db_exec(
-            """UPDATE parcelles
-               SET geometry=?, surface_ha=?, perimeter_m=?, centroid_lat=?, centroid_lon=?,
-                   source=?, confidence=?, updated_at=?
-               WHERE id=?""",
-            (geometry_json, area, perimeter, centroid_lat, centroid_lon,
-             "GPS/dessin", 1.0, now(), parcel_id)
-        )
-    except Exception as exc:
-        return False, f"Impossible de sauvegarder la géométrie : {exc}"
-
-    # Contexte central : une seule source de vérité pour les modules suivants.
-    st.session_state["active_parcel_geometry"] = coords
-    st.session_state["terrain_geometry"] = coords
-    st.session_state["terrain_sync_version"] = datetime.now().isoformat(timespec="seconds")
-    st.session_state["terrain_sync_status"] = "OK"
-    try:
-        sync_all()
-    except Exception:
-        pass
-    try:
-        audit("PARCELLE_GEOMETRIE_SYNC", label, parcel_id)
-    except Exception:
-        pass
-    return True, f"Parcelle synchronisée : {area:.2f} ha."
-
-
-def _active_geometry():
-    coords = st.session_state.get("active_parcel_geometry") or st.session_state.get("terrain_geometry")
-    if coords:
-        return coords
-    c = context()
-    pid = c.get("parcelle_id")
-    if not pid:
-        return []
-    try:
-        rows = db_exec("SELECT geometry FROM parcelles WHERE id=?", (pid,), fetch=True)
-        if rows:
-            coords = _geometry_to_coords(rows[0].get("geometry"))
-            if coords:
-                st.session_state["active_parcel_geometry"] = coords
-                st.session_state["terrain_geometry"] = coords
-                return coords
-    except Exception:
-        pass
-    return []
-
-
-
-# =========================================================
-# COUCHE PÉDOLOGIQUE — Morpho_Pedo
-# =========================================================
-PEDO_CANDIDATES = [
-    "Morpho_Pedo.shp",
-    "data/Morpho_Pedo.shp",
-    "Morpho_Pedo.geojson",
-    "data/Morpho_Pedo.geojson",
-]
-PEDO_DEFAULT_CRS = "EPSG:32628"  # UTM 28N, uniquement comme hypothèse si le fichier n'indique pas son CRS.
-
-
-@st.cache_data(show_spinner=False)
-def load_pedo_layer():
-    """Charge la couche Morpho_Pedo sans inventer d'attributs absents."""
-    if not HAS_PEDO:
-        return None, "GeoPandas/Shapely/PyProj n'est pas installé."
-
-    path = next((p for p in PEDO_CANDIDATES if os.path.exists(p)), None)
-    if not path:
-        return None, "Couche Morpho_Pedo introuvable. Placez Morpho_Pedo.shp dans le projet."
-
-    try:
-        gdf = gpd.read_file(path)
-        if gdf.empty:
-            return gdf, "La couche Morpho_Pedo est vide."
-
-        # Le fichier fourni peut ne pas contenir de .prj : on ne prétend pas connaître
-        # son CRS. Ici les coordonnées observées correspondent à de l'UTM 28N,
-        # mais cette hypothèse est explicitement signalée.
-        assumed_crs = False
-        if gdf.crs is None:
-            gdf = gdf.set_crs(PEDO_DEFAULT_CRS, allow_override=True)
-            assumed_crs = True
-
-        gdf = gdf[gdf.geometry.notna()].copy()
-        gdf = gdf[~gdf.geometry.is_empty].copy()
-
-        msg = f"{len(gdf):,} unités géométriques chargées depuis {path}."
-        if assumed_crs:
-            msg += f" CRS absent du fichier : hypothèse {PEDO_DEFAULT_CRS}. À confirmer avec le .prj/source SIG."
-        return gdf, msg
-    except Exception as exc:
-        return None, f"Lecture Morpho_Pedo impossible : {exc}"
-
-
-def pedo_lookup(coords):
-    """
-    Recherche les unités pédologiques qui intersectent un polygone en coordonnées
-    latitude/longitude. Retourne toujours (DataFrame, message), même en cas d'erreur,
-    afin qu'un problème de couche ne bloque jamais toute l'application.
-    """
-    empty = pd.DataFrame()
-
-    if not coords:
-        coords = _active_geometry()
-    if not coords or len(coords) < 3:
-        return empty, "Délimitez ou sélectionnez d'abord une parcelle pour la recherche pédologique."
-
-    gdf, load_msg = load_pedo_layer()
-    if gdf is None:
-        return empty, load_msg
-
-    try:
-        # drawing_to_coords fournit [latitude, longitude].
-        polygon_wgs84 = Polygon([(float(lon), float(lat)) for lat, lon in coords])
-        if polygon_wgs84.is_empty or not polygon_wgs84.is_valid:
-            polygon_wgs84 = polygon_wgs84.buffer(0)
-        if polygon_wgs84.is_empty:
-            return empty, "Géométrie de la zone invalide."
-
-        source_crs = gdf.crs
-        if source_crs is None:
-            source_crs = PEDO_DEFAULT_CRS
-
-        polygon_src = gpd.GeoSeries([polygon_wgs84], crs="EPSG:4326").to_crs(source_crs).iloc[0]
-        candidates = gdf[gdf.geometry.intersects(polygon_src)].copy()
-
-        if candidates.empty:
-            return empty, load_msg + " Aucune unité pédologique ne recoupe la zone active."
-
-        # Calcul fiable de l'intersection dans un CRS métrique si possible.
-        try:
-            metric_crs = candidates.estimate_utm_crs()
-            candidates_metric = candidates.to_crs(metric_crs)
-            zone_metric = gpd.GeoSeries([polygon_src], crs=source_crs).to_crs(metric_crs).iloc[0]
-            candidates_metric["surface_intersection_m2"] = candidates_metric.geometry.intersection(zone_metric).area
-            candidates_metric["surface_intersection_ha"] = candidates_metric["surface_intersection_m2"] / 10000.0
-            candidates_metric["part_zone_pct"] = (
-                candidates_metric["surface_intersection_m2"] / max(zone_metric.area, 1e-9) * 100.0
-            )
-        except Exception:
-            candidates_metric = candidates.copy()
-            candidates_metric["surface_intersection_m2"] = np.nan
-            candidates_metric["surface_intersection_ha"] = np.nan
-            candidates_metric["part_zone_pct"] = np.nan
-
-        # Ne pas afficher la géométrie brute dans le tableau.
-        attribute_cols = [c for c in candidates_metric.columns if c != "geometry"]
-        # Ajouter un identifiant stable si aucun champ attributaire n'existe.
-        if not attribute_cols:
-            candidates_metric["unite_pedologique"] = [f"Unité {i+1}" for i in range(len(candidates_metric))]
-        elif "unite_pedologique" not in candidates_metric.columns:
-            candidates_metric["unite_pedologique"] = [f"Unité {i+1}" for i in range(len(candidates_metric))]
-
-        cols = [c for c in candidates_metric.columns if c != "geometry"]
-        # Priorité aux attributs réels du fichier, puis aux indicateurs spatiaux.
-        priority = [c for c in ["unite_pedologique", "code", "CODE", "classe", "CLASSE",
-                                "type", "TYPE", "sol", "SOL", "description", "DESCRIPTION",
-                                "surface_intersection_ha", "part_zone_pct"] if c in cols]
-        remaining = [c for c in cols if c not in priority]
-        cols = priority + remaining
-
-        result = candidates_metric[cols].copy()
-        if "surface_intersection_ha" in result.columns:
-            result["surface_intersection_ha"] = result["surface_intersection_ha"].round(4)
-        if "part_zone_pct" in result.columns:
-            result["part_zone_pct"] = result["part_zone_pct"].round(2)
-
-        return result.reset_index(drop=True), load_msg + f" {len(result)} unité(s) intersectée(s)."
-    except Exception as exc:
-        return empty, f"Recherche pédologique non disponible pour cette zone : {exc}"
-
-
 def map_for_context(lat, lon, height=560, key="main_map", allow_draw=False):
     m = folium.Map(location=[lat, lon], zoom_start=14, control_scale=True, tiles="OpenStreetMap")
     if allow_draw:
@@ -1058,21 +796,71 @@ def sync_all():
 # =========================================================
 # 6. MOTEUR DE DÉCISION LOCAL
 # =========================================================
-def verification_phytosanitaire(symptoms, severity):
-    """Aide à la vérification terrain sans IA ni génération automatique de diagnostic."""
-    s = (symptoms or "").strip().lower()
+def local_expert(question, actor="Technicien"):
+    c = context()
+    q = (question or "").lower()
+    zone = next((z for z, v in AGROZONES.items() if c["region"] in v["regions"]), None)
+    zinfo = AGROZONES.get(zone or "", {})
+    quality, checks = data_quality()
+    risk = risk_score()
+
     hypotheses = []
-    if any(x in s for x in ["jaun", "chlorose", "pale", "pâle"]):
-        hypotheses.append("Vérifier carence/déséquilibre nutritionnel, stress hydrique et état racinaire.")
-    if any(x in s for x in ["insect", "chenille", "puceron", "ravageur"]):
-        hypotheses.append("Rechercher et quantifier les ravageurs sur plusieurs points représentatifs.")
-    if any(x in s for x in ["tache", "maladie", "flétr", "pourrit"]):
-        hypotheses.append("Comparer plants sains/atteints et documenter la progression des symptômes.")
-    if any(x in s for x in ["eau", "irrig", "sécher", "pluie"]):
-        hypotheses.append("Contrôler humidité, irrigation, drainage et historique pluviométrique.")
+    actions = [
+        "Confirmer le problème sur plusieurs points représentatifs de la zone délimitée.",
+        "Comparer observation actuelle, historique, sol/eau et conditions météo.",
+        "Documenter les preuves : photos, dates, localisation et incidence.",
+        "Définir un contrôle de suivi avec échéance et responsable.",
+    ]
+    if any(x in q for x in ["jaun", "chlorose", "pale", "pâle"]):
+        hypotheses += ["Carence ou déséquilibre nutritionnel", "Excès d'eau / problème racinaire", "Stress hydrique ou autre facteur environnemental"]
+        actions.insert(1, "Vérifier pH, disponibilité des éléments, humidité et état racinaire avant correction.")
+    if any(x in q for x in ["insect", "chenille", "puceron", "ravageur"]):
+        hypotheses += ["Pression de ravageurs", "Dommages non entomologiques à différencier"]
+        actions.insert(1, "Quantifier l'incidence sur plusieurs placettes et rechercher les stades du ravageur.")
+    if any(x in q for x in ["tache", "maladie", "flétr", "pourrit"]):
+        hypotheses += ["Maladie potentiellement infectieuse", "Stress abiotique à différencier"]
+        actions.insert(1, "Comparer plants sains/atteints et rechercher une progression spatiale et temporelle.")
+    if any(x in q for x in ["eau", "irrig", "sécher", "pluie"]):
+        hypotheses += ["Stress hydrique", "Irrigation non uniforme", "Drainage insuffisant"]
+        actions.insert(1, "Contrôler humidité, uniformité d'irrigation, drainage et pluviométrie locale.")
     if not hypotheses:
-        hypotheses.append("Aucune piste automatique : documenter précisément les symptômes et recueillir des preuves.")
-    return hypotheses
+        hypotheses = ["Hypothèse indéterminée : données supplémentaires nécessaires."]
+
+    confidence = min(0.97, 0.35 + quality/200 + (0.10 if c["zone_geometry"] else 0))
+    evidence = [
+        f"Qualité du dossier : {quality}/100",
+        f"Risque séparé de la confiance : {risk}/100",
+        f"Zone d'étude : {c['zone_nom'] or 'non délimitée'}",
+        f"Observations : {len(db_exec('SELECT id FROM observations WHERE dossier_id=?', (c['dossier_id'],), fetch=True)) if c['dossier_id'] else 0}",
+        f"Analyses : {len(db_exec('SELECT id FROM analyses WHERE dossier_id=?', (c['dossier_id'],), fetch=True)) if c['dossier_id'] else 0}",
+        "Météo : synchronisée" if st.session_state.get("weather") else "Météo : non synchronisée",
+    ]
+    text = f"""## 🧠 Avis expert local — {actor}
+
+**Contexte**
+- Client : {c['client'] or '—'}
+- Dossier : {c['dossier'] or '—'}
+- Parcelle : {c['parcelle'] or '—'}
+- Zone étudiée : {c['zone_nom'] or 'non délimitée'} ({c['zone_surface_ha']:.3f} ha)
+- Culture : {c['culture'] or '—'} · Stade : {c['stade'] or '—'}
+- Zone agroécologique indicative : {zone or 'à déterminer'}
+
+**Hypothèses à tester**
+{chr(10).join('- '+h for h in hypotheses)}
+
+**Plan de vérification**
+{chr(10).join(f'{i+1}. {a}' for i,a in enumerate(actions))}
+
+**Confiance de l'analyse :** {confidence*100:.0f} %
+**Qualité des données :** {quality}/100
+**Risque estimé :** {risk}/100
+
+**Preuves / limites**
+{chr(10).join('- '+e for e in evidence)}
+
+> Cet avis est un outil d'aide à la décision. Il ne transforme pas une hypothèse en diagnostic officiel et ne remplace pas un laboratoire, un technicien compétent ou les organismes officiels.
+"""
+    return text, confidence, evidence
 
 
 # =========================================================
@@ -1098,90 +886,15 @@ def login():
 
 
 # =========================================================
-# 8. CONTRÔLE D'ACCÈS AUX DONNÉES
+# 8. SÉLECTEUR GLOBAL CLIENT / DOSSIER / PARCELLE / ZONE
 # =========================================================
-def current_user():
-    return st.session_state.get("user") or {}
-
-def is_super_admin():
-    role = str(current_user().get("role") or "").strip().lower()
-    return role in {"super-admin", "super_admin", "superadmin"}
-
-def accessible_dossiers(client_id=None):
-    user = current_user()
-    if not user:
-        return []
-    if is_super_admin():
-        sql = "SELECT * FROM dossiers"
-        params = ()
-        if client_id:
-            sql += " WHERE client_id=?"
-            params = (client_id,)
-        sql += " ORDER BY COALESCE(updated_at, created_at, '') DESC"
-        return db_exec(sql, params, fetch=True)
-
-    email = (user.get("email") or "").strip().lower()
-    sql = """SELECT d.* FROM dossiers d
-             INNER JOIN user_data_access a ON a.dossier_id=d.id
-             WHERE lower(a.user_email)=?"""
-    params = [email]
-    if client_id:
-        sql += " AND d.client_id=?"
-        params.append(client_id)
-    sql += " ORDER BY COALESCE(d.updated_at, d.created_at, '') DESC"
-    return db_exec(sql, tuple(params), fetch=True)
-
-def accessible_clients():
-    user = current_user()
-    if not user:
-        return []
-    if is_super_admin():
-        return db_exec("SELECT * FROM clients ORDER BY COALESCE(updated_at, created_at, '') DESC", fetch=True)
-
-    email = (user.get("email") or "").strip().lower()
-    return db_exec(
-        """SELECT DISTINCT c.* FROM clients c
-           INNER JOIN dossiers d ON d.client_id=c.id
-           INNER JOIN user_data_access a ON a.dossier_id=d.id
-           WHERE lower(a.user_email)=?
-           ORDER BY COALESCE(c.updated_at, c.created_at, '') DESC""",
-        (email,), fetch=True
-    )
-
-def access_guard():
-    user = current_user()
-    if not user:
-        return
-    did = st.session_state.get("dossier_id")
-    if did and not is_super_admin():
-        allowed = db_exec(
-            "SELECT dossier_id FROM user_data_access WHERE lower(user_email)=lower(?) AND dossier_id=?",
-            (user.get("email",""), did), fetch=True
-        )
-        if not allowed:
-            st.session_state["dossier_id"] = None
-            st.session_state["parcelle_id"] = None
-            st.session_state["zone_feature_id"] = None
-            st.warning("Accès retiré : ce dossier n'est pas autorisé pour votre compte.")
-    st.session_state["role"] = user.get("role", "Observateur")
-
-# =========================================================
-# 8 BIS. SÉLECTEUR GLOBAL CLIENT / DOSSIER / PARCELLE / ZONE
-# =========================================================
-_GLOBAL_SELECTOR_RENDERED = False
-
 def global_selector():
-    global _GLOBAL_SELECTOR_RENDERED
-    if _GLOBAL_SELECTOR_RENDERED:
-        return
-    _GLOBAL_SELECTOR_RENDERED = True
-
     st.markdown("### 🎯 Dossier de consultance actif")
-    clients = accessible_clients()
+    clients = db_exec("SELECT * FROM clients ORDER BY COALESCE(updated_at, created_at, '') DESC, COALESCE(created_at, '') DESC", fetch=True)
     client_labels = ["➕ Nouveau client"] + [f"{x['id']} · {x['nom']}" for x in clients]
     current_client = st.session_state.get("client_id")
     cidx = next((i+1 for i,x in enumerate(clients) if x["id"] == current_client), 0)
-    cc = st.selectbox("Client", client_labels, index=cidx, key="yam_global_client")
+    cc = st.selectbox("Client", client_labels, index=cidx, key="global_client")
 
     if cc == "➕ Nouveau client":
         with st.form("global_new_client"):
@@ -1208,11 +921,11 @@ def global_selector():
 
     cid = st.session_state.get("client_id")
     if cid:
-        dossiers = accessible_dossiers(cid)
+        dossiers = db_exec("SELECT * FROM dossiers WHERE client_id=? ORDER BY COALESCE(updated_at, created_at, '') DESC", (cid,), fetch=True)
         labels = ["➕ Nouveau dossier"] + [f"{x['id']} · {x['nom']}" for x in dossiers]
         cur = st.session_state.get("dossier_id")
         didx = next((i+1 for i,x in enumerate(dossiers) if x["id"] == cur), 0)
-        dd = st.selectbox("Dossier / mission d'étude", labels, index=didx, key="yam_global_dossier")
+        dd = st.selectbox("Dossier / mission d'étude", labels, index=didx, key="global_dossier")
         if dd == "➕ Nouveau dossier":
             with st.form("global_new_dossier"):
                 nom = st.text_input("Nom du dossier")
@@ -1240,7 +953,7 @@ def global_selector():
             plabels = ["— Aucune parcelle sélectionnée —"] + [f"{x['id']} · {x['nom']} ({x['surface_ha']:.2f} ha)" for x in pars]
             curp = st.session_state.get("parcelle_id")
             pidx = next((i+1 for i,x in enumerate(pars) if x["id"] == curp), 0)
-            pp = st.selectbox("Unité / parcelle", plabels, index=pidx, key="yam_global_parcelle")
+            pp = st.selectbox("Unité / parcelle", plabels, index=pidx, key="global_parcelle")
             if pp.startswith("—"):
                 st.session_state["parcelle_id"] = None
             else:
@@ -1327,150 +1040,28 @@ def save_interview_answer(dossier_id, client_id, domain, mode, question, answer,
 def interview_transcript(dossier_id):
     return db_exec("SELECT * FROM entretiens WHERE dossier_id=? ORDER BY ordre,created_at", (dossier_id,), fetch=True)
 
-def build_interview_pdf(rows, dossier=None, client=None):
-    """Rapport d'entretien professionnel, lisible et structuré."""
+def build_interview_pdf(context_data, rows, ai_summary=""):
     if not HAS_PDF:
         return None
-
-    buf = io.BytesIO()
-    doc = SimpleDocTemplate(
-        buf, pagesize=A4,
-        rightMargin=38, leftMargin=38, topMargin=42, bottomMargin=42
-    )
-    styles = getSampleStyleSheet()
-    title = styles["Title"]
-    title.fontSize = 20
-    title.leading = 24
-    subtitle = styles["Heading2"]
-    subtitle.fontSize = 12
-    body = styles["BodyText"]
-    body.fontSize = 9.5
-    body.leading = 13
-
-    story = []
-    story.append(Paragraph("YO UAGRONOME", title))
-    story.append(Paragraph("RAPPORT DE CONSULTANCE — ENTRETIEN AGRICOLE", subtitle))
-    story.append(Spacer(1, 10))
-
-    client_name = (client or {}).get("nom") if isinstance(client, dict) else None
-    dossier_name = (dossier or {}).get("nom") if isinstance(dossier, dict) else None
-    meta = [
-        ["Client", client_name or "Non renseigné"],
-        ["Dossier", dossier_name or "Non renseigné"],
-        ["Date", datetime.now().strftime("%d/%m/%Y %H:%M")],
-        ["Nombre de questions", str(len(rows or []))],
-    ]
-    t = Table(meta, colWidths=[120, 390])
-    t.setStyle(TableStyle([
-        ("GRID", (0,0), (-1,-1), 0.35, None),
-        ("VALIGN", (0,0), (-1,-1), "TOP"),
-        ("FONTNAME", (0,0), (0,-1), "Helvetica-Bold"),
-        ("FONTNAME", (1,0), (1,-1), "Helvetica"),
-        ("FONTSIZE", (0,0), (-1,-1), 9),
-        ("BOTTOMPADDING", (0,0), (-1,-1), 6),
-        ("TOPPADDING", (0,0), (-1,-1), 6),
-    ]))
-    story.append(t)
-    story.append(Spacer(1, 14))
-
-    for i, row in enumerate(rows or [], 1):
-        question = str(row.get("question", "Question"))
-        answer = str(row.get("reponse", "")).strip() or "Aucune réponse enregistrée."
-        domain = str(row.get("domaine", "")).strip()
-        story.append(Paragraph(f"{i}. {question}", subtitle))
-        if domain:
-            story.append(Paragraph(f"Domaine : {domain}", body))
-        story.append(Paragraph(answer.replace("\n", "<br/>"), body))
-        story.append(Spacer(1, 9))
-
-    story.append(Spacer(1, 12))
-    story.append(Paragraph(
-        "Document généré à partir des réponses enregistrées pendant l'entretien. "
-        "Les éléments techniques doivent être vérifiés sur le terrain lorsque nécessaire.",
-        body
-    ))
-    doc.build(story)
-    buf.seek(0)
+    buf=io.BytesIO()
+    doc=SimpleDocTemplate(buf,pagesize=A4,rightMargin=40,leftMargin=40,topMargin=40,bottomMargin=40)
+    styles=getSampleStyleSheet()
+    story=[Paragraph("Compte rendu d'entretien — YouAgronoMe", styles["Title"]), Spacer(1,10)]
+    meta=(f"Client : {context_data.get('client') or '—'} | "
+          f"Dossier : {context_data.get('dossier') or '—'} | "
+          f"Zone : {context_data.get('zone_nom') or 'Non définie'}")
+    story += [Paragraph(meta.replace('&','&amp;'), styles["Normal"]), Spacer(1,12)]
+    if ai_summary:
+        story += [Paragraph("Synthèse structurée (IA locale)", styles["Heading2"]),
+                  Paragraph(ai_summary.replace('&','&amp;').replace('\n','<br/>'), styles["Normal"]), Spacer(1,12)]
+    story += [Paragraph("Transcription de l'entretien", styles["Heading2"])]
+    for i,r in enumerate(rows,1):
+        q=(r.get('question') or '').replace('&','&amp;')
+        a=(r.get('reponse') or '').replace('&','&amp;').replace('\n','<br/>')
+        story += [Paragraph(f"{i}. {q}", styles["Heading3"]), Paragraph(a or "—", styles["Normal"]), Spacer(1,7)]
+    story += [Spacer(1,12), Paragraph(f"Généré le {datetime.now():%d/%m/%Y à %H:%M}", styles["Italic"])]
+    doc.build(story); buf.seek(0)
     return buf.getvalue()
-
-
-def communication_contacts(dossier_id):
-    return db_exec("SELECT * FROM contacts WHERE dossier_id=? ORDER BY nom",(dossier_id,),fetch=True)
-
-def whatsapp_url(phone,message):
-    digits=re.sub(r"[^0-9]","",phone or "")
-    if digits.startswith("00"): digits=digits[2:]
-    return ("https://wa.me/"+digits+"?text="+urllib.parse.quote(message or "")) if digits else ""
-
-def smtp_configured():
-    return all(os.getenv(k) for k in ["YOUAGRONOME_SMTP_HOST","YOUAGRONOME_SMTP_USER","YOUAGRONOME_SMTP_PASS"])
-
-def send_email_smtp(to_email,subject,body):
-    user=os.getenv("YOUAGRONOME_SMTP_USER")
-    msg=EmailMessage()
-    msg["From"]=os.getenv("YOUAGRONOME_SMTP_FROM",user)
-    msg["To"]=to_email
-    msg["Subject"]=subject
-    msg.set_content(body)
-    with smtplib.SMTP(os.getenv("YOUAGRONOME_SMTP_HOST"),int(os.getenv("YOUAGRONOME_SMTP_PORT","587")),timeout=20) as server:
-        server.starttls()
-        server.login(user,os.getenv("YOUAGRONOME_SMTP_PASS"))
-        server.send_message(msg)
-
-def communications_space():
-    c=context()
-    st.subheader("📨 Communications avec les acteurs")
-    st.info("Un seul espace pour contacter les acteurs du dossier. WhatsApp ouvre un message prérempli ; l'e-mail est envoyé automatiquement si le SMTP du cabinet est configuré.")
-    if not c.get("dossier_id"):
-        st.warning("Sélectionnez d'abord un dossier.")
-        return
-    with st.form("contact_add_form_v11"):
-        a,b,c1,d=st.columns(4)
-        nom=a.text_input("Nom / acteur")
-        fonction=b.text_input("Fonction")
-        telephone=c1.text_input("Téléphone WhatsApp")
-        email=d.text_input("E-mail")
-        organisation=st.text_input("Organisation")
-        canal=st.selectbox("Canal préféré",["WhatsApp","E-mail","Les deux"])
-        if st.form_submit_button("Ajouter l'acteur"):
-            if nom.strip():
-                db_exec("""INSERT INTO contacts(id,dossier_id,nom,fonction,organisation,telephone,email,canal_prefere,notes,created_at)
-                           VALUES(?,?,?,?,?,?,?,?,?,?)""",
-                        (new_id("CNT"),c["dossier_id"],nom.strip(),fonction,organisation,telephone,email,canal,"",now()))
-                audit("AJOUT_CONTACT","contact",c["dossier_id"],nom.strip())
-                st.success("Acteur ajouté.")
-                st.rerun()
-    contacts=communication_contacts(c["dossier_id"])
-    if not contacts:
-        st.info("Aucun acteur enregistré dans ce dossier.")
-        return
-    labels=[f"{x['id']} · {x['nom']} · {x['fonction'] or 'acteur'}" for x in contacts]
-    selected_label=st.selectbox("Destinataire",labels,key="communication_contact_v11")
-    actor=contacts[labels.index(selected_label)]
-    subject=st.text_input("Objet","Suivi du dossier YouAgronoMe",key="communication_subject_v11")
-    body=st.text_area("Message",height=180,
-                      value=f"Bonjour {actor['nom']},\n\nNous revenons vers vous concernant le dossier {c['dossier'] or ''}.\n\nCordialement,\nYouAgronoMe",
-                      key="communication_body_v11")
-    a,b=st.columns(2)
-    if actor.get("telephone"):
-        url=whatsapp_url(actor["telephone"],body)
-        if url:
-            a.link_button("🟢 Ouvrir WhatsApp",url,use_container_width=True)
-    if actor.get("email"):
-        if smtp_configured():
-            if b.button("✉️ Envoyer l'e-mail",type="primary",key="smtp_send_mail_v11"):
-                try:
-                    send_email_smtp(actor["email"],subject,body)
-                    audit("ENVOI_EMAIL","contact",actor["id"],actor["email"])
-                    st.success("E-mail envoyé.")
-                except Exception as exc:
-                    st.error(f"Échec d'envoi : {exc}")
-        else:
-            mailto="mailto:"+actor["email"]+"?subject="+urllib.parse.quote(subject)+"&body="+urllib.parse.quote(body)
-            b.link_button("✉️ Ouvrir mon logiciel e-mail",mailto,use_container_width=True)
-            st.caption("Pour l'envoi automatique, configurez YOUAGRONOME_SMTP_HOST, YOUAGRONOME_SMTP_PORT, YOUAGRONOME_SMTP_USER, YOUAGRONOME_SMTP_PASS et YOUAGRONOME_SMTP_FROM.")
-    st.markdown("### 👥 Acteurs du dossier")
-    st.dataframe(pd.DataFrame(contacts),use_container_width=True,hide_index=True)
 
 def entretien_space():
     c=context()
@@ -1525,8 +1116,21 @@ def entretien_space():
         st.dataframe(pd.DataFrame([{"N°":i+1,"Domaine":r.get("domaine"),"Question":r.get("question"),"Réponse":r.get("reponse"),"Date":r.get("created_at")} for i,r in enumerate(rows)]),
                      use_container_width=True, hide_index=True)
         transcript="\n".join([f"Q: {r.get('question','')}\nR: {r.get('reponse','')}" for r in rows])
-        ai_summary=""
-        st.info("Le rapport reprend uniquement les réponses enregistrées. Aucune analyse IA n'est utilisée.")
+        ai_summary=st.session_state.get("interview_summary","")
+        if st.button("🧠 Analyser et structurer l'entretien", key="interview_analyse"):
+            prompt=("Analyse cet entretien agricole en distinguant uniquement ce qui est explicitement dit "
+                    "de ce qui reste à vérifier. Donne : problème principal, objectifs, faits observés, "
+                    "contraintes, risques à vérifier, informations manquantes et prochaines actions.\n\n"+transcript)
+            try:
+                result=local_expert(prompt, actor=(st.session_state.get("role") or "Consultant"))
+                ai_summary=result.get("answer","") if isinstance(result,dict) else str(result)
+            except Exception:
+                ai_summary="Synthèse automatique indisponible. Utilisez la transcription comme base factuelle."
+            st.session_state["interview_summary"]=ai_summary
+            audit("ANALYSE_ENTRETIEN","entretien",c["dossier_id"],"Synthèse structurée")
+        if ai_summary:
+            st.markdown("### 🧠 Synthèse structurée")
+            st.text_area("Synthèse",ai_summary,height=240,key="interview_summary_view")
         pdf=build_interview_pdf(c,rows,ai_summary)
         if pdf:
             st.download_button("📄 Générer le rapport PDF de la discussion",pdf,
@@ -1800,7 +1404,8 @@ def _legacy_sig_space(selected=None):
         else:
             lat = float(c["latitude"] or REGIONS_COORD.get(c["region"], (14.7,-16.2))[0])
             lon = float(c["longitude"] or REGIONS_COORD.get(c["region"], (14.7,-16.2))[1])
-            st.info("Dessinez un polygone autour de la zone réellement étudiée. La surface calculée et la géométrie seront utilisées par les diagnostics et rapports.")
+            st.info("Utilisez l’outil **Polygone** dans la barre de dessin de la carte, cliquez sur chaque limite de la parcelle, puis double-cliquez pour terminer. La surface, le périmètre et les coordonnées sont calculés automatiquement.")
+            st.caption("🖊️ Outils disponibles : polygone, rectangle, point GPS/repère, modification et suppression. Choisissez **Parcelle** pour enregistrer directement le contour dans le dossier.")
             result = map_for_context(lat, lon, 600, "study_zone_map", allow_draw=True)
             drawing = result.get("last_active_drawing") if result else None
             coords = drawing_to_coords(drawing)
@@ -1812,17 +1417,44 @@ def _legacy_sig_space(selected=None):
                 typ = a.selectbox("Type de zone", ["Zone d'étude","Parcelle","Zone d'observation","Zone à risque"], key="zone_type_draw")
                 nom = b.text_input("Nom de la zone", "Zone d'étude principale", key="zone_name_draw")
                 c1.write(f"**Centre**\n{centroid(coords)[0]:.6f}, {centroid(coords)[1]:.6f}")
-                if st.button("💾 Enregistrer cette zone comme périmètre officiel de l'étude", type="primary", key="save_zone_draw"):
-                    zid = save_zone(coords, typ, nom, c["dossier_id"], c["parcelle_id"])
-                    st.session_state["zone_feature_id"] = zid
+                if st.button("💾 Enregistrer la délimitation", type="primary", key="save_zone_draw"):
+                    # Une délimitation de type Parcelle est enregistrée dans la table parcelles
+                    # afin que la surface et la géométrie soient directement réutilisables
+                    # par les diagnostics, calculs et rapports.
+                    if typ == "Parcelle":
+                        did = c["dossier_id"]
+                        pid = c.get("parcelle_id")
+                        if not pid:
+                            pid = new_id("PAR")
+                            db_exec(
+                                """INSERT INTO parcelles
+                                   (id,dossier_id,nom,culture,stade,surface_ha,perimeter_m,latitude,longitude,geometry_json,feature_type,source_type,confidence,validation_status,notes,created_at,updated_at)
+                                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                                (pid, did, nom, CULTURES[0], STAGES[0], area, perim,
+                                 centroid(coords)[0], centroid(coords)[1], json.dumps(coords),
+                                 "Parcelle", "GPS/Polygone", 0.98, "À vérifier",
+                                 "Parcelle délimitée sur la carte.", now(), now())
+                            )
+                        else:
+                            db_exec(
+                                """UPDATE parcelles
+                                   SET nom=?, surface_ha=?, perimeter_m=?, latitude=?, longitude=?,
+                                       geometry_json=?, source_type=?, confidence=?, validation_status=?, updated_at=?
+                                   WHERE id=? AND dossier_id=?""",
+                                (nom, area, perim, centroid(coords)[0], centroid(coords)[1],
+                                 json.dumps(coords), "GPS/Polygone", 0.98, "À vérifier", now(), pid, did)
+                            )
+                        st.session_state["parcelle_id"] = pid
+                        zid = save_zone(coords, "Parcelle", nom, did, pid)
+                        st.session_state["zone_feature_id"] = zid
+                        audit("DELIMITATION_PARCELLE", "parcelle", pid,
+                              {"surface_ha": area, "perimeter_m": perim, "points": len(coords)})
+                        st.success(f"Parcelle « {nom} » délimitée et enregistrée : {area:.3f} ha.")
+                    else:
+                        zid = save_zone(coords, typ, nom, c["dossier_id"], c["parcelle_id"])
+                        st.session_state["zone_feature_id"] = zid
+                        st.success("Périmètre enregistré dans le SIG du dossier.")
                     st.session_state["map_nonce"] += 1
-                    st.success("Zone enregistrée. Elle devient le périmètre géographique commun du dossier.")
-                    pedo_df, pedo_msg = pedo_lookup(coords)
-                    if pedo_msg:
-                        st.caption(f"🌱 {pedo_msg}")
-                    if not pedo_df.empty:
-                        st.markdown("#### 🌱 Données pédologiques intersectées")
-                        st.dataframe(pedo_df, use_container_width=True, hide_index=True)
                     st.rerun()
             if c["zone_geometry"]:
                 st.metric("Zone active", f"{c['zone_surface_ha']:.3f} ha")
@@ -1851,7 +1483,35 @@ def _legacy_sig_space(selected=None):
                         (pid,did,nom,culture,STAGES[0],lat,lon,"[]",now(),now()))
                     st.session_state["parcelle_id"] = pid
                     audit("CREATION","parcelle",pid)
-                    st.success("Parcelle créée.")
+                    st.success("Parcelle créée. Vous pouvez maintenant la délimiter avec l’outil Polygone dans « Zone & GPS ». ")
+
+            st.markdown("#### 🖊️ Délimitation cartographique de la parcelle")
+            st.caption("Sélectionnez une parcelle ci-dessus ou créez-en une, puis dessinez son contour sur la carte.")
+            result_parcel = map_for_context(lat, lon, 520, "parcel_draw_map", allow_draw=True) if HAS_MAP else None
+            drawing_parcel = result_parcel.get("last_active_drawing") if result_parcel else None
+            coords_parcel = drawing_to_coords(drawing_parcel)
+            if len(coords_parcel) >= 3:
+                area_p = polygon_area_ha(coords_parcel)
+                perim_p = polygon_perimeter_m(coords_parcel)
+                st.success(f"Contour de parcelle : {area_p:.3f} ha · périmètre {perim_p:.1f} m")
+                if st.button("💾 Enregistrer ce contour sur la parcelle active", type="primary", key="save_parcel_polygon"):
+                    pid = st.session_state.get("parcelle_id")
+                    if not pid:
+                        st.error("Sélectionnez ou créez d’abord une parcelle.")
+                    else:
+                        la, lo = centroid(coords_parcel)
+                        db_exec(
+                            """UPDATE parcelles SET surface_ha=?, perimeter_m=?, latitude=?, longitude=?,
+                               geometry_json=?, source_type=?, confidence=?, validation_status=?, updated_at=?
+                               WHERE id=? AND dossier_id=?""",
+                            (area_p, perim_p, la, lo, json.dumps(coords_parcel), "GPS/Polygone",
+                             0.98, "À vérifier", now(), pid, did)
+                        )
+                        zid = save_zone(coords_parcel, "Parcelle", "Parcelle active", did, pid)
+                        st.session_state["zone_feature_id"] = zid
+                        audit("DELIMITATION_PARCELLE", "parcelle", pid, {"surface_ha": area_p, "perimeter_m": perim_p})
+                        st.success("Contour enregistré sur la parcelle active.")
+                        st.rerun()
 
     if section == '🧭 Couches SIG':
         st.subheader("🧭 Couches SIG du dossier")
@@ -1877,28 +1537,6 @@ def _legacy_sig_space(selected=None):
             st.info(f"Zone agroécologique indicative : {zone}")
             st.write("**Profil de sol indicatif :**", AGROZONES[zone]["sol"])
             st.write("**Risques indicatifs :**", AGROZONES[zone]["risques"])
-        st.markdown("#### 🧭 Sol de la zone cartographiée")
-        geom = c.get("zone_geometry") or (active_parcelle() or {}).get("geometry_json")
-        coords_pedo = load_geometry(geom)
-        if st.button("🔄 Synchroniser la parcelle avec toutes les analyses", key="sync_parcelle_global"):
-            ok_sync, msg_sync = _save_active_parcel_geometry(coords_pedo if 'coords_pedo' in locals() else _active_geometry())
-            if ok_sync:
-                st.success(msg_sync)
-                st.rerun()
-            else:
-                st.warning(msg_sync)
-
-        if coords_pedo and len(coords_pedo) >= 3:
-            pedo_df, pedo_msg = pedo_lookup(coords_pedo)
-            if pedo_msg:
-                st.caption(f"ℹ️ {pedo_msg}")
-            if not pedo_df.empty:
-                st.success("Unités pédologiques intersectées par la zone active.")
-                st.dataframe(pedo_df, use_container_width=True, hide_index=True)
-            else:
-                st.info("Aucune unité pédologique exploitable n'est associée à cette géométrie.")
-        else:
-            st.info("Délimitez d'abord la parcelle/zone avec le Polygone pour obtenir les données pédologiques.")
         st.markdown("#### Besoin d'irrigation")
         a,b,c1,d = st.columns(4)
         eto = a.number_input("ETo mm/j", 0.0, 20.0, 5.5, key="irrig_eto_pro")
@@ -1916,13 +1554,10 @@ def _legacy_sig_space(selected=None):
         st.warning("La sortie est un pré-diagnostic et une procédure de vérification, pas une prescription homologuée.")
         symptoms = st.text_area("Symptômes / ravageurs observés", key="phyt_symptoms_pro")
         severity = st.select_slider("Sévérité", ["Faible","Moyenne","Élevée","Critique"], key="phyt_level_pro")
-        if st.button("Afficher les vérifications terrain", key="phyt_run_pro"):
-            checks = verification_phytosanitaire(symptoms, severity)
-            st.markdown("### Vérifications à effectuer")
-            for item in checks:
-                st.write("•", item)
-            st.caption("Ces éléments sont des contrôles terrain et non un diagnostic automatisé ni une prescription.")
-            audit("VERIFICATION_PHYTOSANITAIRE","phytosanitaire",context()["parcelle_id"] or "")
+        if st.button("Construire le pré-diagnostic", key="phyt_run_pro"):
+            answer, conf, evidence = local_expert(f"{symptoms} sévérité {severity}", "Technicien")
+            st.markdown(answer)
+            audit("PRE_DIAGNOSTIC","phytosanitaire",context()["parcelle_id"] or "")
 
     if section == '🌦️ Climat & risques':
         st.subheader("🌦️ Climat & risques")
@@ -1958,10 +1593,32 @@ def _legacy_sig_space(selected=None):
 
 
 # =========================================================
-# 12. ESPACE 3 — DÉCISION
+# 12. ESPACE 3 — IA & DÉCISION
 # =========================================================
 def _legacy_decision_space(selected=None):
-    section = selected or st.session_state.get("compact__legacy_decision_space", '🔬 Diagnostic multi-domaine')
+    section = selected or st.session_state.get("compact__legacy_decision_space", '🧠 IA Expert 360°')
+
+    if section == '🧠 IA Expert 360°':
+        st.subheader("🧠 IA Expert 360° sans clé API")
+        st.caption("Le moteur lit automatiquement le dossier, la parcelle, la zone GPS, les observations, analyses et météo disponibles.")
+        actor = st.selectbox("Profil d'analyse", ROLES, key="ia_actor_pro")
+        question = st.text_area("Question / problème", key="ia_question_pro",
+                                placeholder="Ex. La tomate présente des taches depuis 4 jours dans la zone nord délimitée.")
+        if st.button("🤖 Produire une analyse structurée", type="primary", key="ia_run_pro"):
+            if not question.strip():
+                st.warning("Décrivez le problème.")
+            else:
+                answer, conf, evidence = local_expert(question, actor)
+                st.session_state["last_ai"] = answer
+                c = context()
+                db_exec("""INSERT INTO ai_history
+                    (id,dossier_id,parcelle_id,question,answer,confidence,evidence,created_at)
+                    VALUES(?,?,?,?,?,?,?,?)""",
+                        (new_id("AI"),c["dossier_id"],c["parcelle_id"],question,answer,conf,
+                         json.dumps(evidence),now()))
+                audit("IA_ANALYSE","ai_history",c["dossier_id"],question)
+        if st.session_state.get("last_ai"):
+            st.markdown(st.session_state["last_ai"])
 
     if section == '🔬 Diagnostic multi-domaine':
         st.subheader("🔬 Diagnostic transversal")
@@ -2120,7 +1777,6 @@ def _legacy_decision_space(selected=None):
 # 13. ESPACE 4 — CONSULTANCE & PILOTAGE
 # =========================================================
 def _legacy_consultancy_space(selected=None):
-    user = st.session_state.get("user") or {}
     section = selected or st.session_state.get("compact__legacy_consultancy_space", '👥 Clients')
 
     if section == '👥 Clients':
@@ -2290,42 +1946,6 @@ def _legacy_consultancy_space(selected=None):
             users = db_exec("SELECT email,nom,role,zone,statut,created_at FROM users ORDER BY created_at DESC", fetch=True)
             st.dataframe(pd.DataFrame(users), use_container_width=True, hide_index=True)
 
-    if section == '🔐 Accès utilisateurs':
-        st.subheader("🔐 Accès aux données et aux modules")
-        st.info("Principe : un utilisateur non Super-Admin ne voit que les dossiers qui lui sont explicitement attribués. Les modules peuvent également être activés ou retirés par utilisateur.")
-        if user.get("role") != "Super-Admin":
-            st.warning("Accès réservé au Super-Admin.")
-        else:
-            users=db_exec("SELECT email,nom,role,statut FROM users ORDER BY nom,email",fetch=True)
-            if users:
-                labels=[f"{u['email']} · {u['nom']} · {u['role']}" for u in users]
-                u=users[labels.index(st.selectbox("Utilisateur",labels,key="access_user_v11"))]
-                dossiers_all=db_exec("SELECT id,nom FROM dossiers ORDER BY nom",fetch=True)
-                current=db_exec("SELECT dossier_id FROM user_data_access WHERE lower(user_email)=lower(?)",(u["email"],),fetch=True)
-                current_ids={r["dossier_id"] for r in current}
-                dlabels=[f"{d['id']} · {d['nom']}" for d in dossiers_all]
-                selected=st.multiselect("Dossiers autorisés",dlabels,
-                                        default=[x for x in dlabels if x.split(" · ",1)[0] in current_ids],
-                                        key="access_dossiers_v11")
-                custom=db_exec("SELECT module_key FROM user_modules WHERE lower(user_email)=lower(?) AND allowed=1",(u["email"],),fetch=True)
-                default_mods=[r["module_key"] for r in custom] if custom else PROFILS_MODULES.get(u["role"],[])
-                selected_mods=st.multiselect("Modules autorisés",list(MODULES_AUTORISABLES),
-                                             format_func=lambda k:MODULES_AUTORISABLES[k],
-                                             default=[k for k in default_mods if k in MODULES_AUTORISABLES],
-                                             key="access_modules_v11")
-                if st.button("💾 Enregistrer les droits",type="primary",key="save_access_rights_v11"):
-                    db_exec("DELETE FROM user_data_access WHERE lower(user_email)=lower(?)",(u["email"],))
-                    for lab in selected:
-                        db_exec("INSERT OR REPLACE INTO user_data_access(user_email,dossier_id,access_level,created_at) VALUES(?,?,?,?)",
-                                (u["email"],lab.split(" · ",1)[0],"lecture",now()))
-                    db_exec("DELETE FROM user_modules WHERE lower(user_email)=lower(?)",(u["email"],))
-                    for mk in selected_mods:
-                        db_exec("INSERT OR REPLACE INTO user_modules(user_email,module_key,allowed,created_at) VALUES(?,?,?,?)",
-                                (u["email"],mk,1,now()))
-                    audit("MODIFICATION_DROITS","user",u["email"],{"dossiers":len(selected),"modules":len(selected_mods)})
-                    st.success("Droits enregistrés.")
-                    st.rerun()
-
     if section == '🛡️ Audit & synchronisation':
         st.subheader("🛡️ Audit, synchronisation et traçabilité")
         sync = db_exec("SELECT * FROM sync_log ORDER BY fetched_at DESC LIMIT 200", fetch=True)
@@ -2367,7 +1987,7 @@ def dashboard():
         "État":[
             bool(c["client_id"]),bool(c["dossier_id"]),bool(c["zone_geometry"]),obs>0,
             len(db_exec("SELECT id FROM analyses WHERE dossier_id=?",(did,), fetch=True))>0,
-            obs>0 or missions>0,missions>0,
+            bool(st.session_state.get("last_ai")),missions>0,
             len(db_exec("SELECT id FROM reports WHERE dossier_id=?",(did,), fetch=True))>0
         ]
     })
@@ -2430,6 +2050,10 @@ FEATURE_CATALOG = [
 "49. Score de confiance séparé",
 "50. Profil agroécologique indicatif",
 "51. Diagnostic phytosanitaire préliminaire",
+"52. Moteur IA local sans clé API",
+"53. IA multi-domaine",
+"54. Historique des questions IA",
+"55. Preuves mobilisées par l'IA",
 "56. Plan de vérification",
 "57. Alertes terrain",
 "58. Alertes qualité des données",
@@ -2488,7 +2112,7 @@ FEATURE_CATALOG = [
 "111. Authentification par hash",
 "112. Journal d'audit",
 "113. Traçabilité des modifications",
-"114. Séparation données terrain/officielles/calculées",
+"114. Séparation données terrain/officielles/calculées/IA",
 "115. Conservation du dernier état connu hors ligne",
 "116. Indication de synchronisation",
 "117. Tableau de bord du cabinet",
@@ -2521,7 +2145,6 @@ with st.sidebar:
     c=context(); q,_=data_quality()
     st.markdown("---")
     st.caption(f"👤 {c['client'] or 'Client non sélectionné'}")
-    st.caption(f"🔐 Accès : {(st.session_state.get("user") or {}).get("role","Utilisateur")} · données autorisées uniquement")
     st.caption(f"📁 {c['dossier'] or 'Dossier non sélectionné'}")
     st.caption(f"📍 {c['zone_nom'] or 'Zone non délimitée'}")
     st.caption(f"📐 {(c['zone_surface_ha'] or c['surface_ha']):.2f} ha")
@@ -2537,11 +2160,10 @@ with st.sidebar:
         st.session_state["user"]=None
         st.rerun()
 
-access_guard()
 # Une seule navigation principale. Les anciennes sous-onglets sont remplacées par des rubriques compactes.
 space=st.segmented_control(
     "Espace de travail",
-    ["🏠 Accueil","🌍 Terrain","🗺️ Diagnostic","📊 Décision","💼 Cabinet"],
+    ["🏠 Accueil","🌍 Terrain","🗺️ Diagnostic","🤖 Décision","💼 Cabinet"],
     default=st.session_state.get("v10_space","🏠 Accueil"),
     key="v10_space"
 )
@@ -2551,38 +2173,49 @@ if space == "🏠 Accueil":
     st.markdown("### ⚡ Accès rapide")
     a,b,c,d=st.columns(4)
     if a.button("📁 Ouvrir le dossier",use_container_width=True,key="quick_dossier"):
-        st.session_state["v10_space"]="🌍 Terrain"; st.session_state["terrain_v10_section"]="📁 Dossier 360°"; st.rerun()
+        st.session_state["v10_space"]="🌍 Terrain"; st.session_state["terrain_v10_target"]="📁 Dossier 360°"; st.rerun()
     if b.button("💬 Entretien agriculteur",use_container_width=True,key="quick_interview"):
-        st.session_state["v10_space"]="🌍 Terrain"; st.session_state["terrain_v10_section"]="💬 Entretien / Messages"; st.rerun()
+        st.session_state["v10_space"]="🌍 Terrain"; st.session_state["terrain_v10_target"]="💬 Entretien / Messages"; st.rerun()
     if c.button("🧠 Diagnostic 360°",use_container_width=True,key="quick_diag"):
-        st.session_state["v10_space"]="🗺️ Diagnostic"; st.session_state["diagnostic_v10_section"]="🔬 Diagnostic 360°"; st.rerun()
+        st.session_state["v10_space"]="🗺️ Diagnostic"; st.session_state["diagnostic_v10_target"]="🔬 Diagnostic 360°"; st.rerun()
     if d.button("📄 Rapports",use_container_width=True,key="quick_report"):
-        st.session_state["v10_space"]="💼 Cabinet"; st.session_state["cabinet_v10_section"]="📄 Rapports"; st.rerun()
+        st.session_state["v10_space"]="💼 Cabinet"; st.session_state["cabinet_v10_target"]="📄 Rapports"; st.rerun()
 
 elif space == "🌍 Terrain":
     st.markdown("### 🌍 Terrain")
-    section=st.selectbox("Rubrique",[
+    terrain_options=[
         "📁 Dossier 360°","🌾 Production","👁️ Observations","🧪 Analyses",
-        "💬 Entretien / Messages","📨 Communications","📦 Équipements","📚 Historique"
-    ],key="terrain_v10_section")
+        "💬 Entretien / Messages","📦 Équipements","📚 Historique"
+    ]
+    target=st.session_state.pop("terrain_v10_target",None)
+    if target in terrain_options:
+        terrain_index=terrain_options.index(target)
+    else:
+        previous=st.session_state.get("terrain_v10_section","📁 Dossier 360°")
+        terrain_index=terrain_options.index(previous) if previous in terrain_options else 0
+    section=st.selectbox("Rubrique",terrain_options,index=terrain_index,key="terrain_v10_section")
     mapping={
         "📁 Dossier 360°":"📁 Dossier 360°","🌾 Production":"🌾 Agriculture",
         "👁️ Observations":"👁️ Observations","🧪 Analyses":"🧪 Analyses",
         "📦 Équipements":"📦 Équipements","📚 Historique":"📚 Historique"
     }
-    if section=="💬 Entretien / Messages":
-        entretien_space()
-    elif section=="📨 Communications":
-        communications_space()
+    if section=="💬 Entretien / Messages": entretien_space()
     else:
         _legacy_terrain_space(mapping[section])
 
 elif space == "🗺️ Diagnostic":
     st.markdown("### 🗺️ Diagnostic")
-    section=st.selectbox("Rubrique",[
+    diagnostic_options=[
         "🗺️ Zone & GPS","🧭 Couches SIG","🌱 Sols & Eau","🦠 Santé / Phytosanitaire",
         "🌦️ Climat & risques","🔎 Qualité & preuves","🔬 Diagnostic 360°"
-    ],key="diagnostic_v10_section")
+    ]
+    target=st.session_state.pop("diagnostic_v10_target",None)
+    if target in diagnostic_options:
+        diagnostic_index=diagnostic_options.index(target)
+    else:
+        previous=st.session_state.get("diagnostic_v10_section","🗺️ Zone & GPS")
+        diagnostic_index=diagnostic_options.index(previous) if previous in diagnostic_options else 0
+    section=st.selectbox("Rubrique",diagnostic_options,index=diagnostic_index,key="diagnostic_v10_section")
     mapping={
         "🗺️ Zone & GPS":"🗺️ Zone concernée","🧭 Couches SIG":"🧭 Couches SIG",
         "🌱 Sols & Eau":"🌱 Sols & Eau","🦠 Santé / Phytosanitaire":"🦠 Phytosanitaire",
@@ -2591,14 +2224,14 @@ elif space == "🗺️ Diagnostic":
     }
     _legacy_sig_space(mapping[section])
 
-elif space == "📊 Décision":
-    st.markdown("### 📊 Décision")
+elif space == "🤖 Décision":
+    st.markdown("### 🤖 Décision")
     section=st.selectbox("Rubrique",[
-        "🔬 Recommandations / Diagnostic","📊 Simulations & ROI",
+        "🧠 IA Expert 360°","🔬 Recommandations / Diagnostic","📊 Simulations & ROI",
         "🚨 Alertes","📈 KPI","✅ Plan d'action","🧪 Contrôle de cohérence"
     ],key="decision_v10_section")
     mapping={
-        "🔬 Recommandations / Diagnostic":"🔬 Diagnostic multi-domaine",
+        "🧠 IA Expert 360°":"🧠 IA Expert 360°","🔬 Recommandations / Diagnostic":"🔬 Diagnostic multi-domaine",
         "📊 Simulations & ROI":"📊 Simulations","🚨 Alertes":"🚨 Alertes","📈 KPI":"📈 KPI",
         "✅ Plan d'action":"✅ Plan d'action","🧪 Contrôle de cohérence":"🧪 Contrôle de cohérence"
     }
@@ -2606,14 +2239,21 @@ elif space == "📊 Décision":
 
 elif space == "💼 Cabinet":
     st.markdown("### 💼 Cabinet")
-    section=st.selectbox("Rubrique",[
+    cabinet_options=[
         "👥 Clients & dossiers","📋 Missions","💰 Devis & Finance","📄 Rapports",
-        "📚 Documents","📆 Suivi & agenda","⚙️ Administration","🔐 Accès utilisateurs","🛡️ Traçabilité"
-    ],key="cabinet_v10_section")
+        "📚 Documents","📆 Suivi & agenda","⚙️ Administration","🛡️ Traçabilité"
+    ]
+    target=st.session_state.pop("cabinet_v10_target",None)
+    if target in cabinet_options:
+        cabinet_index=cabinet_options.index(target)
+    else:
+        previous=st.session_state.get("cabinet_v10_section","👥 Clients & dossiers")
+        cabinet_index=cabinet_options.index(previous) if previous in cabinet_options else 0
+    section=st.selectbox("Rubrique",cabinet_options,index=cabinet_index,key="cabinet_v10_section")
     mapping={
         "👥 Clients & dossiers":"👥 Clients","📋 Missions":"📋 Missions","💰 Devis & Finance":"💳 Finance",
         "📄 Rapports":"📄 Rapports","📚 Documents":"📚 Documents","📆 Suivi & agenda":"📆 Suivi & agenda",
-        "⚙️ Administration":"👑 Administration","🔐 Accès utilisateurs":"🔐 Accès utilisateurs","🛡️ Traçabilité":"🛡️ Audit & synchronisation"
+        "⚙️ Administration":"👑 Administration","🛡️ Traçabilité":"🛡️ Audit & synchronisation"
     }
     # Devis et Finance sont fusionnés visuellement : on garde le module Devis accessible depuis Finance.
     _legacy_consultancy_space(mapping[section])
