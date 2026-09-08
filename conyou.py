@@ -1171,180 +1171,80 @@ def access_guard():
 _GLOBAL_SELECTOR_RENDERED = False
 
 def global_selector():
-    """Sélecteur global propre : Client → Dossier → Parcelle.
-    Les clés des widgets sont liées au parent pour éviter les sélections fantômes
-    lorsqu'on change de client ou de dossier.
-    """
     global _GLOBAL_SELECTOR_RENDERED
     if _GLOBAL_SELECTOR_RENDERED:
         return
     _GLOBAL_SELECTOR_RENDERED = True
 
-    st.markdown("### 🎯 CONTEXTE ACTIF")
-    st.caption("Choisissez dans l'ordre : client → dossier → parcelle.")
-
-    # 1) CLIENT -------------------------------------------------
+    st.markdown("### 🎯 Dossier de consultance actif")
     clients = accessible_clients()
-    client_ids = [x["id"] for x in clients]
-    client_by_id = {x["id"]: x for x in clients}
-    client_options = ["__new_client__"] + client_ids
+    client_labels = ["➕ Nouveau client"] + [f"{x['id']} · {x['nom']}" for x in clients]
     current_client = st.session_state.get("client_id")
-    if current_client not in client_ids:
-        current_client = None
-    client_index = client_options.index(current_client) if current_client in client_options else 0
+    cidx = next((i+1 for i,x in enumerate(clients) if x["id"] == current_client), 0)
+    cc = st.selectbox("Client", client_labels, index=cidx, key="yam_global_client")
 
-    def client_label(cid):
-        if cid == "__new_client__":
-            return "➕ Créer un nouveau client"
-        x = client_by_id.get(cid, {})
-        return x.get("nom") or cid
-
-    cc = st.selectbox(
-        "👤 Client",
-        client_options,
-        index=client_index,
-        format_func=client_label,
-        key="yam_global_client",
-        help="Sélectionnez le client propriétaire du dossier.",
-    )
-
-    if cc == "__new_client__":
+    if cc == "➕ Nouveau client":
         with st.form("global_new_client"):
             nom = st.text_input("Nom / exploitation")
             tel = st.text_input("Téléphone")
             email = st.text_input("E-mail")
             org = st.text_input("Organisation")
             region = st.selectbox("Région", list(REGIONS_COORD))
-            if st.form_submit_button("Créer le client", type="primary"):
+            if st.form_submit_button("Créer le client"):
                 cid = new_id("CLI")
                 db_exec("""INSERT INTO clients(id,nom,telephone,email,organisation,adresse,region,notes,created_at,updated_at)
                            VALUES(?,?,?,?,?,?,?,?,?,?)""",
                         (cid, nom or "Client sans nom", tel, email, org, "", region, "", now(), now()))
                 st.session_state["client_id"] = cid
-                st.session_state["dossier_id"] = None
-                st.session_state["parcelle_id"] = None
                 audit("CREATION", "client", cid)
                 st.rerun()
-        return
-
-    # Le client est une variable de contexte, pas une clé de widget.
-    if cc != st.session_state.get("client_id"):
-        st.session_state["client_id"] = cc
-        st.session_state["dossier_id"] = None
-        st.session_state["parcelle_id"] = None
-        st.session_state["zone_feature_id"] = None
+    else:
+        cid = cc.split(" · ", 1)[0]
+        if cid != current_client:
+            st.session_state["client_id"] = cid
+            st.session_state["dossier_id"] = None
+            st.session_state["parcelle_id"] = None
+            st.session_state["zone_feature_id"] = None
 
     cid = st.session_state.get("client_id")
-    if not cid:
-        return
-
-    # 2) DOSSIER ------------------------------------------------
-    dossiers = accessible_dossiers(cid)
-    dossier_ids = [x["id"] for x in dossiers]
-    dossier_by_id = {x["id"]: x for x in dossiers}
-    dossier_options = ["__new_dossier__"] + dossier_ids
-    current_dossier = st.session_state.get("dossier_id")
-    if current_dossier not in dossier_ids:
-        current_dossier = None
-    dossier_index = dossier_options.index(current_dossier) if current_dossier in dossier_options else 0
-
-    def dossier_label(did):
-        if did == "__new_dossier__":
-            return "➕ Créer un nouveau dossier"
-        x = dossier_by_id.get(did, {})
-        nom = x.get("nom") or did
-        typ = x.get("type_exploitation") or ""
-        region = x.get("region") or ""
-        suffix = " · ".join(v for v in [typ, region] if v)
-        return f"{nom} — {suffix}" if suffix else nom
-
-    dd = st.selectbox(
-        "📁 Dossier d'étude",
-        dossier_options,
-        index=dossier_index,
-        format_func=dossier_label,
-        key=f"yam_global_dossier_{cid}",
-        help="Le dossier regroupe les missions, observations, analyses et décisions du client.",
-    )
-
-    if dd == "__new_dossier__":
-        with st.form(f"global_new_dossier_{cid}"):
-            nom = st.text_input("Nom du dossier")
-            typ = st.selectbox("Type", ["Agriculture", "Élevage", "Aquaculture", "Agroalimentaire", "Mixte"])
-            region = st.selectbox("Région", list(REGIONS_COORD))
-            commune = st.text_input("Commune")
-            village = st.text_input("Village")
-            if st.form_submit_button("Créer le dossier", type="primary"):
-                did = new_id("DOS")
-                lat, lon = REGIONS_COORD[region]
-                db_exec("""INSERT INTO dossiers
-                    (id,client_id,nom,type_exploitation,region,commune,village,latitude,longitude,notes,created_at,updated_at)
-                    VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
+    if cid:
+        dossiers = accessible_dossiers(cid)
+        labels = ["➕ Nouveau dossier"] + [f"{x['id']} · {x['nom']}" for x in dossiers]
+        cur = st.session_state.get("dossier_id")
+        didx = next((i+1 for i,x in enumerate(dossiers) if x["id"] == cur), 0)
+        dd = st.selectbox("Dossier / mission d'étude", labels, index=didx, key="yam_global_dossier")
+        if dd == "➕ Nouveau dossier":
+            with st.form("global_new_dossier"):
+                nom = st.text_input("Nom du dossier")
+                typ = st.selectbox("Type", ["Agriculture", "Élevage", "Aquaculture", "Agroalimentaire", "Mixte"])
+                region = st.selectbox("Région", list(REGIONS_COORD))
+                commune = st.text_input("Commune")
+                village = st.text_input("Village")
+                if st.form_submit_button("Créer le dossier", type="primary"):
+                    did = new_id("DOS")
+                    lat, lon = REGIONS_COORD[region]
+                    db_exec("""INSERT INTO dossiers
+                        (id,client_id,nom,type_exploitation,region,commune,village,latitude,longitude,notes,created_at,updated_at)
+                        VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
                         (did,cid,nom or "Dossier sans nom",typ,region,commune,village,lat,lon,"",now(),now()))
+                    set_active_dossier(did)
+                    st.rerun()
+        else:
+            did = dd.split(" · ", 1)[0]
+            if did != st.session_state.get("dossier_id"):
                 set_active_dossier(did)
-                st.rerun()
-        return
 
-    if dd != st.session_state.get("dossier_id"):
-        set_active_dossier(dd)
-
-    did = st.session_state.get("dossier_id")
-    if not did:
-        return
-
-    # 3) PARCELLE ------------------------------------------------
-    pars = db_exec(
-        "SELECT * FROM parcelles WHERE dossier_id=? ORDER BY COALESCE(updated_at, created_at, '') DESC",
-        (did,), fetch=True
-    )
-    parcel_ids = [x["id"] for x in pars]
-    parcel_by_id = {x["id"]: x for x in pars}
-    parcel_options = ["__no_parcel__"] + parcel_ids
-    current_parcel = st.session_state.get("parcelle_id")
-    if current_parcel not in parcel_ids:
-        current_parcel = None
-    parcel_index = parcel_options.index(current_parcel) if current_parcel in parcel_options else 0
-
-    def parcel_label(pid):
-        if pid == "__no_parcel__":
-            return "— Aucune parcelle sélectionnée —"
-        x = parcel_by_id.get(pid, {})
-        nom = x.get("nom") or pid
-        surface = float(x.get("surface_ha") or 0)
-        culture = x.get("culture") or "Culture non renseignée"
-        return f"{nom} — {surface:.2f} ha · {culture}"
-
-    pp = st.selectbox(
-        "🌱 Parcelle active",
-        parcel_options,
-        index=parcel_index,
-        format_func=parcel_label,
-        key=f"yam_global_parcelle_{did}",
-        help="Toutes les observations, analyses, cartes et recommandations peuvent être rattachées à cette parcelle.",
-    )
-
-    if pp == "__no_parcel__":
-        st.session_state["parcelle_id"] = None
-        st.session_state["active_parcel_geometry"] = None
-        st.session_state["terrain_geometry"] = None
-    elif pp != st.session_state.get("parcelle_id"):
-        st.session_state["parcelle_id"] = pp
-        st.session_state["zone_feature_id"] = None
-        st.session_state["active_parcel_geometry"] = None
-        st.session_state["terrain_geometry"] = None
-        audit("SELECTION", "parcelle", pp)
-
-    # 4) RÉSUMÉ VISUEL DU CONTEXTE ------------------------------
-    active = context()
-    st.markdown("---")
-    st.markdown("**📌 Contexte utilisé par l'application**")
-    st.caption(f"👤 {active['client'] or '—'}")
-    st.caption(f"📁 {active['dossier'] or '—'}")
-    st.caption(f"🌱 {active['parcelle'] or 'Aucune parcelle'}")
-    if active.get("parcelle_id"):
-        st.success("✓ Parcelle active : les modules Terrain, Diagnostic et Décision utilisent cette parcelle.")
-    else:
-        st.warning("⚠️ Sélectionnez une parcelle pour les analyses et le suivi parcellaire.")
+        did = st.session_state.get("dossier_id")
+        if did:
+            pars = db_exec("SELECT * FROM parcelles WHERE dossier_id=? ORDER BY COALESCE(updated_at, created_at, '') DESC", (did,), fetch=True)
+            plabels = ["— Aucune parcelle sélectionnée —"] + [f"{x['id']} · {x['nom']} ({x['surface_ha']:.2f} ha)" for x in pars]
+            curp = st.session_state.get("parcelle_id")
+            pidx = next((i+1 for i,x in enumerate(pars) if x["id"] == curp), 0)
+            pp = st.selectbox("Unité / parcelle", plabels, index=pidx, key="yam_global_parcelle")
+            if pp.startswith("—"):
+                st.session_state["parcelle_id"] = None
+            else:
+                st.session_state["parcelle_id"] = pp.split(" · ", 1)[0]
 
 
 # =========================================================
@@ -2638,6 +2538,23 @@ with st.sidebar:
         st.rerun()
 
 access_guard()
+# Navigation différée : ne jamais modifier la clé d'un widget après son instanciation.
+_space_target = st.session_state.pop("v10_space_target", None)
+if _space_target:
+    st.session_state["v10_space"] = _space_target
+
+_terrain_target = st.session_state.pop("terrain_v10_section_target", None)
+if _terrain_target:
+    st.session_state["terrain_v10_section"] = _terrain_target
+
+_diagnostic_target = st.session_state.pop("diagnostic_v10_section_target", None)
+if _diagnostic_target:
+    st.session_state["diagnostic_v10_section"] = _diagnostic_target
+
+_cabinet_target = st.session_state.pop("cabinet_v10_section_target", None)
+if _cabinet_target:
+    st.session_state["cabinet_v10_section"] = _cabinet_target
+
 # Une seule navigation principale. Les anciennes sous-onglets sont remplacées par des rubriques compactes.
 space=st.segmented_control(
     "Espace de travail",
@@ -2651,13 +2568,13 @@ if space == "🏠 Accueil":
     st.markdown("### ⚡ Accès rapide")
     a,b,c,d=st.columns(4)
     if a.button("📁 Ouvrir le dossier",use_container_width=True,key="quick_dossier"):
-        st.session_state["v10_space"]="🌍 Terrain"; st.session_state["terrain_v10_section"]="📁 Dossier 360°"; st.rerun()
+        st.session_state["v10_space_target"]="🌍 Terrain"; st.session_state["terrain_v10_section_target"]="📁 Dossier 360°"; st.rerun()
     if b.button("💬 Entretien agriculteur",use_container_width=True,key="quick_interview"):
-        st.session_state["v10_space"]="🌍 Terrain"; st.session_state["terrain_v10_section"]="💬 Entretien / Messages"; st.rerun()
+        st.session_state["v10_space_target"]="🌍 Terrain"; st.session_state["terrain_v10_section_target"]="💬 Entretien / Messages"; st.rerun()
     if c.button("🧠 Diagnostic 360°",use_container_width=True,key="quick_diag"):
-        st.session_state["v10_space"]="🗺️ Diagnostic"; st.session_state["diagnostic_v10_section"]="🔬 Diagnostic 360°"; st.rerun()
+        st.session_state["v10_space_target"]="🗺️ Diagnostic"; st.session_state["diagnostic_v10_section_target"]="🔬 Diagnostic 360°"; st.rerun()
     if d.button("📄 Rapports",use_container_width=True,key="quick_report"):
-        st.session_state["v10_space"]="💼 Cabinet"; st.session_state["cabinet_v10_section"]="📄 Rapports"; st.rerun()
+        st.session_state["v10_space_target"]="💼 Cabinet"; st.session_state["cabinet_v10_section_target"]="📄 Rapports"; st.rerun()
 
 elif space == "🌍 Terrain":
     st.markdown("### 🌍 Terrain")
