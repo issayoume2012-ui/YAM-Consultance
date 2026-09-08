@@ -2765,7 +2765,7 @@ elif space == "🗺️ Diagnostic":
         "🗺️ Zone & GPS":"🗺️ Zone concernée","🧭 Couches SIG":"🧭 Couches SIG",
         "🌱 Sols & Eau":"🌱 Sols & Eau","🦠 Santé / Phytosanitaire":"🦠 Phytosanitaire",
         "🌦️ Climat & risques":"🌦️ Climat & risques","🔎 Qualité & preuves":"🔎 Qualité & preuves",
-        "🔬 Diagnostic 360°":"🔬 Diagnostic multi-domaine"
+        "🔬 Diagnostic 360°":"🔬 Diagnostic 360°"
     }
     _legacy_sig_space(mapping[section])
 
