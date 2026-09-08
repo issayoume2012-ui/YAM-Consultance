@@ -1171,80 +1171,147 @@ def access_guard():
 _GLOBAL_SELECTOR_RENDERED = False
 
 def global_selector():
-    global _GLOBAL_SELECTOR_RENDERED
-    if _GLOBAL_SELECTOR_RENDERED:
-        return
-    _GLOBAL_SELECTOR_RENDERED = True
-
-    st.markdown("### 🎯 Dossier de consultance actif")
+    """Contexte unique et robuste : Client -> Dossier -> Parcelle.
+    Les widgets dépendants ont des clés liées à leur parent pour éviter les
+    sélections fantômes après changement de client ou de dossier.
+    """
+    st.markdown("### 🎯 CONTEXTE DE CONSULTANCE")
     clients = accessible_clients()
-    client_labels = ["➕ Nouveau client"] + [f"{x['id']} · {x['nom']}" for x in clients]
+    client_options = ["__new_client__"] + [x["id"] for x in clients]
     current_client = st.session_state.get("client_id")
-    cidx = next((i+1 for i,x in enumerate(clients) if x["id"] == current_client), 0)
-    cc = st.selectbox("Client", client_labels, index=cidx, key="yam_global_client")
+    if current_client not in client_options:
+        current_client = "__new_client__" if not clients else clients[0]["id"]
 
-    if cc == "➕ Nouveau client":
-        with st.form("global_new_client"):
+    def client_label(cid):
+        if cid == "__new_client__":
+            return "➕ Nouveau client"
+        row = next((x for x in clients if x["id"] == cid), None)
+        return row["nom"] if row else cid
+
+    cc = st.selectbox(
+        "👤 Client",
+        client_options,
+        index=client_options.index(current_client),
+        format_func=client_label,
+        key="yam_global_client_v2",
+    )
+
+    if cc == "__new_client__":
+        with st.form("global_new_client_v2"):
             nom = st.text_input("Nom / exploitation")
             tel = st.text_input("Téléphone")
             email = st.text_input("E-mail")
             org = st.text_input("Organisation")
             region = st.selectbox("Région", list(REGIONS_COORD))
-            if st.form_submit_button("Créer le client"):
+            if st.form_submit_button("Créer le client", type="primary"):
                 cid = new_id("CLI")
                 db_exec("""INSERT INTO clients(id,nom,telephone,email,organisation,adresse,region,notes,created_at,updated_at)
                            VALUES(?,?,?,?,?,?,?,?,?,?)""",
                         (cid, nom or "Client sans nom", tel, email, org, "", region, "", now(), now()))
                 st.session_state["client_id"] = cid
+                st.session_state["dossier_id"] = None
+                st.session_state["parcelle_id"] = None
+                st.session_state["zone_feature_id"] = None
                 audit("CREATION", "client", cid)
                 st.rerun()
-    else:
-        cid = cc.split(" · ", 1)[0]
-        if cid != current_client:
-            st.session_state["client_id"] = cid
-            st.session_state["dossier_id"] = None
-            st.session_state["parcelle_id"] = None
-            st.session_state["zone_feature_id"] = None
+        return
+
+    if cc != st.session_state.get("client_id"):
+        st.session_state["client_id"] = cc
+        st.session_state["dossier_id"] = None
+        st.session_state["parcelle_id"] = None
+        st.session_state["zone_feature_id"] = None
+        st.session_state.pop("active_parcel_geometry", None)
+        st.session_state.pop("terrain_geometry", None)
 
     cid = st.session_state.get("client_id")
-    if cid:
-        dossiers = accessible_dossiers(cid)
-        labels = ["➕ Nouveau dossier"] + [f"{x['id']} · {x['nom']}" for x in dossiers]
-        cur = st.session_state.get("dossier_id")
-        didx = next((i+1 for i,x in enumerate(dossiers) if x["id"] == cur), 0)
-        dd = st.selectbox("Dossier / mission d'étude", labels, index=didx, key="yam_global_dossier")
-        if dd == "➕ Nouveau dossier":
-            with st.form("global_new_dossier"):
-                nom = st.text_input("Nom du dossier")
-                typ = st.selectbox("Type", ["Agriculture", "Élevage", "Aquaculture", "Agroalimentaire", "Mixte"])
-                region = st.selectbox("Région", list(REGIONS_COORD))
-                commune = st.text_input("Commune")
-                village = st.text_input("Village")
-                if st.form_submit_button("Créer le dossier", type="primary"):
-                    did = new_id("DOS")
-                    lat, lon = REGIONS_COORD[region]
-                    db_exec("""INSERT INTO dossiers
-                        (id,client_id,nom,type_exploitation,region,commune,village,latitude,longitude,notes,created_at,updated_at)
-                        VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
-                        (did,cid,nom or "Dossier sans nom",typ,region,commune,village,lat,lon,"",now(),now()))
-                    set_active_dossier(did)
-                    st.rerun()
-        else:
-            did = dd.split(" · ", 1)[0]
-            if did != st.session_state.get("dossier_id"):
-                set_active_dossier(did)
+    dossiers = accessible_dossiers(cid) if cid else []
+    dossier_options = ["__new_dossier__"] + [x["id"] for x in dossiers]
+    current_dossier = st.session_state.get("dossier_id")
+    if current_dossier not in dossier_options:
+        current_dossier = "__new_dossier__" if not dossiers else dossiers[0]["id"]
 
-        did = st.session_state.get("dossier_id")
-        if did:
-            pars = db_exec("SELECT * FROM parcelles WHERE dossier_id=? ORDER BY COALESCE(updated_at, created_at, '') DESC", (did,), fetch=True)
-            plabels = ["— Aucune parcelle sélectionnée —"] + [f"{x['id']} · {x['nom']} ({x['surface_ha']:.2f} ha)" for x in pars]
-            curp = st.session_state.get("parcelle_id")
-            pidx = next((i+1 for i,x in enumerate(pars) if x["id"] == curp), 0)
-            pp = st.selectbox("Unité / parcelle", plabels, index=pidx, key="yam_global_parcelle")
-            if pp.startswith("—"):
-                st.session_state["parcelle_id"] = None
-            else:
-                st.session_state["parcelle_id"] = pp.split(" · ", 1)[0]
+    def dossier_label(did):
+        if did == "__new_dossier__":
+            return "➕ Nouveau dossier"
+        row = next((x for x in dossiers if x["id"] == did), None)
+        return row["nom"] if row else did
+
+    dd = st.selectbox(
+        "📁 Dossier / mission",
+        dossier_options,
+        index=dossier_options.index(current_dossier),
+        format_func=dossier_label,
+        key=f"yam_global_dossier_v2_{cid or 'none'}",
+    )
+
+    if dd == "__new_dossier__":
+        with st.form("global_new_dossier_v2"):
+            nom = st.text_input("Nom du dossier")
+            typ = st.selectbox("Type", ["Agriculture", "Élevage", "Aquaculture", "Agroalimentaire", "Mixte"])
+            region = st.selectbox("Région", list(REGIONS_COORD))
+            commune = st.text_input("Commune")
+            village = st.text_input("Village")
+            if st.form_submit_button("Créer le dossier", type="primary"):
+                did = new_id("DOS")
+                lat, lon = REGIONS_COORD[region]
+                db_exec("""INSERT INTO dossiers
+                    (id,client_id,nom,type_exploitation,region,commune,village,latitude,longitude,notes,created_at,updated_at)
+                    VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    (did,cid,nom or "Dossier sans nom",typ,region,commune,village,lat,lon,"",now(),now()))
+                set_active_dossier(did)
+                st.rerun()
+        return
+
+    if dd != st.session_state.get("dossier_id"):
+        set_active_dossier(dd)
+        st.session_state["parcelle_id"] = None
+        st.session_state["zone_feature_id"] = None
+        st.session_state.pop("active_parcel_geometry", None)
+        st.session_state.pop("terrain_geometry", None)
+
+    did = st.session_state.get("dossier_id")
+    pars = db_exec("SELECT * FROM parcelles WHERE dossier_id=? ORDER BY COALESCE(updated_at, created_at, '') DESC", (did,), fetch=True) if did else []
+    parcel_options = ["__none_parcel__"] + [x["id"] for x in pars]
+    current_parcel = st.session_state.get("parcelle_id")
+    if current_parcel not in parcel_options:
+        current_parcel = "__none_parcel__"
+
+    def parcel_label(pid):
+        if pid == "__none_parcel__":
+            return "— Aucune parcelle active —"
+        row = next((x for x in pars if x["id"] == pid), None)
+        if not row:
+            return pid
+        surface = float(row.get("surface_ha") or 0)
+        culture = row.get("culture") or "Culture non renseignée"
+        return f"🌱 {row['nom']} · {surface:.2f} ha · {culture}"
+
+    pp = st.selectbox(
+        "🌱 Parcelle active",
+        parcel_options,
+        index=parcel_options.index(current_parcel),
+        format_func=parcel_label,
+        key=f"yam_global_parcelle_v2_{did or 'none'}",
+    )
+    new_pid = None if pp == "__none_parcel__" else pp
+    if new_pid != st.session_state.get("parcelle_id"):
+        st.session_state["parcelle_id"] = new_pid
+        st.session_state["zone_feature_id"] = None
+        st.session_state.pop("active_parcel_geometry", None)
+        st.session_state.pop("terrain_geometry", None)
+        if new_pid:
+            audit("SELECTION", "parcelle", new_pid)
+
+    c = context()
+    st.markdown("---")
+    st.markdown("**CONTEXTE ACTUEL**")
+    st.caption(f"👤 {c['client'] or 'Client non sélectionné'}")
+    st.caption(f"📁 {c['dossier'] or 'Dossier non sélectionné'}")
+    if c.get("parcelle_id"):
+        st.success(f"🌱 Parcelle active : {c['parcelle'] or c['parcelle_id']}")
+    else:
+        st.warning("🌱 Aucune parcelle active — sélectionnez-en une pour les analyses détaillées.")
 
 
 # =========================================================
@@ -1256,7 +1323,7 @@ def professional_header():
     <style>
     .block-container{padding-top:1.15rem;padding-bottom:2.5rem;max-width:1500px}
     [data-testid="stSidebar"]{border-right:1px solid #dfe8e2}
-    .ya-hero{background:linear-gradient(135deg,#103d2c 0%,#146c43 58%,#198754 100%);color:#fff;border-radius:22px;padding:24px 28px;box-shadow:0 10px 30px rgba(16,61,44,.16);margin-bottom:14px}
+    .ya-hero{background:linear-gradient(135deg,#103d2c 0%,#146c43 58%,#198754 100%);color:#fff;border-radius:26px;padding:32px 36px;box-shadow:0 16px 42px rgba(16,61,44,.18);margin-bottom:18px;min-height:155px;display:flex;flex-direction:column;justify-content:center}.ya-hero h1{font-size:2.45rem!important}.ya-hero p{font-size:1.02rem}.stButton>button{border-radius:13px;font-weight:700;min-height:44px}.stSelectbox>div>div,.stTextInput>div>div,.stTextArea>div>div{border-radius:12px}.stMetric{background:#fff;border:1px solid #dfe8e2;border-radius:16px;padding:10px 14px;box-shadow:0 5px 18px rgba(16,61,44,.06)}.ya-section{padding:18px 20px;border-radius:18px}.ya-dashboard-card{background:#fff;border:1px solid #dfe8e2;border-radius:18px;padding:20px;box-shadow:0 8px 24px rgba(16,61,44,.07);min-height:110px}
     .ya-hero h1{margin:0;color:#fff!important;font-size:2rem;letter-spacing:-.03em}
     .ya-hero p{margin:7px 0 0;color:#e9f6ef;font-size:.96rem}
     .ya-strip{display:flex;gap:8px;flex-wrap:wrap;margin-top:15px}
@@ -1869,6 +1936,51 @@ def _legacy_sig_space(selected=None):
                     st.session_state["zone_feature_id"] = zid
                     st.rerun()
 
+    if section == '🔬 Diagnostic 360°':
+        st.subheader("🔬 Diagnostic 360°")
+        c = context()
+        if not c["dossier_id"]:
+            st.info("Sélectionnez d'abord un dossier.")
+        else:
+            obs = db_exec("SELECT * FROM observations WHERE dossier_id=? ORDER BY created_at DESC LIMIT 100", (c["dossier_id"],), fetch=True)
+            ana = db_exec("SELECT * FROM analyses WHERE dossier_id=? ORDER BY date_analyse DESC LIMIT 100", (c["dossier_id"],), fetch=True)
+            q, checks = data_quality()
+            conf = confidence_from_sources()
+            risk = risk_score()
+            surface = float(c.get("zone_surface_ha") or c.get("surface_ha") or 0)
+            st.markdown("#### 📊 Tableau de synthèse")
+            a,b,c1,d = st.columns(4)
+            a.metric("Qualité des données", f"{q}/100")
+            b.metric("Confiance", f"{conf*100:.0f}%")
+            c1.metric("Risque", f"{risk}/100")
+            d.metric("Observations / analyses", f"{len(obs)} / {len(ana)}")
+
+            st.markdown("#### 🎯 Contexte étudié")
+            st.info(f"Client : {c['client'] or '—'} · Dossier : {c['dossier'] or '—'} · Parcelle : {c['parcelle'] or '—'} · Surface : {surface:.2f} ha · Culture : {c['culture'] or '—'}")
+
+            if checks:
+                st.markdown("#### 🔎 Contrôle des preuves")
+                st.dataframe(pd.DataFrame(checks), use_container_width=True, hide_index=True)
+
+            st.markdown("#### 🧭 Lecture opérationnelle")
+            if not c.get("parcelle_id"):
+                st.warning("Aucune parcelle active. Le diagnostic reste au niveau du dossier et doit être complété par une parcelle/zone d'étude.")
+            if not obs:
+                st.warning("Aucune observation récente enregistrée.")
+            if not ana:
+                st.warning("Aucune analyse disponible dans le dossier.")
+            if q < 70:
+                st.warning("La qualité des données est insuffisante pour une conclusion forte : compléter les preuves terrain, la géométrie et/ou les analyses.")
+            else:
+                st.success("Le dossier dispose d'un socle de données exploitable ; confirmer les recommandations avec les preuves disponibles.")
+
+            st.markdown("#### 📋 Conclusion synthétique")
+            st.write(
+                f"Le dossier présente une qualité de données de {q}/100, une confiance calculée de {conf*100:.0f}% "
+                f"et un niveau de risque de {risk}/100. La conclusion doit rester proportionnée aux observations, "
+                "aux analyses disponibles et au périmètre géographique effectivement documenté."
+            )
+
     if section == '🌱 Sols & Eau':
         st.subheader("🌱 Sols & Eau")
         c = context()
@@ -2187,51 +2299,100 @@ def _legacy_consultancy_space(selected=None):
         st.subheader("📄 Rapports professionnels")
         c = context()
         if not c["dossier_id"]:
-            st.info("Sélectionnez un dossier.")
+            st.info("Sélectionnez un dossier pour produire un rapport.")
         else:
-            report_type = st.selectbox("Type de rapport",
-                                       ["Diagnostic initial","Rapport de mission","Rapport de suivi","Rapport économique","Rapport final","Note de conseil"])
-            title = st.text_input("Titre du rapport", "Rapport YouAgronoMe")
+            st.markdown("### 🧾 Rapport synthétique signé et daté")
+            a,b = st.columns([2,1])
+            report_type = a.selectbox("Type de rapport", ["Rapport synthétique de diagnostic","Diagnostic initial","Rapport de mission","Rapport de suivi","Rapport économique","Rapport final","Note de conseil"], key="report_type_xxl")
+            title = b.text_input("Titre", "Rapport synthétique — YouAgronoMe", key="report_title_xxl")
             q,_ = data_quality()
-            if st.button("Préparer la synthèse", key="report_prepare_pro"):
-                obs = db_exec("SELECT * FROM observations WHERE dossier_id=? ORDER BY created_at DESC LIMIT 20",(c["dossier_id"],), fetch=True)
-                ana = db_exec("SELECT * FROM analyses WHERE dossier_id=? ORDER BY date_analyse DESC LIMIT 20",(c["dossier_id"],), fetch=True)
+            conf = confidence_from_sources()
+            risk = risk_score()
+            consultant = current_user().get("nom") or current_user().get("email") or "Consultant responsable"
+            report_date = datetime.now().strftime("%d/%m/%Y")
+
+            k1,k2,k3,k4 = st.columns(4)
+            k1.metric("Qualité", f"{q}/100")
+            k2.metric("Confiance", f"{conf*100:.0f}%")
+            k3.metric("Risque", f"{risk}/100")
+            k4.metric("Date", report_date)
+
+            if st.button("📝 Générer le rapport synthétique", type="primary", use_container_width=True, key="report_prepare_xxl"):
+                obs = db_exec("SELECT * FROM observations WHERE dossier_id=? ORDER BY created_at DESC LIMIT 20", (c["dossier_id"],), fetch=True)
+                ana = db_exec("SELECT * FROM analyses WHERE dossier_id=? ORDER BY date_analyse DESC LIMIT 20", (c["dossier_id"],), fetch=True)
+                actions = db_exec("SELECT * FROM actions WHERE dossier_id=? ORDER BY created_at DESC LIMIT 10", (c["dossier_id"],), fetch=True)
                 text = (
+                    f"RAPPORT SYNTHÉTIQUE DE DIAGNOSTIC\n"
+                    f"Date : {report_date}\n"
+                    f"Consultant : {consultant}\n\n"
                     f"CLIENT : {c['client'] or '—'}\n"
                     f"DOSSIER : {c['dossier'] or '—'}\n"
                     f"ZONE : {c['zone_nom'] or 'Non délimitée'} ({c['zone_surface_ha']:.3f} ha)\n"
                     f"PARCELLE : {c['parcelle'] or '—'}\n"
-                    f"CULTURE : {c['culture'] or '—'}\n"
+                    f"CULTURE : {c['culture'] or '—'}\n\n"
                     f"QUALITÉ DES DONNÉES : {q}/100\n"
-                    f"CONFIANCE : {confidence_from_sources()*100:.0f}%\n"
-                    f"RISQUE : {risk_score()}/100\n\n"
-                    f"OBSERVATIONS RÉCENTES : {len(obs)}\n"
-                    f"ANALYSES DISPONIBLES : {len(ana)}\n\n"
-                    "Conclusion : les recommandations doivent être confirmées selon les preuves "
-                    "terrain, analyses disponibles et sources officielles applicables."
+                    f"CONFIANCE : {conf*100:.0f}%\n"
+                    f"RISQUE : {risk}/100\n\n"
+                    f"DONNÉES OBSERVÉES : {len(obs)} observation(s)\n"
+                    f"ANALYSES DISPONIBLES : {len(ana)}\n"
+                    f"ACTIONS / SUIVI : {len(actions)}\n\n"
+                    "CONCLUSION\n"
+                    "Les éléments disponibles permettent une lecture synthétique du dossier. "
+                    "Les recommandations doivent être confirmées selon les preuves terrain, les analyses disponibles "
+                    "et les sources techniques applicables au contexte local."
                 )
                 db_exec("""INSERT INTO reports(id,dossier_id,mission_id,type_rapport,titre,contenu,confidence,created_at)
                            VALUES(?,?,?,?,?,?,?,?)""",
-                        (new_id("RPT"),c["dossier_id"],st.session_state.get("selected_mission"),
-                         report_type,title,text,confidence_from_sources(),now()))
+                        (new_id("RPT"),c["dossier_id"],st.session_state.get("selected_mission"),report_type,title,text,conf,now()))
                 st.session_state["report_text"] = text
-                audit("RAPPORT","report",c["dossier_id"],report_type)
+                st.session_state["report_meta"] = {"title": title, "date": report_date, "consultant": consultant, "type": report_type, "confidence": conf, "risk": risk}
+                audit("RAPPORT_SYNTHETIQUE", "report", c["dossier_id"], report_type)
+                st.success("Rapport synthétique généré, daté et prêt à être signé dans le PDF.")
+
             if st.session_state.get("report_text"):
-                st.text_area("Synthèse", st.session_state["report_text"], height=300, key="report_text_view")
+                meta = st.session_state.get("report_meta", {})
+                st.markdown("#### 👁️ Aperçu du rapport")
+                st.text_area("Contenu", st.session_state["report_text"], height=380, key="report_text_view_xxl")
                 if HAS_PDF:
                     buf = io.BytesIO()
-                    doc = SimpleDocTemplate(buf,pagesize=A4)
+                    doc = SimpleDocTemplate(buf, pagesize=A4, rightMargin=42, leftMargin=42, topMargin=42, bottomMargin=42)
                     styles = getSampleStyleSheet()
-                    story = [Paragraph(title,styles["Title"]),Spacer(1,12)]
+                    styles["Title"].fontSize = 20
+                    styles["Title"].spaceAfter = 16
+                    styles["Heading2"].fontSize = 12
+                    story = [
+                        Paragraph("YouAgronoMe", styles["Title"]),
+                        Paragraph(meta.get("title", title), styles["Heading2"]),
+                        Spacer(1, 10),
+                    ]
                     for line in st.session_state["report_text"].splitlines():
-                        if line.strip():
-                            story.append(Paragraph(line.replace("&","&amp;"),styles["Normal"]))
-                            story.append(Spacer(1,5))
+                        clean = line.strip()
+                        if not clean:
+                            story.append(Spacer(1, 7))
+                        elif clean in {"CONCLUSION", "RAPPORT SYNTHÉTIQUE DE DIAGNOSTIC"}:
+                            story.append(Paragraph(clean, styles["Heading2"]))
+                        else:
+                            story.append(Paragraph(clean.replace("&", "&amp;"), styles["Normal"]))
+                    story += [
+                        Spacer(1, 22),
+                        Paragraph(f"Fait le {meta.get('date', report_date)}", styles["Normal"]),
+                        Spacer(1, 20),
+                        Table([["Signature du consultant responsable"], ["\n\n........................................................"], [meta.get("consultant", consultant)]], colWidths=[430], style=TableStyle([
+                            ("BOX", (0,0), (-1,-1), 0.8, "#9aa9a1"),
+                            ("BACKGROUND", (0,0), (-1,0), "#eef5f1"),
+                            ("ALIGN", (0,0), (-1,-1), "CENTER"),
+                            ("FONTNAME", (0,0), (-1,0), "Helvetica-Bold"),
+                            ("TOPPADDING", (0,0), (-1,-1), 9),
+                            ("BOTTOMPADDING", (0,0), (-1,-1), 9),
+                        ])),
+                        Spacer(1, 10),
+                        Paragraph("Document généré par YouAgronoMe. La signature ci-dessus est un emplacement de signature du responsable du dossier et ne constitue pas une signature électronique qualifiée.", styles["Normal"]),
+                    ]
                     doc.build(story)
                     buf.seek(0)
-                    st.download_button("📥 Télécharger le rapport PDF",buf.getvalue(),
-                                       f"rapport_youagronome_{datetime.now():%Y%m%d_%H%M}.pdf",
-                                       "application/pdf",key="report_pdf_pro")
+                    st.download_button("📥 Télécharger le rapport PDF signé et daté", buf.getvalue(), f"rapport_synthetique_{datetime.now():%Y%m%d_%H%M}.pdf", "application/pdf", key="report_pdf_xxl", use_container_width=True)
+                else:
+                    st.warning("Le module PDF ReportLab n'est pas disponible sur cet environnement.")
 
     if section == '📚 Documents':
         st.subheader("📚 Documents et référentiels")
