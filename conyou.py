@@ -585,16 +585,31 @@ def active_dossier():
 
 
 def active_parcelle():
-    pid = st.session_state.get("parcelle_id")
-    rows = db_exec("SELECT * FROM parcelles WHERE id=?", (pid,), fetch=True) if pid else []
-    return rows[0] if rows else None
+    """Parcelle active unique, avec réparation automatique des deux pointeurs de session."""
+    pid = st.session_state.get("parcelle_id") or st.session_state.get("selected_parcelle_id")
+    did = st.session_state.get("dossier_id")
+    rows = db_exec("SELECT * FROM parcelles WHERE id=? AND dossier_id=?", (pid, did), fetch=True) if pid and did else []
+    if rows:
+        st.session_state["parcelle_id"] = rows[0]["id"]
+        st.session_state["selected_parcelle_id"] = rows[0]["id"]
+        return rows[0]
+    return None
 
 
 def active_zone():
+    """Zone active; si aucun identifiant n'est en session, reprend la dernière zone SIG de la parcelle."""
     zid = st.session_state.get("zone_feature_id")
-    rows = db_exec("SELECT * FROM gis_features WHERE id=?", (zid,), fetch=True) if zid else []
-    return rows[0] if rows else None
-
+    did = st.session_state.get("dossier_id")
+    pid = st.session_state.get("parcelle_id") or st.session_state.get("selected_parcelle_id")
+    rows = db_exec("SELECT * FROM gis_features WHERE id=? AND dossier_id=?", (zid, did), fetch=True) if zid and did else []
+    if rows:
+        return rows[0]
+    if did and pid:
+        rows = db_exec("SELECT * FROM gis_features WHERE dossier_id=? AND parcelle_id=? ORDER BY CASE WHEN type_feature='Parcelle' THEN 0 ELSE 1 END, updated_at DESC LIMIT 1", (did, pid), fetch=True)
+        if rows:
+            st.session_state["zone_feature_id"] = rows[0]["id"]
+            return rows[0]
+    return None
 
 def load_geometry(obj):
     try:
@@ -1394,33 +1409,46 @@ def global_selector():
         culture = row.get("culture") or "Culture non renseignée"
         return f"🌱 {row['nom']} · {surface:.2f} ha · {culture}"
 
+    parcel_widget_key = f"yam_global_parcelle_v3_{did or 'none'}_{current_parcel}"
     pp = st.selectbox(
         "🌱 Parcelle active",
         parcel_options,
         index=parcel_options.index(current_parcel),
         format_func=parcel_label,
-        key=f"yam_global_parcelle_v2_{did or 'none'}",
+        key=parcel_widget_key,
     )
     new_pid = None if pp == "__none_parcel__" else pp
+    old_pid = st.session_state.get("parcelle_id") or st.session_state.get("selected_parcelle_id")
     if new_pid:
-        if new_pid != st.session_state.get("parcelle_id"):
+        changed = new_pid != old_pid
+        if changed:
             st.session_state["zone_feature_id"] = None
-        set_active_parcel(new_pid, audit_action=(new_pid != st.session_state.get("parcelle_id")))
+        if set_active_parcel(new_pid, audit_action=changed) and changed:
+            st.rerun()
     else:
         st.session_state["parcelle_id"] = None
         st.session_state["selected_parcelle_id"] = None
         st.session_state.pop("active_parcel_geometry", None)
         st.session_state.pop("terrain_geometry", None)
+        st.session_state["zone_feature_id"] = None
 
     c = context()
+    z = active_zone() or {}
     st.markdown("---")
     st.markdown("**CONTEXTE ACTUEL**")
     st.caption(f"👤 {c['client'] or 'Client non sélectionné'}")
     st.caption(f"📁 {c['dossier'] or 'Dossier non sélectionné'}")
     if c.get("parcelle_id"):
-        st.success(f"🌱 Parcelle active : {c['parcelle'] or c['parcelle_id']}")
+        st.success(f"🌱 **Parcelle active : {c['parcelle'] or c['parcelle_id']}** · {c['surface_ha']:.3f} ha")
     else:
-        st.warning("🌱 Aucune parcelle active — sélectionnez-en une pour les analyses détaillées.")
+        st.warning("🌱 Aucune parcelle active")
+    if z:
+        zarea = float(z.get('surface_ha') or c.get('zone_surface_ha') or 0)
+        st.info(f"🗺️ **Zone active : {z.get('nom') or 'Zone sans nom'}** · {z.get('type_feature') or 'Zone'} · {zarea:.3f} ha")
+    elif c.get('zone_surface_ha'):
+        st.info(f"🗺️ **Zone active : {c.get('zone_nom') or 'Zone cartographiée'}** · {c['zone_surface_ha']:.3f} ha")
+    else:
+        st.caption("🗺️ Zone active : aucune")
 
 
 # =========================================================
@@ -2050,8 +2078,17 @@ def _legacy_sig_space(selected=None):
                         # 4) Même pour une zone d'étude, on conserve sa surface comme zone active.
                         #    Si une parcelle est active, les modules utilisent désormais le même contexte.
                         st.session_state["map_nonce"] += 1
+                        # Verrouille la zone et la parcelle créées avant le rerun.
+                        if active_pid:
+                            st.session_state["parcelle_id"] = active_pid
+                            st.session_state["selected_parcelle_id"] = active_pid
+                            set_active_parcel(active_pid, audit_action=False)
+                        st.session_state["zone_feature_id"] = zid
+                        st.session_state["zone_surface_ha"] = float(polygon_area_ha(coords))
+                        st.session_state["zone_geometry"] = coords
                         st.session_state["context_version"] = now()
-                        sync_active_context()
+                        if active_pid:
+                            sync_active_context()
                         st.success(
                             f"✅ Synchronisation réussie : {nom or 'Zone'} · "
                             f"{polygon_area_ha(coords):.3f} ha · "
