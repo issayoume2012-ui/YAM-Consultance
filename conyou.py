@@ -23,6 +23,7 @@ import json
 import math
 import os
 import uuid
+from xml.sax.saxutils import escape as xml_escape
 
 import numpy as np
 import pandas as pd
@@ -57,8 +58,10 @@ except Exception:
 
 try:
     from reportlab.lib.pagesizes import A4
-    from reportlab.lib.styles import getSampleStyleSheet
-    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+    from reportlab.lib import colors
+    from reportlab.lib.enums import TA_CENTER, TA_LEFT
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, KeepTogether
     HAS_PDF = True
 except Exception:
     HAS_PDF = False
@@ -1331,7 +1334,7 @@ def global_selector():
 # 9. EN-TÊTE PROFESSIONNEL
 # =========================================================
 def professional_header():
-    """Style léger : aucun grand bandeau/image décoratif au chargement."""
+    """Interface professionnelle compacte : masque les contrôles de déploiement Streamlit visibles par l'utilisateur final."""
     st.markdown("""
     <style>
     .block-container{padding-top:.75rem;padding-bottom:1.5rem;max-width:1500px}
@@ -1339,6 +1342,19 @@ def professional_header():
     .stButton>button{border-radius:10px;font-weight:650;min-height:40px}
     .stSelectbox>div>div,.stTextInput>div>div,.stTextArea>div>div{border-radius:10px}
     .stMetric{border:1px solid #dfe8e2;border-radius:12px;padding:8px 12px}
+
+    /* Nettoyage de l'habillage Streamlit Cloud : Share, étoile, édition, GitHub, menu, etc. */
+    [data-testid="stToolbar"],
+    [data-testid="stHeaderActionElements"],
+    [data-testid="stDecoration"],
+    [data-testid="stStatusWidget"],
+    [data-testid="manage-app-button"],
+    .stAppDeployButton,
+    header[data-testid="stHeader"]{
+        display:none !important;
+        visibility:hidden !important;
+    }
+    footer{display:none !important;visibility:hidden !important;}
     </style>
     """, unsafe_allow_html=True)
 
@@ -1385,71 +1401,88 @@ def save_interview_answer(dossier_id, client_id, domain, mode, question, answer,
 def interview_transcript(dossier_id):
     return db_exec("SELECT * FROM entretiens WHERE dossier_id=? ORDER BY ordre,created_at", (dossier_id,), fetch=True)
 
+def _pdf_styles():
+    """Styles PDF communs à tous les rapports YouAgronoMe."""
+    base=getSampleStyleSheet()
+    return {
+        "cover": ParagraphStyle("YA_Cover", parent=base["Title"], fontName="Helvetica-Bold", fontSize=25, leading=29, alignment=TA_CENTER, textColor=colors.HexColor("#174d3b"), spaceAfter=8),
+        "kicker": ParagraphStyle("YA_Kicker", parent=base["Normal"], fontName="Helvetica-Bold", fontSize=8.5, leading=11, alignment=TA_CENTER, textColor=colors.HexColor("#6c7f76"), tracking=1),
+        "subtitle": ParagraphStyle("YA_Subtitle", parent=base["Heading2"], fontName="Helvetica-Bold", fontSize=13, leading=16, textColor=colors.HexColor("#174d3b"), spaceBefore=7, spaceAfter=7),
+        "section": ParagraphStyle("YA_Section", parent=base["Heading2"], fontName="Helvetica-Bold", fontSize=12, leading=15, textColor=colors.HexColor("#176b4f"), spaceBefore=9, spaceAfter=7),
+        "body": ParagraphStyle("YA_Body", parent=base["BodyText"], fontName="Helvetica", fontSize=9.5, leading=13.5, textColor=colors.HexColor("#27352f"), spaceAfter=5),
+        "small": ParagraphStyle("YA_Small", parent=base["BodyText"], fontName="Helvetica", fontSize=8, leading=10.5, textColor=colors.HexColor("#65746e")),
+        "question": ParagraphStyle("YA_Question", parent=base["Heading3"], fontName="Helvetica-Bold", fontSize=10.5, leading=13, textColor=colors.HexColor("#174d3b"), spaceAfter=4),
+        "label": ParagraphStyle("YA_Label", parent=base["BodyText"], fontName="Helvetica-Bold", fontSize=8, leading=10, textColor=colors.HexColor("#176b4f")),
+    }
+
+def _pdf_header_footer(canvas, doc):
+    canvas.saveState()
+    w,h=A4
+    canvas.setStrokeColor(colors.HexColor("#c9ddd4"))
+    canvas.setLineWidth(.6)
+    canvas.line(38,h-31,w-38,h-31)
+    canvas.setFont("Helvetica-Bold",8)
+    canvas.setFillColor(colors.HexColor("#176b4f"))
+    canvas.drawString(38,h-23,"YouAgronoMe")
+    canvas.setFont("Helvetica",7.5)
+    canvas.setFillColor(colors.HexColor("#7b8983"))
+    canvas.drawRightString(w-38,h-23,"CONSULTANCE AGRONOMIQUE • DOSSIER 360°")
+    canvas.line(38,28,w-38,28)
+    canvas.setFont("Helvetica",7)
+    canvas.drawString(38,17,"Document professionnel — vérification terrain recommandée")
+    canvas.drawRightString(w-38,17,f"Page {doc.page}")
+    canvas.restoreState()
+
+def _pdf_meta_table(items, width=519):
+    data=[]
+    for label,value in items:
+        data.append([Paragraph(xml_escape(str(label)), _pdf_styles()["label"]), Paragraph(xml_escape(str(value or "—")), _pdf_styles()["body"])])
+    t=Table(data,colWidths=[120,width-120],hAlign="LEFT")
+    t.setStyle(TableStyle([
+        ("BACKGROUND",(0,0),(0,-1),colors.HexColor("#edf6f1")),
+        ("BOX",(0,0),(-1,-1),.65,colors.HexColor("#c7dbd2")),
+        ("INNERGRID",(0,0),(-1,-1),.35,colors.HexColor("#dce8e3")),
+        ("VALIGN",(0,0),(-1,-1),"TOP"),
+        ("LEFTPADDING",(0,0),(-1,-1),9),("RIGHTPADDING",(0,0),(-1,-1),9),
+        ("TOPPADDING",(0,0),(-1,-1),7),("BOTTOMPADDING",(0,0),(-1,-1),7),
+    ]))
+    return t
+
+def _pdf_signature_block(consultant="Consultant responsable"):
+    styles=_pdf_styles()
+    t=Table([[Paragraph("VALIDATION DU RAPPORT",styles["label"]),""] ,[Paragraph("Date : ........................................",styles["body"]),Paragraph("Signature :",styles["body"])],["", "\n\n........................................"]],colWidths=[260,259])
+    t.setStyle(TableStyle([
+        ("SPAN",(0,0),(1,0)),("BACKGROUND",(0,0),(1,0),colors.HexColor("#174d3b")),
+        ("TEXTCOLOR",(0,0),(1,0),colors.white),("BOX",(0,0),(-1,-1),.8,colors.HexColor("#9db9ad")),
+        ("INNERGRID",(0,1),(-1,-1),.35,colors.HexColor("#d7e4de")),
+        ("VALIGN",(0,0),(-1,-1),"TOP"),("LEFTPADDING",(0,0),(-1,-1),10),("RIGHTPADDING",(0,0),(-1,-1),10),
+        ("TOPPADDING",(0,0),(-1,-1),8),("BOTTOMPADDING",(0,0),(-1,-1),8),
+    ]))
+    return t
+
 def build_interview_pdf(rows, dossier=None, client=None):
-    """Rapport d'entretien professionnel, lisible et structuré."""
+    """Rapport d'entretien premium : couverture, fiche dossier, questions/réponses et validation."""
     if not HAS_PDF:
         return None
-
-    buf = io.BytesIO()
-    doc = SimpleDocTemplate(
-        buf, pagesize=A4,
-        rightMargin=38, leftMargin=38, topMargin=42, bottomMargin=42
-    )
-    styles = getSampleStyleSheet()
-    title = styles["Title"]
-    title.fontSize = 20
-    title.leading = 24
-    subtitle = styles["Heading2"]
-    subtitle.fontSize = 12
-    body = styles["BodyText"]
-    body.fontSize = 9.5
-    body.leading = 13
-
-    story = []
-    story.append(Paragraph("YO UAGRONOME", title))
-    story.append(Paragraph("RAPPORT DE CONSULTANCE — ENTRETIEN AGRICOLE", subtitle))
-    story.append(Spacer(1, 10))
-
-    client_name = (client or {}).get("nom") if isinstance(client, dict) else None
-    dossier_name = (dossier or {}).get("nom") if isinstance(dossier, dict) else None
-    meta = [
-        ["Client", client_name or "Non renseigné"],
-        ["Dossier", dossier_name or "Non renseigné"],
-        ["Date", datetime.now().strftime("%d/%m/%Y %H:%M")],
-        ["Nombre de questions", str(len(rows or []))],
-    ]
-    t = Table(meta, colWidths=[120, 390])
-    t.setStyle(TableStyle([
-        ("GRID", (0,0), (-1,-1), 0.35, None),
-        ("VALIGN", (0,0), (-1,-1), "TOP"),
-        ("FONTNAME", (0,0), (0,-1), "Helvetica-Bold"),
-        ("FONTNAME", (1,0), (1,-1), "Helvetica"),
-        ("FONTSIZE", (0,0), (-1,-1), 9),
-        ("BOTTOMPADDING", (0,0), (-1,-1), 6),
-        ("TOPPADDING", (0,0), (-1,-1), 6),
-    ]))
-    story.append(t)
-    story.append(Spacer(1, 14))
-
-    for i, row in enumerate(rows or [], 1):
-        question = str(row.get("question", "Question"))
-        answer = str(row.get("reponse", "")).strip() or "Aucune réponse enregistrée."
-        domain = str(row.get("domaine", "")).strip()
-        story.append(Paragraph(f"{i}. {question}", subtitle))
-        if domain:
-            story.append(Paragraph(f"Domaine : {domain}", body))
-        story.append(Paragraph(answer.replace("\n", "<br/>"), body))
-        story.append(Spacer(1, 9))
-
-    story.append(Spacer(1, 12))
-    story.append(Paragraph(
-        "Document généré à partir des réponses enregistrées pendant l'entretien. "
-        "Les éléments techniques doivent être vérifiés sur le terrain lorsque nécessaire.",
-        body
-    ))
-    doc.build(story)
-    buf.seek(0)
-    return buf.getvalue()
+    buf=io.BytesIO(); styles=_pdf_styles()
+    doc=SimpleDocTemplate(buf,pagesize=A4,rightMargin=38,leftMargin=38,topMargin=43,bottomMargin=40,title="Rapport d'entretien — YouAgronoMe",author="YouAgronoMe")
+    client_name=(client or {}).get("nom") if isinstance(client,dict) else None
+    dossier_name=(dossier or {}).get("nom") if isinstance(dossier,dict) else None
+    generated=datetime.now().strftime("%d/%m/%Y à %H:%M")
+    story=[Spacer(1,32),Paragraph("YO UAGRONOME",styles["cover"]),Paragraph("CABINET DE CONSULTANCE AGRICOLE • 360°",styles["kicker"]),Spacer(1,18),
+           Table([[Paragraph("RAPPORT D'ENTRETIEN",styles["cover"]) ]],colWidths=[519],style=TableStyle([("BACKGROUND",(0,0),(-1,-1),colors.HexColor("#edf6f1")),("BOX",(0,0),(-1,-1),1,colors.HexColor("#9db9ad")),("TOPPADDING",(0,0),(-1,-1),14),("BOTTOMPADDING",(0,0),(-1,-1),14)])),Spacer(1,18),
+           _pdf_meta_table([("Client",client_name or "Non renseigné"),("Dossier",dossier_name or "Non renseigné"),("Date de génération",generated),("Nombre de réponses",str(len(rows or [])))]),Spacer(1,18),
+           Paragraph("Objet du document",styles["section"]),Paragraph("Compte rendu structuré des échanges réalisés avec l'exploitant. Les réponses sont retranscrites à partir des éléments enregistrés dans le dossier.",styles["body"]),Spacer(1,8),Paragraph("ENTRETIEN ET ÉLÉMENTS RECUEILLIS",styles["section"])]
+    for i,row in enumerate(rows or [],1):
+        question=xml_escape(str(row.get("question","Question")))
+        answer=xml_escape(str(row.get("reponse","")).strip() or "Aucune réponse enregistrée.").replace("\n","<br/>")
+        domain=xml_escape(str(row.get("domaine","")).strip())
+        block=[Paragraph(f"{i:02d} — {question}",styles["question"])]
+        if domain: block.append(Paragraph(f"Domaine : {domain}",styles["small"]))
+        block.append(Spacer(1,2)); block.append(Paragraph(answer,styles["body"]))
+        story.append(KeepTogether(block)); story.append(Spacer(1,7))
+    story += [Spacer(1,10),Table([[Paragraph("NOTE PROFESSIONNELLE",styles["label"])],[Paragraph("Document généré à partir des réponses enregistrées pendant l'entretien. Les éléments techniques doivent être vérifiés sur le terrain lorsque nécessaire.",styles["small"])]],colWidths=[519],style=TableStyle([("BACKGROUND",(0,0),(-1,0),colors.HexColor("#edf6f1")),("BOX",(0,0),(-1,-1),.65,colors.HexColor("#c7dbd2")),("LEFTPADDING",(0,0),(-1,-1),10),("RIGHTPADDING",(0,0),(-1,-1),10),("TOPPADDING",(0,0),(-1,-1),8),("BOTTOMPADDING",(0,0),(-1,-1),8)])),Spacer(1,16),_pdf_signature_block()]
+    doc.build(story,onFirstPage=_pdf_header_footer,onLaterPages=_pdf_header_footer); buf.seek(0); return buf.getvalue()
 
 
 def communication_contacts(dossier_id):
@@ -2346,42 +2379,24 @@ def _legacy_consultancy_space(selected=None):
                 st.text_area("Contenu", st.session_state["report_text"], height=380, key="report_text_view_xxl")
                 if HAS_PDF:
                     buf = io.BytesIO()
-                    doc = SimpleDocTemplate(buf, pagesize=A4, rightMargin=42, leftMargin=42, topMargin=42, bottomMargin=42)
-                    styles = getSampleStyleSheet()
-                    styles["Title"].fontSize = 20
-                    styles["Title"].spaceAfter = 16
-                    styles["Heading2"].fontSize = 12
-                    story = [
-                        Paragraph("YouAgronoMe", styles["Title"]),
-                        Paragraph(meta.get("title", title), styles["Heading2"]),
-                        Spacer(1, 10),
-                    ]
-                    for line in st.session_state["report_text"].splitlines():
-                        clean = line.strip()
-                        if not clean:
-                            story.append(Spacer(1, 7))
-                        elif clean in {"CONCLUSION", "RAPPORT SYNTHÉTIQUE DE DIAGNOSTIC"}:
-                            story.append(Paragraph(clean, styles["Heading2"]))
-                        else:
-                            story.append(Paragraph(clean.replace("&", "&amp;"), styles["Normal"]))
-                    story += [
-                        Spacer(1, 22),
-                        Paragraph(f"Fait le {meta.get('date', report_date)}", styles["Normal"]),
-                        Spacer(1, 20),
-                        Table([["Signature du consultant responsable"], ["\n\n........................................................"], [meta.get("consultant", consultant)]], colWidths=[430], style=TableStyle([
-                            ("BOX", (0,0), (-1,-1), 0.8, "#9aa9a1"),
-                            ("BACKGROUND", (0,0), (-1,0), "#eef5f1"),
-                            ("ALIGN", (0,0), (-1,-1), "CENTER"),
-                            ("FONTNAME", (0,0), (-1,0), "Helvetica-Bold"),
-                            ("TOPPADDING", (0,0), (-1,-1), 9),
-                            ("BOTTOMPADDING", (0,0), (-1,-1), 9),
-                        ])),
-                        Spacer(1, 10),
-                        Paragraph("Document généré par YouAgronoMe. La signature ci-dessus est un emplacement de signature du responsable du dossier et ne constitue pas une signature électronique qualifiée.", styles["Normal"]),
-                    ]
-                    doc.build(story)
+                    styles = _pdf_styles()
+                    doc = SimpleDocTemplate(buf, pagesize=A4, rightMargin=38, leftMargin=38, topMargin=43, bottomMargin=40, title=meta.get("title", title), author="YouAgronoMe")
+                    report_title=xml_escape(str(meta.get("title", title)))
+                    report_text=st.session_state["report_text"]
+                    story=[Spacer(1,28),Paragraph("YO UAGRONOME",styles["cover"]),Paragraph("CABINET DE CONSULTANCE AGRICOLE • RAPPORT 360°",styles["kicker"]),Spacer(1,14),
+                           Table([[Paragraph(report_title,styles["cover"])]],colWidths=[519],style=TableStyle([("BACKGROUND",(0,0),(-1,-1),colors.HexColor("#edf6f1")),("BOX",(0,0),(-1,-1),1,colors.HexColor("#9db9ad")),("TOPPADDING",(0,0),(-1,-1),13),("BOTTOMPADDING",(0,0),(-1,-1),13)])),Spacer(1,15),
+                           _pdf_meta_table([("Type de rapport",meta.get("type","Rapport synthétique")),("Date",meta.get("date",report_date)),("Consultant",meta.get("consultant",consultant)),("Niveau de confiance",f"{float(meta.get('confidence',0))*100:.0f}%"),("Indice de risque",str(meta.get("risk","—")))]),Spacer(1,15),Paragraph("SYNTHÈSE ET CONSTATS",styles["section"])]
+                    for line in report_text.splitlines():
+                        clean=line.strip()
+                        if not clean: story.append(Spacer(1,7)); continue
+                        escaped=xml_escape(clean)
+                        if clean.upper() in {"CONCLUSION","RAPPORT SYNTHÉTIQUE DE DIAGNOSTIC"}: story.append(Paragraph(escaped,styles["section"]))
+                        elif clean.upper().endswith(":") or clean.isupper(): story.append(Paragraph(escaped,styles["subtitle"]))
+                        else: story.append(Paragraph(escaped,styles["body"]))
+                    story += [Spacer(1,16),_pdf_signature_block(meta.get("consultant",consultant)),Spacer(1,9),Paragraph("La signature est un emplacement réservé au responsable du dossier. Elle ne constitue pas une signature électronique qualifiée.",styles["small"])]
+                    doc.build(story,onFirstPage=_pdf_header_footer,onLaterPages=_pdf_header_footer)
                     buf.seek(0)
-                    st.download_button("📥 Télécharger le rapport PDF signé et daté", buf.getvalue(), f"rapport_synthetique_{datetime.now():%Y%m%d_%H%M}.pdf", "application/pdf", key="report_pdf_xxl", use_container_width=True)
+                    st.download_button("📥 Télécharger le rapport PDF professionnel", buf.getvalue(), f"rapport_youagronome_{datetime.now():%Y%m%d_%H%M}.pdf", "application/pdf", key="report_pdf_xxl", use_container_width=True)
                 else:
                     st.warning("Le module PDF ReportLab n'est pas disponible sur cet environnement.")
 
