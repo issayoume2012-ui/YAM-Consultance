@@ -23,17 +23,6 @@ import math
 import os
 import uuid
 
-try:
-    import psycopg
-    from psycopg.rows import dict_row
-    from psycopg import errors as pg_errors
-    HAS_POSTGRES = True
-except Exception:
-    psycopg = None
-    dict_row = None
-    pg_errors = None
-    HAS_POSTGRES = False
-
 import numpy as np
 import pandas as pd
 import streamlit as st
@@ -136,13 +125,8 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-SUPABASE_DB_HOST = os.getenv("SUPABASE_DB_HOST", "db.ddjwqzsfqpyzdwqdyrld.supabase.co")
-SUPABASE_DB_PORT = int(os.getenv("SUPABASE_DB_PORT", "5432"))
-SUPABASE_DB_NAME = os.getenv("SUPABASE_DB_NAME", "postgres")
-SUPABASE_DB_USER = os.getenv("SUPABASE_DB_USER", "postgres")
-SUPABASE_DB_PASSWORD = os.getenv("SUPABASE_DB_PASSWORD", "")
-OWNER_EMAIL = os.getenv("YOUAGRONOME_OWNER_EMAIL", "iy@2012")
-OWNER_PASS = os.getenv("YOUAGRONOME_OWNER_PASS", "issayoume2026")
+OWNER_EMAIL = st.secrets.get("YOUAGRONOME_OWNER_EMAIL", os.getenv("YOUAGRONOME_OWNER_EMAIL", "admin@youagronome.local"))
+OWNER_PASS = st.secrets.get("YOUAGRONOME_OWNER_PASS", os.getenv("YOUAGRONOME_OWNER_PASS", ""))
 
 SOURCES = {
     "ANACIM": "https://www.anacim.sn/",
@@ -222,66 +206,63 @@ def new_id(prefix):
     return f"{prefix}_{uuid.uuid4().hex[:10]}"
 
 
-def db_conn():
-    """Connexion PostgreSQL Supabase. Aucune base SQLite locale/éphémère n'est utilisée."""
-    if not HAS_POSTGRES:
-        raise RuntimeError("Le paquet psycopg[binary] est requis. Ajoutez psycopg[binary] à requirements.txt.")
-    password = SUPABASE_DB_PASSWORD
-    if not password:
-        try:
-            password = st.secrets.get("SUPABASE_DB_PASSWORD", "")
-        except Exception:
-            password = ""
-    if not password:
-        raise RuntimeError("SUPABASE_DB_PASSWORD n'est pas configuré dans Streamlit Secrets ou les variables d'environnement.")
-    return psycopg.connect(
-        host=SUPABASE_DB_HOST,
-        port=SUPABASE_DB_PORT,
-        dbname=SUPABASE_DB_NAME,
-        user=SUPABASE_DB_USER,
-        password=password,
-        sslmode="require",
-        row_factory=dict_row,
-    )
-
-
 def _pg_sql(sql):
-    """Adapte les placeholders SQLite historiques (?) au format psycopg (%s)."""
+    """Adaptateur minimal du SQL historique vers PostgreSQL."""
     return sql.replace("?", "%s")
 
 
+def db_conn():
+    try:
+        import psycopg
+        from psycopg.rows import dict_row
+    except ImportError as exc:
+        raise RuntimeError("Le paquet psycopg[binary] est requis. Ajoutez-le à requirements.txt.") from exc
+
+    try:
+        return psycopg.connect(
+            host=st.secrets.get("SUPABASE_DB_HOST", os.getenv("SUPABASE_DB_HOST", "aws-1-eu-west-1.pooler.supabase.com")),
+            port=int(st.secrets.get("SUPABASE_DB_PORT", os.getenv("SUPABASE_DB_PORT", "5432"))),
+            dbname=st.secrets.get("SUPABASE_DB_NAME", os.getenv("SUPABASE_DB_NAME", "postgres")),
+            user=st.secrets.get("SUPABASE_DB_USER", os.getenv("SUPABASE_DB_USER", "postgres.ddjwqzsfqpyzdwqdyrld")),
+            password=st.secrets.get("SUPABASE_DB_PASSWORD", os.getenv("SUPABASE_DB_PASSWORD", "")),
+            sslmode="require",
+            row_factory=dict_row,
+            connect_timeout=15,
+        )
+    except Exception as exc:
+        raise RuntimeError(
+            "Connexion Supabase impossible. Vérifiez SUPABASE_DB_HOST, SUPABASE_DB_PORT, "
+            "SUPABASE_DB_NAME, SUPABASE_DB_USER et SUPABASE_DB_PASSWORD dans Streamlit Secrets. "
+            f"Détail technique: {exc}"
+        ) from exc
+
+
 def db_exec(sql, params=(), *, fetch=False, many=False):
-    """Exécute une requête PostgreSQL et retourne des dictionnaires pour les SELECT."""
+    """Exécution PostgreSQL centralisée; compatible avec les appels SQL historiques utilisant ?."""
     if isinstance(params, bool):
         raise TypeError("db_exec(): utilisez fetch=True comme argument nommé, pas comme paramètre positionnel.")
     sql = _pg_sql(sql)
-    # PostgreSQL remplace INSERT OR REPLACE par UPSERT explicite.
-    normalized = sql.strip().upper()
-    if normalized.startswith("INSERT OR REPLACE INTO USER_DATA_ACCESS"):
-        sql = sql.replace("INSERT OR REPLACE INTO user_data_access", "INSERT INTO user_data_access")
-        sql += " ON CONFLICT (user_email, dossier_id) DO UPDATE SET access_level=EXCLUDED.access_level, created_at=EXCLUDED.created_at"
-    elif normalized.startswith("INSERT OR REPLACE INTO USER_MODULES"):
-        sql = sql.replace("INSERT OR REPLACE INTO user_modules", "INSERT INTO user_modules")
-        sql += " ON CONFLICT (user_email, module_key) DO UPDATE SET allowed=EXCLUDED.allowed, created_at=EXCLUDED.created_at"
-    with db_conn() as con:
+    con = db_conn()
+    try:
         with con.cursor() as cur:
             if many:
                 cur.executemany(sql, params)
             else:
                 cur.execute(sql, params)
             if fetch:
-                return cur.fetchall()
-            return None
-
-
-def sha256(value):
-    return hashlib.sha256(str(value).encode("utf-8")).hexdigest()
-
+                return list(cur.fetchall())
+            return cur.rowcount
+    finally:
+        con.commit()
+        con.close()
 
 
 def init_db():
-    """Crée/complète le schéma PostgreSQL persistant dans Supabase."""
-    schema_sql = r"""
+    """Initialise/migre la base PostgreSQL Supabase sans SQLite."""
+    con = db_conn()
+    try:
+        with con.cursor() as cur:
+            cur.execute("""
     CREATE TABLE IF NOT EXISTS users(
         email TEXT PRIMARY KEY, password_hash TEXT, nom TEXT, role TEXT,
         zone TEXT, statut TEXT DEFAULT 'Actif', created_at TEXT
@@ -292,147 +273,167 @@ def init_db():
     );
     CREATE TABLE IF NOT EXISTS dossiers(
         id TEXT PRIMARY KEY, client_id TEXT, nom TEXT, type_exploitation TEXT,
-        region TEXT, commune TEXT, village TEXT, latitude DOUBLE PRECISION, longitude DOUBLE PRECISION,
+        region TEXT, commune TEXT, village TEXT, latitude REAL, longitude REAL,
         notes TEXT, statut TEXT DEFAULT 'Actif', created_at TEXT, updated_at TEXT
     );
     CREATE TABLE IF NOT EXISTS parcelles(
         id TEXT PRIMARY KEY, dossier_id TEXT, nom TEXT, culture TEXT, stade TEXT,
-        surface_ha DOUBLE PRECISION DEFAULT 0, perimeter_m DOUBLE PRECISION DEFAULT 0,
-        latitude DOUBLE PRECISION, longitude DOUBLE PRECISION,
-        geometry_json TEXT DEFAULT '[]', geometry TEXT DEFAULT '[]',
-        centroid_lat DOUBLE PRECISION, centroid_lon DOUBLE PRECISION,
-        feature_type TEXT DEFAULT 'Parcelle', source_type TEXT DEFAULT 'Terrain',
-        source TEXT, confidence DOUBLE PRECISION DEFAULT 0.9,
+        surface_ha REAL DEFAULT 0, perimeter_m REAL DEFAULT 0, latitude REAL,
+        longitude REAL, geometry_json TEXT DEFAULT '[]', feature_type TEXT DEFAULT 'Parcelle',
+        source_type TEXT DEFAULT 'Terrain', confidence REAL DEFAULT 0.9,
         validation_status TEXT DEFAULT 'À vérifier', notes TEXT,
         created_at TEXT, updated_at TEXT
     );
     CREATE TABLE IF NOT EXISTS observations(
         id TEXT PRIMARY KEY, dossier_id TEXT, parcelle_id TEXT, domaine TEXT,
-        type_observation TEXT, description TEXT, gravite TEXT, incidence DOUBLE PRECISION,
-        surface_affectee_ha DOUBLE PRECISION, latitude DOUBLE PRECISION, longitude DOUBLE PRECISION,
-        photo_name TEXT, date_observation TEXT, source_type TEXT DEFAULT 'Terrain',
-        confidence DOUBLE PRECISION DEFAULT 0.8, validation_status TEXT DEFAULT 'À vérifier', created_at TEXT
+        type_observation TEXT, description TEXT, gravite TEXT, incidence REAL,
+        surface_affectee_ha REAL, latitude REAL, longitude REAL, photo_name TEXT,
+        date_observation TEXT, source_type TEXT DEFAULT 'Terrain',
+        confidence REAL DEFAULT 0.8, validation_status TEXT DEFAULT 'À vérifier',
+        created_at TEXT
     );
     CREATE TABLE IF NOT EXISTS analyses(
         id TEXT PRIMARY KEY, dossier_id TEXT, parcelle_id TEXT, type_analyse TEXT,
-        parametre TEXT, valeur DOUBLE PRECISION, unite TEXT, methode TEXT, laboratoire TEXT,
-        date_analyse TEXT, source_type TEXT DEFAULT 'Laboratoire', confidence DOUBLE PRECISION DEFAULT 0.9,
-        validation_status TEXT DEFAULT 'À vérifier', notes TEXT, created_at TEXT
+        parametre TEXT, valeur REAL, unite TEXT, methode TEXT, laboratoire TEXT,
+        date_analyse TEXT, source_type TEXT DEFAULT 'Laboratoire',
+        confidence REAL DEFAULT 0.9, validation_status TEXT DEFAULT 'À vérifier',
+        notes TEXT, created_at TEXT
     );
     CREATE TABLE IF NOT EXISTS cultures(
-        id TEXT PRIMARY KEY, dossier_id TEXT, parcelle_id TEXT, culture TEXT, variete TEXT,
-        date_semis TEXT, date_recolte_prevue TEXT, irrigation TEXT, rendement_cible DOUBLE PRECISION,
-        rendement_reel DOUBLE PRECISION, fertilisation TEXT, protection TEXT, notes TEXT, created_at TEXT
+        id TEXT PRIMARY KEY, dossier_id TEXT, parcelle_id TEXT, culture TEXT,
+        variete TEXT, date_semis TEXT, date_recolte_prevue TEXT, irrigation TEXT,
+        rendement_cible REAL, rendement_reel REAL, fertilisation TEXT,
+        protection TEXT, notes TEXT, created_at TEXT
     );
     CREATE TABLE IF NOT EXISTS livestock(
-        id TEXT PRIMARY KEY, dossier_id TEXT, espece TEXT, categorie TEXT, effectif INTEGER,
-        poids_moyen DOUBLE PRECISION, alimentation TEXT, mortalite INTEGER, vaccination TEXT,
-        reproduction TEXT, date_suivi TEXT, notes TEXT
+        id TEXT PRIMARY KEY, dossier_id TEXT, espece TEXT, categorie TEXT,
+        effectif INTEGER, poids_moyen REAL, alimentation TEXT, mortalite INTEGER,
+        vaccination TEXT, reproduction TEXT, date_suivi TEXT, notes TEXT
     );
     CREATE TABLE IF NOT EXISTS aquaculture(
-        id TEXT PRIMARY KEY, dossier_id TEXT, unite TEXT, espece TEXT, volume_m3 DOUBLE PRECISION,
-        densite DOUBLE PRECISION, oxygene DOUBLE PRECISION, ph DOUBLE PRECISION, temperature DOUBLE PRECISION,
-        mortalite INTEGER, aliment_kg DOUBLE PRECISION, poids_moyen_g DOUBLE PRECISION, date_suivi TEXT, notes TEXT
+        id TEXT PRIMARY KEY, dossier_id TEXT, unite TEXT, espece TEXT,
+        volume_m3 REAL, densite REAL, oxygene REAL, ph REAL, temperature REAL,
+        mortalite INTEGER, aliment_kg REAL, poids_moyen_g REAL, date_suivi TEXT, notes TEXT
     );
     CREATE TABLE IF NOT EXISTS agrofood(
-        id TEXT PRIMARY KEY, dossier_id TEXT, produit TEXT, quantite DOUBLE PRECISION, unite TEXT,
-        transformation TEXT, stockage TEXT, pertes_pct DOUBLE PRECISION, qualite TEXT, lot TEXT,
-        date_operation TEXT, notes TEXT
+        id TEXT PRIMARY KEY, dossier_id TEXT, produit TEXT, quantite REAL,
+        unite TEXT, transformation TEXT, stockage TEXT, pertes_pct REAL,
+        qualite TEXT, lot TEXT, date_operation TEXT, notes TEXT
     );
     CREATE TABLE IF NOT EXISTS assets(
-        id TEXT PRIMARY KEY, dossier_id TEXT, type_asset TEXT, nom TEXT, quantite DOUBLE PRECISION,
-        unite TEXT, etat TEXT, valeur_fcfa DOUBLE PRECISION, notes TEXT, created_at TEXT
+        id TEXT PRIMARY KEY, dossier_id TEXT, type_asset TEXT, nom TEXT,
+        quantite REAL, unite TEXT, etat TEXT, valeur_fcfa REAL, notes TEXT, created_at TEXT
     );
     CREATE TABLE IF NOT EXISTS missions(
         id TEXT PRIMARY KEY, dossier_id TEXT, client_id TEXT, objet TEXT, type_mission TEXT,
         statut TEXT, priorite TEXT, responsable TEXT, date_debut TEXT, echeance TEXT,
-        budget_fcfa DOUBLE PRECISION, avancement DOUBLE PRECISION DEFAULT 0, notes TEXT, created_at TEXT, updated_at TEXT
+        budget_fcfa REAL, avancement REAL DEFAULT 0, notes TEXT, created_at TEXT, updated_at TEXT
     );
     CREATE TABLE IF NOT EXISTS actions(
         id TEXT PRIMARY KEY, dossier_id TEXT, mission_id TEXT, domaine TEXT, titre TEXT,
-        responsable TEXT, echeance TEXT, priorite TEXT, statut TEXT, cout_estime DOUBLE PRECISION,
+        responsable TEXT, echeance TEXT, priorite TEXT, statut TEXT, cout_estime REAL,
         preuve TEXT, notes TEXT, created_at TEXT, updated_at TEXT
     );
     CREATE TABLE IF NOT EXISTS finance(
         id TEXT PRIMARY KEY, dossier_id TEXT, mission_id TEXT, type_operation TEXT,
-        categorie TEXT, libelle TEXT, montant_fcfa DOUBLE PRECISION, date_operation TEXT,
+        categorie TEXT, libelle TEXT, montant_fcfa REAL, date_operation TEXT,
         statut TEXT, reference TEXT, notes TEXT
     );
     CREATE TABLE IF NOT EXISTS quotes(
-        id TEXT PRIMARY KEY, client_id TEXT, dossier_id TEXT, reference TEXT, objet TEXT,
-        montant_ht DOUBLE PRECISION, taxes DOUBLE PRECISION, total DOUBLE PRECISION, statut TEXT,
+        id TEXT PRIMARY KEY, client_id TEXT, dossier_id TEXT, reference TEXT,
+        objet TEXT, montant_ht REAL, taxes REAL, total REAL, statut TEXT,
         date_creation TEXT, date_validite TEXT, notes TEXT
     );
     CREATE TABLE IF NOT EXISTS reports(
         id TEXT PRIMARY KEY, dossier_id TEXT, mission_id TEXT, type_rapport TEXT,
-        titre TEXT, contenu TEXT, confidence DOUBLE PRECISION, created_at TEXT
+        titre TEXT, contenu TEXT, confidence REAL, created_at TEXT
     );
     CREATE TABLE IF NOT EXISTS documents(
-        id TEXT PRIMARY KEY, dossier_id TEXT, mission_id TEXT, nom TEXT, type_document TEXT,
-        chemin TEXT, description TEXT, source TEXT, created_at TEXT
+        id TEXT PRIMARY KEY, dossier_id TEXT, mission_id TEXT, nom TEXT,
+        type_document TEXT, chemin TEXT, description TEXT, source TEXT, created_at TEXT
     );
     CREATE TABLE IF NOT EXISTS alerts(
-        id TEXT PRIMARY KEY, dossier_id TEXT, parcelle_id TEXT, domaine TEXT, niveau TEXT,
-        titre TEXT, message TEXT, source TEXT, due_date TEXT, statut TEXT DEFAULT 'Ouverte', created_at TEXT
+        id TEXT PRIMARY KEY, dossier_id TEXT, parcelle_id TEXT, domaine TEXT,
+        niveau TEXT, titre TEXT, message TEXT, source TEXT, due_date TEXT,
+        statut TEXT DEFAULT 'Ouverte', created_at TEXT
     );
     CREATE TABLE IF NOT EXISTS gis_features(
-        id TEXT PRIMARY KEY, dossier_id TEXT, parcelle_id TEXT, type_feature TEXT, nom TEXT,
-        geometry_json TEXT, surface_ha DOUBLE PRECISION, perimeter_m DOUBLE PRECISION,
-        latitude DOUBLE PRECISION, longitude DOUBLE PRECISION, source TEXT, confidence DOUBLE PRECISION,
+        id TEXT PRIMARY KEY, dossier_id TEXT, parcelle_id TEXT, type_feature TEXT,
+        nom TEXT, geometry_json TEXT, surface_ha REAL, perimeter_m REAL,
+        latitude REAL, longitude REAL, source TEXT, confidence REAL,
         validation_status TEXT, notes TEXT, created_at TEXT, updated_at TEXT
     );
     CREATE TABLE IF NOT EXISTS weather_cache(
-        id TEXT PRIMARY KEY, dossier_id TEXT, parcelle_id TEXT, latitude DOUBLE PRECISION, longitude DOUBLE PRECISION,
+        id TEXT PRIMARY KEY, dossier_id TEXT, parcelle_id TEXT, latitude REAL, longitude REAL,
         payload_json TEXT, fetched_at TEXT, source TEXT
     );
     CREATE TABLE IF NOT EXISTS sync_log(
-        id TEXT PRIMARY KEY, dossier_id TEXT, source TEXT, type_data TEXT, status TEXT,
-        message TEXT, fetched_at TEXT, duration_ms INTEGER
+        id TEXT PRIMARY KEY, dossier_id TEXT, source TEXT, type_data TEXT,
+        status TEXT, message TEXT, fetched_at TEXT, duration_ms INTEGER
     );
     CREATE TABLE IF NOT EXISTS audit(
-        id TEXT PRIMARY KEY, user_email TEXT, action TEXT, entity TEXT, entity_id TEXT, details TEXT, created_at TEXT
+        id TEXT PRIMARY KEY, user_email TEXT, action TEXT, entity TEXT,
+        entity_id TEXT, details TEXT, created_at TEXT
     );
     CREATE TABLE IF NOT EXISTS ai_history(
-        id TEXT PRIMARY KEY, dossier_id TEXT, parcelle_id TEXT, question TEXT, answer TEXT,
-        confidence DOUBLE PRECISION, evidence TEXT, created_at TEXT
+        id TEXT PRIMARY KEY, dossier_id TEXT, parcelle_id TEXT, question TEXT,
+        answer TEXT, confidence REAL, evidence TEXT, created_at TEXT
     );
-    CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT);
+    CREATE TABLE IF NOT EXISTS settings(
+        key TEXT PRIMARY KEY, value TEXT
+    );
     CREATE TABLE IF NOT EXISTS entretiens(
-        id TEXT PRIMARY KEY, dossier_id TEXT, client_id TEXT, domaine TEXT, mode TEXT,
-        question TEXT, reponse TEXT, auteur TEXT, ordre INTEGER, created_at TEXT
+        id TEXT PRIMARY KEY, dossier_id TEXT, client_id TEXT, domaine TEXT,
+        mode TEXT, question TEXT, reponse TEXT, auteur TEXT, ordre INTEGER,
+        created_at TEXT
     );
     CREATE TABLE IF NOT EXISTS user_data_access(
-        user_email TEXT NOT NULL, dossier_id TEXT NOT NULL, access_level TEXT DEFAULT 'lecture', created_at TEXT,
+        user_email TEXT NOT NULL, dossier_id TEXT NOT NULL,
+        access_level TEXT DEFAULT 'lecture', created_at TEXT,
         PRIMARY KEY(user_email, dossier_id)
     );
     CREATE TABLE IF NOT EXISTS user_modules(
-        user_email TEXT NOT NULL, module_key TEXT NOT NULL, allowed INTEGER DEFAULT 1, created_at TEXT,
+        user_email TEXT NOT NULL, module_key TEXT NOT NULL,
+        allowed INTEGER DEFAULT 1, created_at TEXT,
         PRIMARY KEY(user_email, module_key)
     );
-    CREATE TABLE IF NOT EXISTS contacts(
-        id TEXT PRIMARY KEY, dossier_id TEXT, nom TEXT, fonction TEXT, organisation TEXT,
-        telephone TEXT, email TEXT, canal_prefere TEXT, notes TEXT, created_at TEXT
-    );
-    """
-    for statement in schema_sql.split(';'):
-        statement = statement.strip()
-        if statement:
-            db_exec(statement)
+""")
+        con.commit()
+    finally:
+        con.close()
 
+    # Migrations non destructives pour les versions précédentes.
+    migrations = {
+        "clients": {"updated_at": "TEXT", "created_at": "TEXT"},
+        "dossiers": {"updated_at": "TEXT", "created_at": "TEXT", "statut": "TEXT DEFAULT 'Actif'"},
+        "parcelles": {"updated_at": "TEXT", "created_at": "TEXT", "geometry_json": "TEXT DEFAULT '[]'", "feature_type": "TEXT DEFAULT 'Parcelle'"},
+        "missions": {"updated_at": "TEXT", "created_at": "TEXT"},
+        "actions": {"updated_at": "TEXT", "created_at": "TEXT"},
+        "gis_features": {"updated_at": "TEXT", "created_at": "TEXT"},
+    }
+    con = db_conn()
+    try:
+        with con.cursor() as cur:
+            for table, cols in migrations.items():
+                for col, typ in cols.items():
+                    cur.execute(f'ALTER TABLE "{table}" ADD COLUMN IF NOT EXISTS "{col}" {typ}')
+        con.commit()
+    finally:
+        con.close()
 
 
 init_db()
 
 def ensure_owner_account():
     rows = db_exec(
-        "SELECT email, role, statut FROM users WHERE lower(email)=lower(%s)",
+        "SELECT email, role, statut FROM users WHERE lower(email)=lower(?)",
         (OWNER_EMAIL,),
         fetch=True
     )
     if not rows:
         db_exec(
             """INSERT INTO users(email,password_hash,nom,role,zone,statut,created_at)
-               VALUES(%s,%s,%s,%s,%s,%s,%s)""",
+               VALUES(?,?,?,?,?,?,?)""",
             (
                 OWNER_EMAIL, sha256(OWNER_PASS), "Administrateur Principal",
                 "Super-Admin", "National", "Actif", now()
@@ -440,7 +441,7 @@ def ensure_owner_account():
         )
     elif rows[0].get("role") != "Super-Admin" or rows[0].get("statut") != "Actif":
         db_exec(
-            "UPDATE users SET role=%s, statut=%s WHERE lower(email)=lower(%s)",
+            "UPDATE users SET role=?, statut=? WHERE lower(email)=lower(?)",
             ("Super-Admin", "Actif", OWNER_EMAIL)
         )
 
@@ -450,7 +451,7 @@ ensure_owner_account()
 def audit(action, entity="", entity_id="", details=""):
     user = st.session_state.get("user") or {}
     db_exec(
-        "INSERT INTO audit(id,user_email,action,entity,entity_id,details,created_at) VALUES(%s,%s,%s,%s,%s,%s,%s)",
+        "INSERT INTO audit(id,user_email,action,entity,entity_id,details,created_at) VALUES(?,?,?,?,?,?,?)",
         (new_id("AUD"), user.get("email", "anonymous"), action, entity, entity_id, str(details), now())
     )
 
@@ -481,25 +482,25 @@ init_state()
 
 def active_client():
     cid = st.session_state.get("client_id")
-    rows = db_exec("SELECT * FROM clients WHERE id=%s", (cid,), fetch=True) if cid else []
+    rows = db_exec("SELECT * FROM clients WHERE id=?", (cid,), fetch=True) if cid else []
     return rows[0] if rows else None
 
 
 def active_dossier():
     did = st.session_state.get("dossier_id")
-    rows = db_exec("SELECT * FROM dossiers WHERE id=%s", (did,), fetch=True) if did else []
+    rows = db_exec("SELECT * FROM dossiers WHERE id=?", (did,), fetch=True) if did else []
     return rows[0] if rows else None
 
 
 def active_parcelle():
     pid = st.session_state.get("parcelle_id")
-    rows = db_exec("SELECT * FROM parcelles WHERE id=%s", (pid,), fetch=True) if pid else []
+    rows = db_exec("SELECT * FROM parcelles WHERE id=?", (pid,), fetch=True) if pid else []
     return rows[0] if rows else None
 
 
 def active_zone():
     zid = st.session_state.get("zone_feature_id")
-    rows = db_exec("SELECT * FROM gis_features WHERE id=%s", (zid,), fetch=True) if zid else []
+    rows = db_exec("SELECT * FROM gis_features WHERE id=?", (zid,), fetch=True) if zid else []
     return rows[0] if rows else None
 
 
@@ -614,7 +615,7 @@ def save_zone(coords, feature_type, name, dossier_id, parcelle_id=None):
     db_exec("""INSERT INTO gis_features
         (id,dossier_id,parcelle_id,type_feature,nom,geometry_json,surface_ha,perimeter_m,
          latitude,longitude,source,confidence,validation_status,notes,created_at,updated_at)
-        VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (fid, dossier_id, parcelle_id, feature_type, name, json.dumps(coords),
          area, perim, lat, lon, "Terrain/GPS", 0.98, "À valider",
          "Géométrie dessinée par l'utilisateur.", now(), now()))
@@ -696,9 +697,9 @@ def _save_active_parcel_geometry(coords, label="Parcelle délimitée"):
     try:
         db_exec(
             """UPDATE parcelles
-               SET geometry=%s, surface_ha=%s, perimeter_m=%s, centroid_lat=%s, centroid_lon=%s,
+               SET geometry=?, surface_ha=?, perimeter_m=?, centroid_lat=?, centroid_lon=?,
                    source=?, confidence=?, updated_at=?
-               WHERE id=%s""",
+               WHERE id=?""",
             (geometry_json, area, perimeter, centroid_lat, centroid_lon,
              "GPS/dessin", 1.0, now(), parcel_id)
         )
@@ -730,7 +731,7 @@ def _active_geometry():
     if not pid:
         return []
     try:
-        rows = db_exec("SELECT geometry FROM parcelles WHERE id=%s", (pid,), fetch=True)
+        rows = db_exec("SELECT geometry FROM parcelles WHERE id=?", (pid,), fetch=True)
         if rows:
             coords = _geometry_to_coords(rows[0].get("geometry"))
             if coords:
@@ -903,8 +904,8 @@ def data_quality():
     check("Surface valide", c["zone_surface_ha"] > 0 or c["surface_ha"] > 0, 10, "Définir la surface")
     check("Culture renseignée", bool(c["culture"]), 6, "Renseigner la culture")
     did = c["dossier_id"]
-    obs_n = len(db_exec("SELECT id FROM observations WHERE dossier_id=%s", (did,), fetch=True)) if did else 0
-    ana_n = len(db_exec("SELECT id FROM analyses WHERE dossier_id=%s", (did,), fetch=True)) if did else 0
+    obs_n = len(db_exec("SELECT id FROM observations WHERE dossier_id=?", (did,), fetch=True)) if did else 0
+    ana_n = len(db_exec("SELECT id FROM analyses WHERE dossier_id=?", (did,), fetch=True)) if did else 0
     check("Observations terrain", obs_n > 0, 8, "Ajouter une observation")
     check("Analyses disponibles", ana_n > 0, 5, "Ajouter une analyse ou justifier l'absence")
     return max(0, min(100, score)), checks
@@ -928,7 +929,7 @@ def risk_score():
         risk += 15
     if not c["culture"]:
         risk += 5
-    obs = db_exec("SELECT gravite,incidence FROM observations WHERE dossier_id=%s ORDER BY created_at DESC LIMIT 50",
+    obs = db_exec("SELECT gravite,incidence FROM observations WHERE dossier_id=? ORDER BY created_at DESC LIMIT 50",
                   (c["dossier_id"],), fetch=True) if c["dossier_id"] else []
     for o in obs:
         risk += {"Faible": 2, "Moyenne": 7, "Élevée": 14, "Critique": 25, "Information": 0}.get(o.get("gravite"), 0)
@@ -941,7 +942,7 @@ def risk_score():
 # =========================================================
 def log_sync(source, dtype, status, message, dossier_id=None, duration=0):
     db_exec("""INSERT INTO sync_log(id,dossier_id,source,type_data,status,message,fetched_at,duration_ms)
-               VALUES(%s,%s,%s,%s,%s,%s,%s,%s)""",
+               VALUES(?,?,?,?,?,?,?,?)""",
             (new_id("SYN"), dossier_id or context()["dossier_id"], source, dtype,
              status, message, now(), int(duration)))
 
@@ -966,7 +967,7 @@ def sync_weather():
     data = r.json()
     st.session_state["weather"] = data
     db_exec("""INSERT INTO weather_cache(id,dossier_id,parcelle_id,latitude,longitude,payload_json,fetched_at,source)
-               VALUES(%s,%s,%s,%s,%s,%s,%s,%s)""",
+               VALUES(?,?,?,?,?,?,?,?)""",
             (new_id("WTH"), c["dossier_id"], c["parcelle_id"], c["latitude"], c["longitude"],
              json.dumps(data), now(), "Open-Meteo"))
     log_sync("Open-Meteo", "Météo", "OK", "Prévision 7 jours récupérée.", c["dossier_id"], (time.time()-t0)*1000)
@@ -1032,7 +1033,7 @@ def login():
     password = b.text_input("Mot de passe", type="password", key="login_password")
     if st.button("Se connecter", type="primary", key="login_button"):
         rows = db_exec(
-            "SELECT * FROM users WHERE lower(email)=lower(%s) AND password_hash=%s AND statut='Actif'",
+            "SELECT * FROM users WHERE lower(email)=lower(?) AND password_hash=? AND statut='Actif'",
             (email.strip(), sha256(password)), fetch=True
         )
         if rows:
@@ -1061,7 +1062,7 @@ def accessible_dossiers(client_id=None):
         sql = "SELECT * FROM dossiers"
         params = ()
         if client_id:
-            sql += " WHERE client_id=%s"
+            sql += " WHERE client_id=?"
             params = (client_id,)
         sql += " ORDER BY COALESCE(updated_at, created_at, '') DESC"
         return db_exec(sql, params, fetch=True)
@@ -1069,10 +1070,10 @@ def accessible_dossiers(client_id=None):
     email = (user.get("email") or "").strip().lower()
     sql = """SELECT d.* FROM dossiers d
              INNER JOIN user_data_access a ON a.dossier_id=d.id
-             WHERE lower(a.user_email)=%s"""
+             WHERE lower(a.user_email)=?"""
     params = [email]
     if client_id:
-        sql += " AND d.client_id=%s"
+        sql += " AND d.client_id=?"
         params.append(client_id)
     sql += " ORDER BY COALESCE(d.updated_at, d.created_at, '') DESC"
     return db_exec(sql, tuple(params), fetch=True)
@@ -1089,7 +1090,7 @@ def accessible_clients():
         """SELECT DISTINCT c.* FROM clients c
            INNER JOIN dossiers d ON d.client_id=c.id
            INNER JOIN user_data_access a ON a.dossier_id=d.id
-           WHERE lower(a.user_email)=%s
+           WHERE lower(a.user_email)=?
            ORDER BY COALESCE(c.updated_at, c.created_at, '') DESC""",
         (email,), fetch=True
     )
@@ -1101,7 +1102,7 @@ def access_guard():
     did = st.session_state.get("dossier_id")
     if did and not is_super_admin():
         allowed = db_exec(
-            "SELECT dossier_id FROM user_data_access WHERE lower(user_email)=lower(%s) AND dossier_id=%s",
+            "SELECT dossier_id FROM user_data_access WHERE lower(user_email)=lower(?) AND dossier_id=?",
             (user.get("email",""), did), fetch=True
         )
         if not allowed:
@@ -1152,7 +1153,7 @@ def global_selector():
             if st.form_submit_button("Créer le client", type="primary"):
                 cid = new_id("CLI")
                 db_exec("""INSERT INTO clients(id,nom,telephone,email,organisation,adresse,region,notes,created_at,updated_at)
-                           VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                           VALUES(?,?,?,?,?,?,?,?,?,?)""",
                         (cid, nom or "Client sans nom", tel, email, org, "", region, "", now(), now()))
                 st.session_state["client_id"] = cid
                 st.session_state["dossier_id"] = None
@@ -1203,7 +1204,7 @@ def global_selector():
                 lat, lon = REGIONS_COORD[region]
                 db_exec("""INSERT INTO dossiers
                     (id,client_id,nom,type_exploitation,region,commune,village,latitude,longitude,notes,created_at,updated_at)
-                    VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                    VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
                     (did,cid,nom or "Dossier sans nom",typ,region,commune,village,lat,lon,"",now(),now()))
                 set_active_dossier(did)
                 st.rerun()
@@ -1217,7 +1218,7 @@ def global_selector():
         st.session_state.pop("terrain_geometry", None)
 
     did = st.session_state.get("dossier_id")
-    pars = db_exec("SELECT * FROM parcelles WHERE dossier_id=%s ORDER BY COALESCE(updated_at, created_at, '') DESC", (did,), fetch=True) if did else []
+    pars = db_exec("SELECT * FROM parcelles WHERE dossier_id=? ORDER BY COALESCE(updated_at, created_at, '') DESC", (did,), fetch=True) if did else []
     parcel_options = ["__none_parcel__"] + [x["id"] for x in pars]
     current_parcel = st.session_state.get("parcelle_id")
     if current_parcel not in parcel_options:
@@ -1332,13 +1333,13 @@ def interview_questions(domain):
 
 def save_interview_answer(dossier_id, client_id, domain, mode, question, answer, order_no):
     db_exec("""INSERT INTO entretiens(id,dossier_id,client_id,domaine,mode,question,reponse,auteur,ordre,created_at)
-               VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+               VALUES(?,?,?,?,?,?,?,?,?,?)""",
             (new_id("ENT"), dossier_id, client_id, domain, mode, question, answer,
              (st.session_state.get("user") or {}).get("nom", "Conseiller"), order_no, now()))
     audit("ENTRETIEN", "entretien", dossier_id, question)
 
 def interview_transcript(dossier_id):
-    return db_exec("SELECT * FROM entretiens WHERE dossier_id=%s ORDER BY ordre,created_at", (dossier_id,), fetch=True)
+    return db_exec("SELECT * FROM entretiens WHERE dossier_id=? ORDER BY ordre,created_at", (dossier_id,), fetch=True)
 
 def build_interview_pdf(rows, dossier=None, client=None):
     """Rapport d'entretien professionnel, lisible et structuré."""
@@ -1408,12 +1409,12 @@ def build_interview_pdf(rows, dossier=None, client=None):
 
 
 def communication_contacts(dossier_id):
-    return db_exec("SELECT * FROM contacts WHERE dossier_id=%s ORDER BY nom",(dossier_id,),fetch=True)
+    return db_exec("SELECT * FROM contacts WHERE dossier_id=? ORDER BY nom",(dossier_id,),fetch=True)
 
 def whatsapp_url(phone,message):
     digits=re.sub(r"[^0-9]","",phone or "")
     if digits.startswith("00"): digits=digits[2:]
-    return ("https://wa.me/"+digits+"%stext="+urllib.parse.quote(message or "")) if digits else ""
+    return ("https://wa.me/"+digits+"?text="+urllib.parse.quote(message or "")) if digits else ""
 
 def smtp_configured():
     return all(os.getenv(k) for k in ["YOUAGRONOME_SMTP_HOST","YOUAGRONOME_SMTP_USER","YOUAGRONOME_SMTP_PASS"])
@@ -1448,7 +1449,7 @@ def communications_space():
         if st.form_submit_button("Ajouter l'acteur"):
             if nom.strip():
                 db_exec("""INSERT INTO contacts(id,dossier_id,nom,fonction,organisation,telephone,email,canal_prefere,notes,created_at)
-                           VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                           VALUES(?,?,?,?,?,?,?,?,?,?)""",
                         (new_id("CNT"),c["dossier_id"],nom.strip(),fonction,organisation,telephone,email,canal,"",now()))
                 audit("AJOUT_CONTACT","contact",c["dossier_id"],nom.strip())
                 st.success("Acteur ajouté.")
@@ -1581,7 +1582,7 @@ def _legacy_terrain_space(selected=None):
                 region = st.selectbox("Région", list(REGIONS_COORD), index=list(REGIONS_COORD).index(c["region"]) if c["region"] in REGIONS_COORD else 0)
                 notes = st.text_area("Notes", c["notes"] or "")
                 if st.form_submit_button("Mettre à jour le client"):
-                    db_exec("UPDATE clients SET nom=%s,telephone=%s,email=%s,organisation=%s,region=%s,notes=%s,updated_at=%s WHERE id=%s",
+                    db_exec("UPDATE clients SET nom=?,telephone=?,email=?,organisation=?,region=?,notes=?,updated_at=? WHERE id=?",
                             (nom,tel,email,org,region,notes,now(),c["id"]))
                     audit("MISE_A_JOUR", "client", c["id"])
                     st.success("Client mis à jour.")
@@ -1607,12 +1608,12 @@ def _legacy_terrain_space(selected=None):
                 fert = st.text_area("Fertilisation / amendements")
                 prot = st.text_area("Protection / interventions")
                 if st.form_submit_button("Enregistrer le suivi"):
-                    db_exec("UPDATE parcelles SET culture=%s,stade=%s,updated_at=%s WHERE id=%s",
+                    db_exec("UPDATE parcelles SET culture=?,stade=?,updated_at=? WHERE id=?",
                             (culture,stade,now(),p["id"]))
                     db_exec("""INSERT INTO cultures
                         (id,dossier_id,parcelle_id,culture,variete,date_semis,date_recolte_prevue,irrigation,
                          rendement_cible,rendement_reel,fertilisation,protection,notes,created_at)
-                        VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                         (new_id("CUL"),c["dossier_id"],p["id"],culture,variete,str(semis),str(recolte),
                          irrigation,cible,reel,fert,prot,"",now()))
                     audit("SUIVI_CULTURE", "parcelle", p["id"])
@@ -1638,12 +1639,12 @@ def _legacy_terrain_space(selected=None):
                     db_exec("""INSERT INTO livestock
                         (id,dossier_id,espece,categorie,effectif,poids_moyen,alimentation,mortalite,
                          vaccination,reproduction,date_suivi,notes)
-                        VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                        VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
                         (new_id("ELV"),did,espece,categorie,effectif,poids,alimentation,mortalite,
                          vaccination,reproduction,now(),notes))
                     audit("SUIVI_ELEVAGE", "dossier", did)
                     st.success("Suivi enregistré.")
-            rows = db_exec("SELECT * FROM livestock WHERE dossier_id=%s ORDER BY date_suivi DESC", (did,), fetch=True)
+            rows = db_exec("SELECT * FROM livestock WHERE dossier_id=? ORDER BY date_suivi DESC", (did,), fetch=True)
             st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
     if section == '🐟 Aquaculture':
@@ -1669,7 +1670,7 @@ def _legacy_terrain_space(selected=None):
                     db_exec("""INSERT INTO aquaculture
                         (id,dossier_id,unite,espece,volume_m3,densite,oxygene,ph,temperature,
                          mortalite,aliment_kg,poids_moyen_g,date_suivi,notes)
-                        VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                         (new_id("AQU"),did,unite,espece,volume,densite,oxy,ph,temp,mort,aliment,poids,now(),notes))
                     audit("SUIVI_AQUACULTURE", "dossier", did)
                     st.success("Suivi aquacole enregistré.")
@@ -1693,7 +1694,7 @@ def _legacy_terrain_space(selected=None):
                     db_exec("""INSERT INTO agrofood
                         (id,dossier_id,produit,quantite,unite,transformation,stockage,pertes_pct,
                          qualite,lot,date_operation,notes)
-                        VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                        VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
                         (new_id("AGF"),did,produit,quantite,unite,transformation,stockage,pertes,qualite,lot,now(),notes))
                     audit("SUIVI_AGROALIMENTAIRE", "dossier", did)
                     st.success("Opération enregistrée.")
@@ -1718,14 +1719,14 @@ def _legacy_terrain_space(selected=None):
                         (id,dossier_id,parcelle_id,domaine,type_observation,description,gravite,incidence,
                          surface_affectee_ha,latitude,longitude,photo_name,date_observation,source_type,confidence,
                          validation_status,created_at)
-                        VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                         (new_id("OBS"),c["dossier_id"],c["parcelle_id"],domaine,typ,desc,gravite,incidence,
                          surface,c["latitude"],c["longitude"],photo.name if photo else "",now(),"Terrain",0.85,
                          "À vérifier",now()))
                     if gravite in ["Élevée","Critique"]:
                         db_exec("""INSERT INTO alerts
                             (id,dossier_id,parcelle_id,domaine,niveau,titre,message,source,due_date,created_at)
-                            VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                            VALUES(?,?,?,?,?,?,?,?,?,?)""",
                                 (new_id("ALT"),c["dossier_id"],c["parcelle_id"],domaine,gravite,
                                  f"Observation {domaine}",desc or "Contrôle requis.","Terrain",
                                  str(date.today()+timedelta(days=2)),now()))
@@ -1752,12 +1753,12 @@ def _legacy_terrain_space(selected=None):
                     db_exec("""INSERT INTO analyses
                         (id,dossier_id,parcelle_id,type_analyse,parametre,valeur,unite,methode,laboratoire,
                          date_analyse,source_type,confidence,validation_status,notes,created_at)
-                        VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                         (new_id("ANA"),c["dossier_id"],c["parcelle_id"],typ,param,valeur,unite,methode,labo,
                          now(),"Laboratoire" if labo else "Terrain",conf,validation,notes,now()))
                     audit("ANALYSE", "analyse", c["dossier_id"], {"param":param,"value":valeur})
                     st.success("Analyse enregistrée.")
-            rows = db_exec("SELECT * FROM analyses WHERE dossier_id=%s ORDER BY date_analyse DESC", (c["dossier_id"],), fetch=True)
+            rows = db_exec("SELECT * FROM analyses WHERE dossier_id=? ORDER BY date_analyse DESC", (c["dossier_id"],), fetch=True)
             st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
     if section == '📦 Équipements':
@@ -1775,7 +1776,7 @@ def _legacy_terrain_space(selected=None):
                 notes = st.text_area("Notes")
                 if st.form_submit_button("Ajouter l'actif"):
                     db_exec("""INSERT INTO assets(id,dossier_id,type_asset,nom,quantite,unite,etat,valeur_fcfa,notes,created_at)
-                               VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                               VALUES(?,?,?,?,?,?,?,?,?,?)""",
                             (new_id("AST"),did,typ,nom,qte,unite,etat,valeur,notes,now()))
                     audit("AJOUT_ACTIF","asset",did)
 
@@ -1784,10 +1785,10 @@ def _legacy_terrain_space(selected=None):
         did = context()["dossier_id"]
         if did:
             tables = [
-                ("Observation","SELECT created_at,description AS texte FROM observations WHERE dossier_id=%s"),
-                ("Analyse","SELECT created_at,parametre || ' = ' || valeur AS texte FROM analyses WHERE dossier_id=%s"),
-                ("Action","SELECT created_at,titre AS texte FROM actions WHERE dossier_id=%s"),
-                ("Mission","SELECT created_at,objet AS texte FROM missions WHERE dossier_id=%s"),
+                ("Observation","SELECT created_at,description AS texte FROM observations WHERE dossier_id=?"),
+                ("Analyse","SELECT created_at,parametre || ' = ' || valeur AS texte FROM analyses WHERE dossier_id=?"),
+                ("Action","SELECT created_at,titre AS texte FROM actions WHERE dossier_id=?"),
+                ("Mission","SELECT created_at,objet AS texte FROM missions WHERE dossier_id=?"),
             ]
             hist = []
             for typ, sql in tables:
@@ -1850,7 +1851,7 @@ def _legacy_sig_space(selected=None):
             lat = a.number_input("Latitude centrale", value=float(d["latitude"] or 14.7), format="%.6f", key="gps_lat_main")
             lon = b.number_input("Longitude centrale", value=float(d["longitude"] or -16.2), format="%.6f", key="gps_lon_main")
             if st.button("Enregistrer le point GPS", key="save_gps_main"):
-                db_exec("UPDATE dossiers SET latitude=%s,longitude=%s,updated_at=%s WHERE id=%s", (lat,lon,now(),did))
+                db_exec("UPDATE dossiers SET latitude=?,longitude=?,updated_at=? WHERE id=?", (lat,lon,now(),did))
                 audit("GPS","dossier",did,{"lat":lat,"lon":lon})
                 st.success("GPS enregistré.")
             with st.form("new_parcel_sig"):
@@ -1860,7 +1861,7 @@ def _legacy_sig_space(selected=None):
                     pid = new_id("PAR")
                     db_exec("""INSERT INTO parcelles
                         (id,dossier_id,nom,culture,stade,latitude,longitude,geometry_json,created_at,updated_at)
-                        VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                        VALUES(?,?,?,?,?,?,?,?,?,?)""",
                         (pid,did,nom,culture,STAGES[0],lat,lon,"[]",now(),now()))
                     st.session_state["parcelle_id"] = pid
                     audit("CREATION","parcelle",pid)
@@ -1870,7 +1871,7 @@ def _legacy_sig_space(selected=None):
         st.subheader("🧭 Couches SIG du dossier")
         did = context()["dossier_id"]
         if did:
-            rows = db_exec("SELECT * FROM gis_features WHERE dossier_id=%s ORDER BY created_at DESC", (did,), fetch=True)
+            rows = db_exec("SELECT * FROM gis_features WHERE dossier_id=? ORDER BY created_at DESC", (did,), fetch=True)
             st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
             if rows:
                 options = [f"{r['id']} · {r['nom']} ({r['type_feature']})" for r in rows]
@@ -1888,8 +1889,8 @@ def _legacy_sig_space(selected=None):
         if not c["dossier_id"]:
             st.info("Sélectionnez d'abord un dossier.")
         else:
-            obs = db_exec("SELECT * FROM observations WHERE dossier_id=%s ORDER BY created_at DESC LIMIT 100", (c["dossier_id"],), fetch=True)
-            ana = db_exec("SELECT * FROM analyses WHERE dossier_id=%s ORDER BY date_analyse DESC LIMIT 100", (c["dossier_id"],), fetch=True)
+            obs = db_exec("SELECT * FROM observations WHERE dossier_id=? ORDER BY created_at DESC LIMIT 100", (c["dossier_id"],), fetch=True)
+            ana = db_exec("SELECT * FROM analyses WHERE dossier_id=? ORDER BY date_analyse DESC LIMIT 100", (c["dossier_id"],), fetch=True)
             q, checks = data_quality()
             conf = confidence_from_sources()
             risk = risk_score()
@@ -2027,8 +2028,8 @@ def _legacy_decision_space(selected=None):
         if not c["dossier_id"]:
             st.info("Sélectionnez un dossier.")
         else:
-            obs = db_exec("SELECT * FROM observations WHERE dossier_id=%s ORDER BY created_at DESC LIMIT 50", (c["dossier_id"],), fetch=True)
-            ana = db_exec("SELECT * FROM analyses WHERE dossier_id=%s ORDER BY date_analyse DESC LIMIT 50", (c["dossier_id"],), fetch=True)
+            obs = db_exec("SELECT * FROM observations WHERE dossier_id=? ORDER BY created_at DESC LIMIT 50", (c["dossier_id"],), fetch=True)
+            ana = db_exec("SELECT * FROM analyses WHERE dossier_id=? ORDER BY date_analyse DESC LIMIT 50", (c["dossier_id"],), fetch=True)
             a,b,c1 = st.columns(3)
             a.metric("Observations", len(obs))
             b.metric("Analyses", len(ana))
@@ -2076,10 +2077,10 @@ def _legacy_decision_space(selected=None):
                 if st.form_submit_button("Enregistrer l'opération"):
                     db_exec("""INSERT INTO finance
                         (id,dossier_id,mission_id,type_operation,categorie,libelle,montant_fcfa,date_operation,statut,reference,notes)
-                        VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                        VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
                         (new_id("FIN"),did,st.session_state.get("selected_mission"),typ,cat,lib,amount,now(),"Enregistré","", ""))
                     audit("FINANCE","finance",did)
-            rows = db_exec("SELECT type_operation,SUM(montant_fcfa) montant FROM finance WHERE dossier_id=%s GROUP BY type_operation",(did,), fetch=True)
+            rows = db_exec("SELECT type_operation,SUM(montant_fcfa) montant FROM finance WHERE dossier_id=? GROUP BY type_operation",(did,), fetch=True)
             df = pd.DataFrame(rows)
             recettes = float(df.loc[df["type_operation"]=="Recette","montant"].sum()) if not df.empty else 0
             depenses = float(df.loc[df["type_operation"]=="Dépense","montant"].sum()) if not df.empty else 0
@@ -2097,13 +2098,13 @@ def _legacy_decision_space(selected=None):
                 if q < 70:
                     db_exec("""INSERT INTO alerts
                         (id,dossier_id,parcelle_id,domaine,niveau,titre,message,source,due_date,created_at)
-                        VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                        VALUES(?,?,?,?,?,?,?,?,?,?)""",
                         (new_id("ALT"),did,context()["parcelle_id"],"Données","Moyenne",
                          "Qualité insuffisante",
                          "Compléter la zone GPS, les observations et les analyses avant décision sensible.",
                          "Moteur qualité",str(date.today()+timedelta(days=2)),now()))
                 audit("GENERATION_ALERTES","alerts",did)
-            rows = db_exec("SELECT * FROM alerts WHERE dossier_id=%s ORDER BY created_at DESC",(did,), fetch=True)
+            rows = db_exec("SELECT * FROM alerts WHERE dossier_id=? ORDER BY created_at DESC",(did,), fetch=True)
             if rows: st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
             else: st.success("Aucune alerte enregistrée.")
 
@@ -2112,9 +2113,9 @@ def _legacy_decision_space(selected=None):
         c = context()
         q,_ = data_quality()
         risk = risk_score()
-        obs = len(db_exec("SELECT id FROM observations WHERE dossier_id=%s",(c["dossier_id"],), fetch=True)) if c["dossier_id"] else 0
-        ana = len(db_exec("SELECT id FROM analyses WHERE dossier_id=%s",(c["dossier_id"],), fetch=True)) if c["dossier_id"] else 0
-        actions = len(db_exec("SELECT id FROM actions WHERE dossier_id=%s",(c["dossier_id"],), fetch=True)) if c["dossier_id"] else 0
+        obs = len(db_exec("SELECT id FROM observations WHERE dossier_id=?",(c["dossier_id"],), fetch=True)) if c["dossier_id"] else 0
+        ana = len(db_exec("SELECT id FROM analyses WHERE dossier_id=?",(c["dossier_id"],), fetch=True)) if c["dossier_id"] else 0
+        actions = len(db_exec("SELECT id FROM actions WHERE dossier_id=?",(c["dossier_id"],), fetch=True)) if c["dossier_id"] else 0
         scores = {
             "Qualité données": q,
             "Preuves terrain": min(100,obs*15),
@@ -2149,11 +2150,11 @@ def _legacy_decision_space(selected=None):
                 if st.form_submit_button("Créer l'action"):
                     db_exec("""INSERT INTO actions
                         (id,dossier_id,mission_id,domaine,titre,responsable,echeance,priorite,statut,cout_estime,preuve,notes,created_at,updated_at)
-                        VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                         (new_id("ACT"),did,st.session_state.get("selected_mission"),domaine,titre,resp,str(echeance),
                          priorite,statut,cout,"",notes,now(),now()))
                     audit("CREATION","action",did,titre)
-            rows = db_exec("SELECT * FROM actions WHERE dossier_id=%s ORDER BY echeance",(did,), fetch=True)
+            rows = db_exec("SELECT * FROM actions WHERE dossier_id=? ORDER BY echeance",(did,), fetch=True)
             st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
     if section == '🧪 Contrôle de cohérence':
@@ -2205,12 +2206,12 @@ def _legacy_consultancy_space(selected=None):
                     mid = new_id("MIS")
                     db_exec("""INSERT INTO missions
                         (id,dossier_id,client_id,objet,type_mission,statut,priorite,responsable,date_debut,echeance,budget_fcfa,avancement,notes,created_at,updated_at)
-                        VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                         (mid,did,context()["client_id"],objet,typ,statut,priorite,responsable,str(debut),str(echeance),
                          budget,0,"",now(),now()))
                     st.session_state["selected_mission"] = mid
                     audit("CREATION","mission",mid,objet)
-            rows = db_exec("SELECT * FROM missions WHERE dossier_id=%s ORDER BY COALESCE(updated_at, created_at, '') DESC",(did,), fetch=True)
+            rows = db_exec("SELECT * FROM missions WHERE dossier_id=? ORDER BY COALESCE(updated_at, created_at, '') DESC",(did,), fetch=True)
             st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
     if section == '📝 Devis':
@@ -2228,17 +2229,17 @@ def _legacy_consultancy_space(selected=None):
                 if st.form_submit_button("Enregistrer le devis"):
                     db_exec("""INSERT INTO quotes
                         (id,client_id,dossier_id,reference,objet,montant_ht,taxes,total,statut,date_creation,date_validite,notes)
-                        VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                        VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
                         (new_id("QTE"),cid,did,ref,objet,ht,taxes,ht+taxes,statut,now(),str(valid),""))
                     audit("DEVIS","quote",cid,ref)
-            rows = db_exec("SELECT * FROM quotes WHERE client_id=%s ORDER BY date_creation DESC",(cid,), fetch=True)
+            rows = db_exec("SELECT * FROM quotes WHERE client_id=? ORDER BY date_creation DESC",(cid,), fetch=True)
             st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
     if section == '💳 Finance':
         st.subheader("💳 Finance et rentabilité du cabinet")
         did = context()["dossier_id"]
         if did:
-            rows = db_exec("SELECT * FROM finance WHERE dossier_id=%s ORDER BY date_operation DESC",(did,), fetch=True)
+            rows = db_exec("SELECT * FROM finance WHERE dossier_id=? ORDER BY date_operation DESC",(did,), fetch=True)
             st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
     if section == '📄 Rapports':
@@ -2264,9 +2265,9 @@ def _legacy_consultancy_space(selected=None):
             k4.metric("Date", report_date)
 
             if st.button("📝 Générer le rapport synthétique", type="primary", use_container_width=True, key="report_prepare_xxl"):
-                obs = db_exec("SELECT * FROM observations WHERE dossier_id=%s ORDER BY created_at DESC LIMIT 20", (c["dossier_id"],), fetch=True)
-                ana = db_exec("SELECT * FROM analyses WHERE dossier_id=%s ORDER BY date_analyse DESC LIMIT 20", (c["dossier_id"],), fetch=True)
-                actions = db_exec("SELECT * FROM actions WHERE dossier_id=%s ORDER BY created_at DESC LIMIT 10", (c["dossier_id"],), fetch=True)
+                obs = db_exec("SELECT * FROM observations WHERE dossier_id=? ORDER BY created_at DESC LIMIT 20", (c["dossier_id"],), fetch=True)
+                ana = db_exec("SELECT * FROM analyses WHERE dossier_id=? ORDER BY date_analyse DESC LIMIT 20", (c["dossier_id"],), fetch=True)
+                actions = db_exec("SELECT * FROM actions WHERE dossier_id=? ORDER BY created_at DESC LIMIT 10", (c["dossier_id"],), fetch=True)
                 text = (
                     f"RAPPORT SYNTHÉTIQUE DE DIAGNOSTIC\n"
                     f"Date : {report_date}\n"
@@ -2288,7 +2289,7 @@ def _legacy_consultancy_space(selected=None):
                     "et les sources techniques applicables au contexte local."
                 )
                 db_exec("""INSERT INTO reports(id,dossier_id,mission_id,type_rapport,titre,contenu,confidence,created_at)
-                           VALUES(%s,%s,%s,%s,%s,%s,%s,%s)""",
+                           VALUES(?,?,?,?,?,?,?,?)""",
                         (new_id("RPT"),c["dossier_id"],st.session_state.get("selected_mission"),report_type,title,text,conf,now()))
                 st.session_state["report_text"] = text
                 st.session_state["report_meta"] = {"title": title, "date": report_date, "consultant": consultant, "type": report_type, "confidence": conf, "risk": risk}
@@ -2354,7 +2355,7 @@ def _legacy_consultancy_space(selected=None):
                 if st.form_submit_button("Enregistrer le document"):
                     db_exec("""INSERT INTO documents
                         (id,dossier_id,mission_id,nom,type_document,chemin,description,source,created_at)
-                        VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                        VALUES(?,?,?,?,?,?,?,?,?)""",
                         (new_id("DOC"),did,st.session_state.get("selected_mission"),nom,typ,chemin,desc,"Utilisateur",now()))
                     audit("DOCUMENT","document",did,nom)
 
@@ -2362,8 +2363,8 @@ def _legacy_consultancy_space(selected=None):
         st.subheader("📆 Agenda des échéances")
         did = context()["dossier_id"]
         if did:
-            actions = db_exec("SELECT * FROM actions WHERE dossier_id=%s ORDER BY echeance",(did,), fetch=True)
-            missions = db_exec("SELECT * FROM missions WHERE dossier_id=%s ORDER BY echeance",(did,), fetch=True)
+            actions = db_exec("SELECT * FROM actions WHERE dossier_id=? ORDER BY echeance",(did,), fetch=True)
+            missions = db_exec("SELECT * FROM missions WHERE dossier_id=? ORDER BY echeance",(did,), fetch=True)
             upcoming = []
             for x in actions:
                 upcoming.append({"Type":"Action","Objet":x["titre"],"Échéance":x["echeance"],"Statut":x["statut"],"Priorité":x["priorite"]})
@@ -2388,7 +2389,7 @@ def _legacy_consultancy_space(selected=None):
                     if email and pwd:
                         try:
                             db_exec("""INSERT INTO users(email,password_hash,nom,role,zone,statut,created_at)
-                                       VALUES(%s,%s,%s,%s,%s,%s,%s)""",
+                                       VALUES(?,?,?,?,?,?,?)""",
                                     (email.strip(),sha256(pwd),nom or "Utilisateur",role,zone or "National","Actif",now()))
                             audit("CREATION","user",email)
                             st.success("Utilisateur créé.")
@@ -2408,26 +2409,26 @@ def _legacy_consultancy_space(selected=None):
                 labels=[f"{u['email']} · {u['nom']} · {u['role']}" for u in users]
                 u=users[labels.index(st.selectbox("Utilisateur",labels,key="access_user_v11"))]
                 dossiers_all=db_exec("SELECT id,nom FROM dossiers ORDER BY nom",fetch=True)
-                current=db_exec("SELECT dossier_id FROM user_data_access WHERE lower(user_email)=lower(%s)",(u["email"],),fetch=True)
+                current=db_exec("SELECT dossier_id FROM user_data_access WHERE lower(user_email)=lower(?)",(u["email"],),fetch=True)
                 current_ids={r["dossier_id"] for r in current}
                 dlabels=[f"{d['id']} · {d['nom']}" for d in dossiers_all]
                 selected=st.multiselect("Dossiers autorisés",dlabels,
                                         default=[x for x in dlabels if x.split(" · ",1)[0] in current_ids],
                                         key="access_dossiers_v11")
-                custom=db_exec("SELECT module_key FROM user_modules WHERE lower(user_email)=lower(%s) AND allowed=1",(u["email"],),fetch=True)
+                custom=db_exec("SELECT module_key FROM user_modules WHERE lower(user_email)=lower(?) AND allowed=1",(u["email"],),fetch=True)
                 default_mods=[r["module_key"] for r in custom] if custom else PROFILS_MODULES.get(u["role"],[])
                 selected_mods=st.multiselect("Modules autorisés",list(MODULES_AUTORISABLES),
                                              format_func=lambda k:MODULES_AUTORISABLES[k],
                                              default=[k for k in default_mods if k in MODULES_AUTORISABLES],
                                              key="access_modules_v11")
                 if st.button("💾 Enregistrer les droits",type="primary",key="save_access_rights_v11"):
-                    db_exec("DELETE FROM user_data_access WHERE lower(user_email)=lower(%s)",(u["email"],))
+                    db_exec("DELETE FROM user_data_access WHERE lower(user_email)=lower(?)",(u["email"],))
                     for lab in selected:
-                        db_exec("INSERT OR REPLACE INTO user_data_access(user_email,dossier_id,access_level,created_at) VALUES(%s,%s,%s,%s)",
+                        db_exec("INSERT INTO user_data_access(user_email,dossier_id,access_level,created_at) VALUES(?,?,?,?) ON CONFLICT(user_email,dossier_id) DO UPDATE SET access_level=EXCLUDED.access_level, created_at=EXCLUDED.created_at",
                                 (u["email"],lab.split(" · ",1)[0],"lecture",now()))
-                    db_exec("DELETE FROM user_modules WHERE lower(user_email)=lower(%s)",(u["email"],))
+                    db_exec("DELETE FROM user_modules WHERE lower(user_email)=lower(?)",(u["email"],))
                     for mk in selected_mods:
-                        db_exec("INSERT OR REPLACE INTO user_modules(user_email,module_key,allowed,created_at) VALUES(%s,%s,%s,%s)",
+                        db_exec("INSERT INTO user_modules(user_email,module_key,allowed,created_at) VALUES(?,?,?,?) ON CONFLICT(user_email,module_key) DO UPDATE SET allowed=EXCLUDED.allowed, created_at=EXCLUDED.created_at",
                                 (u["email"],mk,1,now()))
                     audit("MODIFICATION_DROITS","user",u["email"],{"dossiers":len(selected),"modules":len(selected_mods)})
                     st.success("Droits enregistrés.")
@@ -2459,10 +2460,10 @@ def dashboard():
         return
     c = context()
     q,_ = data_quality()
-    obs = len(db_exec("SELECT id FROM observations WHERE dossier_id=%s",(did,), fetch=True))
-    missions = len(db_exec("SELECT id FROM missions WHERE dossier_id=%s",(did,), fetch=True))
-    actions = len(db_exec("SELECT id FROM actions WHERE dossier_id=%s",(did,), fetch=True))
-    alerts = len(db_exec("SELECT id FROM alerts WHERE dossier_id=%s AND statut='Ouverte'",(did,), fetch=True))
+    obs = len(db_exec("SELECT id FROM observations WHERE dossier_id=?",(did,), fetch=True))
+    missions = len(db_exec("SELECT id FROM missions WHERE dossier_id=?",(did,), fetch=True))
+    actions = len(db_exec("SELECT id FROM actions WHERE dossier_id=?",(did,), fetch=True))
+    alerts = len(db_exec("SELECT id FROM alerts WHERE dossier_id=? AND statut='Ouverte'",(did,), fetch=True))
     a,b,c1,d = st.columns(4)
     a.metric("Qualité données",f"{q}/100")
     b.metric("Missions",missions)
@@ -2473,9 +2474,9 @@ def dashboard():
         "Étape":["Client","Dossier","Zone GPS","Observations","Analyses","Décision","Mission","Rapport"],
         "État":[
             bool(c["client_id"]),bool(c["dossier_id"]),bool(c["zone_geometry"]),obs>0,
-            len(db_exec("SELECT id FROM analyses WHERE dossier_id=%s",(did,), fetch=True))>0,
+            len(db_exec("SELECT id FROM analyses WHERE dossier_id=?",(did,), fetch=True))>0,
             obs>0 or missions>0,missions>0,
-            len(db_exec("SELECT id FROM reports WHERE dossier_id=%s",(did,), fetch=True))>0
+            len(db_exec("SELECT id FROM reports WHERE dossier_id=?",(did,), fetch=True))>0
         ]
     })
     flow["État"] = flow["État"].map({True:"✓ OK",False:"À compléter"})
