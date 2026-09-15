@@ -73,24 +73,6 @@ except Exception:
 
 
 # ============================================================
-# OUTILS DE GÉOMÉTRIE — définis très tôt pour éviter les NameError
-# ============================================================
-def _safe_load_geometry(obj):
-    """Charge une géométrie JSON/GeoJSON ou une liste de coordonnées.
-    Ne lève jamais d'exception : [] signifie géométrie indisponible.
-    """
-    if obj is None or obj == "":
-        return []
-    if isinstance(obj, (dict, list, tuple)):
-        return obj
-    try:
-        return json.loads(str(obj))
-    except Exception:
-        return []
-
-
-
-# ============================================================
 # CONTRÔLE CENTRAL DES MODULES — DROITS PAR PROFIL
 # ============================================================
 MODULES_AUTORISABLES = {
@@ -615,9 +597,30 @@ def active_zone():
 
 
 def load_geometry(obj):
+    """Convertit toute géométrie enregistrée vers le format interne [[lat, lon], ...].
+    Accepte GeoJSON Polygon/Feature/FeatureCollection, une liste de coordonnées
+    et les anciennes valeurs JSON utilisées par les couches SIG.
+    """
+    if not obj:
+        return []
     try:
-        return json.loads(obj or "[]")
+        # _geometry_to_coords est défini plus bas mais disponible au moment des appels.
+        return _geometry_to_coords(obj)
     except Exception:
+        try:
+            if isinstance(obj, str):
+                obj = json.loads(obj)
+            if isinstance(obj, dict):
+                g = obj.get("geometry", obj)
+                if g.get("type") == "Feature":
+                    g = g.get("geometry") or {}
+                if g.get("type") == "Polygon":
+                    ring = (g.get("coordinates") or [[]])[0]
+                    return [(float(y), float(x)) for x, y in ring if len((x, y)) >= 2]
+            if isinstance(obj, list) and obj and isinstance(obj[0], (list, tuple)):
+                return [(float(x[0]), float(x[1])) for x in obj if len(x) >= 2]
+        except Exception:
+            pass
         return []
 
 
@@ -629,10 +632,10 @@ def context():
     d = active_dossier() or {}
     p = active_parcelle() or {}
     z = active_zone() or {}
-    parcel_geom = _safe_load_geometry(p.get("geometry_json")) if p else []
-    zone_geom = _safe_load_geometry(z.get("geometry_json")) if z else []
-    # Une parcelle active est prioritaire : une zone SIG ancienne ne doit
-    # jamais remplacer silencieusement la géométrie de la parcelle choisie.
+    parcel_geom = load_geometry(p.get("geometry_json")) if p else []
+    zone_geom = load_geometry(z.get("geometry_json")) if z else []
+    # Une parcelle active est la source de vérité pour les analyses
+    # agronomiques. La zone SIG ne remplace jamais sa géométrie.
     geom = parcel_geom or zone_geom
     client_id = d.get("client_id")
     return {
@@ -781,7 +784,14 @@ def _coords_are_valid(coords):
     if not coords or len(coords) < 3:
         return False
     try:
-        return all(-90 <= float(p[0]) <= 90 and -180 <= float(p[1]) <= 180 for p in coords)
+        pts = [(float(p[0]), float(p[1])) for p in coords if len(p) >= 2]
+        if len(pts) < 3:
+            return False
+        if not all(-90 <= lat <= 90 and -180 <= lon <= 180 for lat, lon in pts):
+            return False
+        # Au moins trois sommets distincts. Un anneau fermé est accepté.
+        distinct = {(round(lat, 10), round(lon, 10)) for lat, lon in pts}
+        return len(distinct) >= 3
     except Exception:
         return False
 
@@ -807,9 +817,15 @@ def _geometry_to_coords(geom):
             if obj.get("type") == "LineString":
                 return [(float(x[1]), float(x[0])) for x in obj.get("coordinates", [])]
         if isinstance(obj, list):
-            # Déjà au format [lat, lon]
-            if obj and isinstance(obj[0], (list, tuple)) and len(obj[0]) >= 2:
+            # Format interne historique [[lat, lon], ...]
+            if obj and isinstance(obj[0], (list, tuple)) and len(obj[0]) >= 2 and isinstance(obj[0][0], (int, float, str)):
                 pts = [(float(x[0]), float(x[1])) for x in obj]
+                if _coords_are_valid(pts):
+                    return pts
+            # Ancien format GeoJSON Polygon brut [[ [lon,lat], ... ]]
+            if obj and isinstance(obj[0], list) and obj[0] and isinstance(obj[0][0], (list, tuple)):
+                ring = obj[0]
+                pts = [(float(x[1]), float(x[0])) for x in ring if len(x) >= 2]
                 if _coords_are_valid(pts):
                     return pts
     except Exception:
@@ -2185,8 +2201,10 @@ def _legacy_sig_space(selected=None):
             st.write("**Profil de sol indicatif :**", AGROZONES[zone]["sol"])
             st.write("**Risques indicatifs :**", AGROZONES[zone]["risques"])
         st.markdown("#### 🧭 Sol de la zone cartographiée")
-        geom = c.get("zone_geometry") or (active_parcelle() or {}).get("geometry_json")
-        coords_pedo = load_geometry(geom)
+        # Sols & Eau travaille toujours sur la parcelle active.
+        # Une zone SIG ne sert de secours que s'il n'existe pas de parcelle active.
+        coords_pedo = c.get("parcelle_geometry") or c.get("zone_geometry") or _active_geometry()
+        coords_pedo = _geometry_to_coords(coords_pedo) if not (coords_pedo and isinstance(coords_pedo[0], (list, tuple))) else coords_pedo
         if st.button("🔄 Synchroniser la parcelle avec toutes les analyses", key="sync_parcelle_global"):
             ok_sync, msg_sync = _save_active_parcel_geometry(coords_pedo if 'coords_pedo' in locals() else _active_geometry())
             if ok_sync:
@@ -2205,7 +2223,10 @@ def _legacy_sig_space(selected=None):
             else:
                 st.info("Aucune unité pédologique exploitable n'est associée à cette géométrie.")
         else:
-            st.info("Délimitez d'abord la parcelle/zone avec le Polygone pour obtenir les données pédologiques.")
+            if c.get("parcelle_id"):
+                st.warning("La parcelle active ne contient pas encore de polygone exploitable. Retournez dans Zone & GPS et enregistrez sa délimitation.")
+            else:
+                st.info("Sélectionnez ou délimitez d'abord une parcelle pour obtenir les données pédologiques.")
         st.markdown("#### Besoin d'irrigation")
         a,b,c1,d = st.columns(4)
         eto = a.number_input("ETo mm/j", 0.0, 20.0, 5.5, key="irrig_eto_pro")
