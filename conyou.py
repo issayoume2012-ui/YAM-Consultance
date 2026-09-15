@@ -1993,23 +1993,79 @@ def _legacy_sig_space(selected=None):
                 perim = polygon_perimeter_m(coords)
                 st.success(f"Zone détectée : {area:.3f} ha · périmètre {perim:.1f} m")
                 a,b,c1 = st.columns(3)
-                typ = a.selectbox("Type de zone", ["Zone d'étude","Parcelle","Zone d'observation","Zone à risque"], key="zone_type_draw")
-                nom = b.text_input("Nom de la zone", "Zone d'étude principale", key="zone_name_draw")
+                typ = a.selectbox(
+                    "Type de zone",
+                    ["Parcelle", "Zone d'étude", "Zone d'observation", "Zone à risque"],
+                    index=0,
+                    key="zone_type_draw"
+                )
+                nom = b.text_input("Nom de la zone / parcelle", "Parcelle 1", key="zone_name_draw")
                 c1.write(f"**Centre**\n{centroid(coords)[0]:.6f}, {centroid(coords)[1]:.6f}")
-                if st.button("💾 Enregistrer cette zone comme périmètre officiel de l'étude", type="primary", key="save_zone_draw"):
-                    zid = save_zone(coords, typ, nom, c["dossier_id"], c["parcelle_id"])
-                    st.session_state["zone_feature_id"] = zid
-                    if typ == "Parcelle" and c.get("parcelle_id"):
-                        _save_active_parcel_geometry(coords, "Parcelle cartographiée")
-                    st.session_state["map_nonce"] += 1
-                    st.success("Zone enregistrée. Elle devient le périmètre géographique commun du dossier.")
-                    pedo_df, pedo_msg = pedo_lookup(coords)
-                    if pedo_msg:
-                        st.caption(f"🌱 {pedo_msg}")
-                    if not pedo_df.empty:
-                        st.markdown("#### 🌱 Données pédologiques intersectées")
-                        st.dataframe(pedo_df, use_container_width=True, hide_index=True)
-                    st.rerun()
+
+                st.caption(
+                    "💡 Si aucune parcelle n'est encore active, une délimitation enregistrée comme « Parcelle » "
+                    "créera automatiquement la parcelle, calculera sa surface et la rendra active dans tout le site."
+                )
+
+                if st.button("💾 Enregistrer et synchroniser la zone / parcelle", type="primary", key="save_zone_draw"):
+                    try:
+                        # 1) Si aucune parcelle n'est active et qu'un polygone de parcelle/zone d'étude
+                        #    vient d'être délimité, on crée automatiquement la parcelle à partir
+                        #    du polygone. C'était la source principale du problème
+                        #    « aucune parcelle sélectionnée » + surface 0.
+                        active_pid = c.get("parcelle_id")
+                        if typ in ("Parcelle", "Zone d'étude") and not active_pid:
+                            pid = new_id("PAR")
+                            area = float(polygon_area_ha(coords))
+                            perim = float(polygon_perimeter_m(coords))
+                            lat0, lon0 = centroid(coords)
+                            geometry_json = json.dumps(
+                                {"type":"Polygon", "coordinates":[[[float(lon), float(lat)] for lat, lon in coords]]},
+                                ensure_ascii=False
+                            )
+                            db_exec("""INSERT INTO parcelles
+                                (id,dossier_id,nom,culture,stade,latitude,longitude,geometry_json,
+                                 surface_ha,perimeter_m,source_type,confidence,validation_status,created_at,updated_at)
+                                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                                (pid, c["dossier_id"], nom or "Parcelle 1", "Non renseignée", STAGES[0],
+                                 lat0, lon0, geometry_json, area, perim, "GPS/dessin", 1.0, "À valider", now(), now()))
+                            set_active_parcel(pid, audit_action=False)
+                            active_pid = pid
+                            st.session_state["parcelle_id"] = pid
+                            st.session_state["selected_parcelle_id"] = pid
+                            audit("CREATION_AUTO_PARCELLE", "parcelle", pid, {"surface_ha": area, "source": "Zone & GPS"})
+
+                        # 2) Enregistrer la couche SIG avec la parcelle active réellement connue.
+                        zid = save_zone(coords, typ, nom, c["dossier_id"], active_pid)
+                        if not zid:
+                            raise RuntimeError("La géométrie n'a pas pu être enregistrée.")
+                        st.session_state["zone_feature_id"] = zid
+
+                        # 3) Une délimitation de parcelle devient la géométrie officielle de la parcelle.
+                        if typ == "Parcelle" and active_pid:
+                            ok, msg = _save_active_parcel_geometry(coords, "Parcelle cartographiée depuis Zone & GPS")
+                            if not ok:
+                                raise RuntimeError(msg)
+
+                        # 4) Même pour une zone d'étude, on conserve sa surface comme zone active.
+                        #    Si une parcelle est active, les modules utilisent désormais le même contexte.
+                        st.session_state["map_nonce"] += 1
+                        st.session_state["context_version"] = now()
+                        sync_active_context()
+                        st.success(
+                            f"✅ Synchronisation réussie : {nom or 'Zone'} · "
+                            f"{polygon_area_ha(coords):.3f} ha · "
+                            f"parcelle active : {active_pid or 'aucune (zone uniquement)'}"
+                        )
+                        pedo_df, pedo_msg = pedo_lookup(coords)
+                        if pedo_msg:
+                            st.caption(f"🌱 {pedo_msg}")
+                        if not pedo_df.empty:
+                            st.markdown("#### 🌱 Données pédologiques intersectées")
+                            st.dataframe(pedo_df, use_container_width=True, hide_index=True)
+                        st.rerun()
+                    except Exception as exc:
+                        st.error(f"❌ Échec de la synchronisation : {exc}")
             if c["zone_geometry"]:
                 st.metric("Zone active", f"{c['zone_surface_ha']:.3f} ha")
                 st.caption(f"{c['zone_nom']} · {c['zone_type']} · source GPS/terrain")
