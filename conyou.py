@@ -125,8 +125,14 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-OWNER_EMAIL = st.secrets.get("YOUAGRONOME_OWNER_EMAIL", os.getenv("YOUAGRONOME_OWNER_EMAIL", "admin@youagronome.local"))
-OWNER_PASS = st.secrets.get("YOUAGRONOME_OWNER_PASS", os.getenv("YOUAGRONOME_OWNER_PASS", ""))
+# Compte propriétaire : valeurs par défaut demandées, surchargeables par Streamlit Secrets.
+# En production, il est recommandé de renseigner ces deux valeurs dans Secrets.
+OWNER_EMAIL = st.secrets.get("YOUAGRONOME_OWNER_EMAIL", os.getenv("YOUAGRONOME_OWNER_EMAIL", "iy@2012"))
+OWNER_PASS = st.secrets.get("YOUAGRONOME_OWNER_PASS", os.getenv("YOUAGRONOME_OWNER_PASS", "issayoume2026"))
+
+# Sécurité : on refuse de créer un compte avec un mot de passe vide.
+if not str(OWNER_PASS).strip():
+    raise RuntimeError("YOUAGRONOME_OWNER_PASS est vide. Configurez le mot de passe administrateur dans Streamlit Secrets.")
 
 SOURCES = {
     "ANACIM": "https://www.anacim.sn/",
@@ -198,6 +204,11 @@ FEATURE_TYPES = [
 # =========================================================
 # 1. OUTILS GÉNÉRAUX / BASE
 # =========================================================
+def sha256(value):
+    """Retourne le hash SHA-256 d'une chaîne pour l'authentification."""
+    return hashlib.sha256(str(value).encode("utf-8")).hexdigest()
+
+
 def now():
     return datetime.now().isoformat(timespec="seconds")
 
