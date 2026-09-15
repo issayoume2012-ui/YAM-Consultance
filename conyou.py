@@ -13,6 +13,7 @@ périmètre commun des analyses.
 Dépendances principales :
 streamlit, pandas, numpy
 Optionnelles : folium, streamlit-folium, reportlab, requests, geopandas, shapely
+Base PostgreSQL : psycopg[binary,pool]
 """
 
 from datetime import datetime, date, timedelta
@@ -122,7 +123,7 @@ st.set_page_config(
     page_title="YouAgronoMe — Consultance Pro 360°",
     page_icon="🌾",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="collapsed",
 )
 
 # Compte propriétaire : valeurs par défaut demandées, surchargeables par Streamlit Secrets.
@@ -222,24 +223,32 @@ def _pg_sql(sql):
     return sql.replace("?", "%s")
 
 
-def db_conn():
+@st.cache_resource(show_spinner=False)
+def _get_db_pool():
+    """Pool PostgreSQL partagé par le processus Streamlit.
+    Il évite d'ouvrir/fermer une connexion Supabase à chaque requête.
+    """
     try:
-        import psycopg
         from psycopg.rows import dict_row
+        from psycopg_pool import ConnectionPool
     except ImportError as exc:
-        raise RuntimeError("Le paquet psycopg[binary] est requis. Ajoutez-le à requirements.txt.") from exc
-
+        raise RuntimeError(
+            "Installez psycopg avec le pool : psycopg[binary,pool]."
+        ) from exc
+    kwargs = dict(
+        host=st.secrets.get("SUPABASE_DB_HOST", os.getenv("SUPABASE_DB_HOST", "aws-1-eu-west-1.pooler.supabase.com")),
+        port=int(st.secrets.get("SUPABASE_DB_PORT", os.getenv("SUPABASE_DB_PORT", "5432"))),
+        dbname=st.secrets.get("SUPABASE_DB_NAME", os.getenv("SUPABASE_DB_NAME", "postgres")),
+        user=st.secrets.get("SUPABASE_DB_USER", os.getenv("SUPABASE_DB_USER", "postgres.ddjwqzsfqpyzdwqdyrld")),
+        password=st.secrets.get("SUPABASE_DB_PASSWORD", os.getenv("SUPABASE_DB_PASSWORD", "")),
+        sslmode="require",
+        row_factory=dict_row,
+        connect_timeout=8,
+    )
     try:
-        return psycopg.connect(
-            host=st.secrets.get("SUPABASE_DB_HOST", os.getenv("SUPABASE_DB_HOST", "aws-1-eu-west-1.pooler.supabase.com")),
-            port=int(st.secrets.get("SUPABASE_DB_PORT", os.getenv("SUPABASE_DB_PORT", "5432"))),
-            dbname=st.secrets.get("SUPABASE_DB_NAME", os.getenv("SUPABASE_DB_NAME", "postgres")),
-            user=st.secrets.get("SUPABASE_DB_USER", os.getenv("SUPABASE_DB_USER", "postgres.ddjwqzsfqpyzdwqdyrld")),
-            password=st.secrets.get("SUPABASE_DB_PASSWORD", os.getenv("SUPABASE_DB_PASSWORD", "")),
-            sslmode="require",
-            row_factory=dict_row,
-            connect_timeout=15,
-        )
+        pool = ConnectionPool(conninfo="", kwargs=kwargs, min_size=1, max_size=6, open=True)
+        pool.wait(timeout=8)
+        return pool
     except Exception as exc:
         raise RuntimeError(
             "Connexion Supabase impossible. Vérifiez SUPABASE_DB_HOST, SUPABASE_DB_PORT, "
@@ -248,8 +257,23 @@ def db_conn():
         ) from exc
 
 
+def db_conn():
+    """Compatibilité : retourne une connexion issue du pool."""
+    return _get_db_pool().getconn()
+
+
+def db_release(con):
+    try:
+        _get_db_pool().putconn(con)
+    except Exception:
+        try:
+            con.close()
+        except Exception:
+            pass
+
+
 def db_exec(sql, params=(), *, fetch=False, many=False):
-    """Exécution PostgreSQL centralisée; compatible avec les appels SQL historiques utilisant ?."""
+    """Exécution PostgreSQL centralisée et rapide, compatible avec les SQL utilisant ?."""
     if isinstance(params, bool):
         raise TypeError("db_exec(): utilisez fetch=True comme argument nommé, pas comme paramètre positionnel.")
     sql = _pg_sql(sql)
@@ -260,16 +284,22 @@ def db_exec(sql, params=(), *, fetch=False, many=False):
                 cur.executemany(sql, params)
             else:
                 cur.execute(sql, params)
-            if fetch:
-                return list(cur.fetchall())
-            return cur.rowcount
-    finally:
+            result = list(cur.fetchall()) if fetch else cur.rowcount
         con.commit()
-        con.close()
+        return result
+    except Exception:
+        try:
+            con.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        db_release(con)
 
 
+@st.cache_resource(show_spinner=False)
 def init_db():
-    """Initialise/migre la base PostgreSQL Supabase sans SQLite."""
+    """Initialise/migre la base PostgreSQL une seule fois par processus Streamlit."""
     con = db_conn()
     try:
         with con.cursor() as cur:
@@ -386,10 +416,6 @@ def init_db():
         id TEXT PRIMARY KEY, user_email TEXT, action TEXT, entity TEXT,
         entity_id TEXT, details TEXT, created_at TEXT
     );
-    CREATE TABLE IF NOT EXISTS ai_history(
-        id TEXT PRIMARY KEY, dossier_id TEXT, parcelle_id TEXT, question TEXT,
-        answer TEXT, confidence REAL, evidence TEXT, created_at TEXT
-    );
     CREATE TABLE IF NOT EXISTS settings(
         key TEXT PRIMARY KEY, value TEXT
     );
@@ -435,6 +461,7 @@ def init_db():
 
 init_db()
 
+@st.cache_resource(show_spinner=False)
 def ensure_owner_account():
     rows = db_exec(
         "SELECT email, role, statut FROM users WHERE lower(email)=lower(?)",
@@ -1276,37 +1303,15 @@ def global_selector():
 # 9. EN-TÊTE PROFESSIONNEL
 # =========================================================
 def professional_header():
-    """En-tête du cabinet : identité, contexte actif et indicateurs essentiels."""
+    """Style léger : aucun grand bandeau/image décoratif au chargement."""
     st.markdown("""
     <style>
-    .block-container{padding-top:1.15rem;padding-bottom:2.5rem;max-width:1500px}
+    .block-container{padding-top:.75rem;padding-bottom:1.5rem;max-width:1500px}
     [data-testid="stSidebar"]{border-right:1px solid #dfe8e2}
-    .ya-hero{background:linear-gradient(135deg,#103d2c 0%,#146c43 58%,#198754 100%);color:#fff;border-radius:26px;padding:32px 36px;box-shadow:0 16px 42px rgba(16,61,44,.18);margin-bottom:18px;min-height:155px;display:flex;flex-direction:column;justify-content:center}.ya-hero h1{font-size:2.45rem!important}.ya-hero p{font-size:1.02rem}.stButton>button{border-radius:13px;font-weight:700;min-height:44px}.stSelectbox>div>div,.stTextInput>div>div,.stTextArea>div>div{border-radius:12px}.stMetric{background:#fff;border:1px solid #dfe8e2;border-radius:16px;padding:10px 14px;box-shadow:0 5px 18px rgba(16,61,44,.06)}.ya-section{padding:18px 20px;border-radius:18px}.ya-dashboard-card{background:#fff;border:1px solid #dfe8e2;border-radius:18px;padding:20px;box-shadow:0 8px 24px rgba(16,61,44,.07);min-height:110px}
-    .ya-hero h1{margin:0;color:#fff!important;font-size:2rem;letter-spacing:-.03em}
-    .ya-hero p{margin:7px 0 0;color:#e9f6ef;font-size:.96rem}
-    .ya-strip{display:flex;gap:8px;flex-wrap:wrap;margin-top:15px}
-    .ya-pill{background:rgba(255,255,255,.13);border:1px solid rgba(255,255,255,.22);border-radius:999px;padding:6px 11px;font-size:.81rem}
-    .ya-section{background:#f5f8f6;border:1px solid #dfe8e2;border-radius:16px;padding:12px 15px;margin:8px 0 14px}
-    .ya-section-title{font-weight:750;color:#18322a;font-size:1.02rem}
-    .ya-kicker{color:#66756e;font-size:.84rem;margin-top:2px}
-    div[data-testid="stTabs"] button{font-weight:650}
+    .stButton>button{border-radius:10px;font-weight:650;min-height:40px}
+    .stSelectbox>div>div,.stTextInput>div>div,.stTextArea>div>div{border-radius:10px}
+    .stMetric{border:1px solid #dfe8e2;border-radius:12px;padding:8px 12px}
     </style>
-    """, unsafe_allow_html=True)
-    c=context(); q,_=data_quality(); risk=risk_score()
-    surface=c["zone_surface_ha"] or c["surface_ha"] or 0
-    st.markdown(f"""
-    <div class='ya-hero'>
-      <h1>🌾 YouAgronoMe</h1>
-      <p>Cabinet numérique de consultance agricole 360° — qualifier, étudier, décider, suivre.</p>
-      <div class='ya-strip'>
-        <span class='ya-pill'>👤 {c['client'] or 'Client non sélectionné'}</span>
-        <span class='ya-pill'>📁 {c['dossier'] or 'Dossier non sélectionné'}</span>
-        <span class='ya-pill'>📍 {c['zone_nom'] or 'Zone non délimitée'}</span>
-        <span class='ya-pill'>📐 {surface:.2f} ha</span>
-        <span class='ya-pill'>🛡️ Qualité {q}/100</span>
-        <span class='ya-pill'>⚠️ Risque {risk}/100</span>
-      </div>
-    </div>
     """, unsafe_allow_html=True)
 
 
@@ -2471,10 +2476,18 @@ def dashboard():
         return
     c = context()
     q,_ = data_quality()
-    obs = len(db_exec("SELECT id FROM observations WHERE dossier_id=?",(did,), fetch=True))
-    missions = len(db_exec("SELECT id FROM missions WHERE dossier_id=?",(did,), fetch=True))
-    actions = len(db_exec("SELECT id FROM actions WHERE dossier_id=?",(did,), fetch=True))
-    alerts = len(db_exec("SELECT id FROM alerts WHERE dossier_id=? AND statut='Ouverte'",(did,), fetch=True))
+    stats = db_exec(
+        """SELECT
+           (SELECT COUNT(*) FROM observations WHERE dossier_id=?) AS obs,
+           (SELECT COUNT(*) FROM missions WHERE dossier_id=?) AS missions,
+           (SELECT COUNT(*) FROM actions WHERE dossier_id=?) AS actions,
+           (SELECT COUNT(*) FROM alerts WHERE dossier_id=? AND statut='Ouverte') AS alerts,
+           (SELECT COUNT(*) FROM analyses WHERE dossier_id=?) AS analyses,
+           (SELECT COUNT(*) FROM reports WHERE dossier_id=?) AS reports""",
+        (did,did,did,did,did,did), fetch=True
+    )[0]
+    obs = int(stats["obs"]); missions = int(stats["missions"]); actions = int(stats["actions"]); alerts = int(stats["alerts"])
+    analyses_count = int(stats["analyses"]); reports_count = int(stats["reports"])
     a,b,c1,d = st.columns(4)
     a.metric("Qualité données",f"{q}/100")
     b.metric("Missions",missions)
@@ -2485,9 +2498,9 @@ def dashboard():
         "Étape":["Client","Dossier","Zone GPS","Observations","Analyses","Décision","Mission","Rapport"],
         "État":[
             bool(c["client_id"]),bool(c["dossier_id"]),bool(c["zone_geometry"]),obs>0,
-            len(db_exec("SELECT id FROM analyses WHERE dossier_id=?",(did,), fetch=True))>0,
+            analyses_count>0,
             obs>0 or missions>0,missions>0,
-            len(db_exec("SELECT id FROM reports WHERE dossier_id=?",(did,), fetch=True))>0
+            reports_count>0
         ]
     })
     flow["État"] = flow["État"].map({True:"✓ OK",False:"À compléter"})
