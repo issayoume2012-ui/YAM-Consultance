@@ -73,6 +73,24 @@ except Exception:
 
 
 # ============================================================
+# OUTILS DE GÉOMÉTRIE — définis très tôt pour éviter les NameError
+# ============================================================
+def _safe_load_geometry(obj):
+    """Charge une géométrie JSON/GeoJSON ou une liste de coordonnées.
+    Ne lève jamais d'exception : [] signifie géométrie indisponible.
+    """
+    if obj is None or obj == "":
+        return []
+    if isinstance(obj, (dict, list, tuple)):
+        return obj
+    try:
+        return json.loads(str(obj))
+    except Exception:
+        return []
+
+
+
+# ============================================================
 # CONTRÔLE CENTRAL DES MODULES — DROITS PAR PROFIL
 # ============================================================
 MODULES_AUTORISABLES = {
@@ -443,12 +461,6 @@ def init_db():
         id TEXT PRIMARY KEY, dossier_id TEXT, parcelle_id TEXT, latitude REAL, longitude REAL,
         payload_json TEXT, fetched_at TEXT, source TEXT
     );
-    CREATE TABLE IF NOT EXISTS soil_water_context(
-        id TEXT PRIMARY KEY, dossier_id TEXT NOT NULL, parcelle_id TEXT NOT NULL,
-        zone_feature_id TEXT, geometry_json TEXT, surface_ha REAL DEFAULT 0,
-        latitude REAL, longitude REAL, pedo_payload_json TEXT,
-        irrigation_payload_json TEXT, source TEXT, updated_at TEXT
-    );
     CREATE TABLE IF NOT EXISTS sync_log(
         id TEXT PRIMARY KEY, dossier_id TEXT, source TEXT, type_data TEXT,
         status TEXT, message TEXT, fetched_at TEXT, duration_ms INTEGER
@@ -591,62 +603,37 @@ def active_dossier():
 
 
 def active_parcelle():
-    """Parcelle active unique, avec réparation automatique des deux pointeurs de session."""
-    pid = st.session_state.get("parcelle_id") or st.session_state.get("selected_parcelle_id")
-    did = st.session_state.get("dossier_id")
-    rows = db_exec("SELECT * FROM parcelles WHERE id=? AND dossier_id=?", (pid, did), fetch=True) if pid and did else []
-    if rows:
-        st.session_state["parcelle_id"] = rows[0]["id"]
-        st.session_state["selected_parcelle_id"] = rows[0]["id"]
-        return rows[0]
-    return None
+    pid = st.session_state.get("parcelle_id")
+    rows = db_exec("SELECT * FROM parcelles WHERE id=?", (pid,), fetch=True) if pid else []
+    return rows[0] if rows else None
 
 
 def active_zone():
-    """Zone géographique canonique du dossier/parcelle active.
-    Une zone d'un autre dossier ou d'une autre parcelle ne peut jamais devenir
-    silencieusement la zone de la parcelle courante.
-    """
-    did = st.session_state.get("dossier_id")
-    pid = st.session_state.get("parcelle_id") or st.session_state.get("selected_parcelle_id")
     zid = st.session_state.get("zone_feature_id")
-    if not did:
-        return None
-    if zid:
-        rows = db_exec("SELECT * FROM gis_features WHERE id=? AND dossier_id=?", (zid, did), fetch=True)
-        if rows:
-            z = rows[0]
-            if not pid or z.get("parcelle_id") in (None, "", pid):
-                return z
-    if pid:
-        rows = db_exec(
-            "SELECT * FROM gis_features WHERE dossier_id=? AND parcelle_id=? "
-            "ORDER BY CASE WHEN type_feature='Parcelle' THEN 0 ELSE 1 END, updated_at DESC, created_at DESC LIMIT 1",
-            (did, pid), fetch=True
-        )
-        if rows:
-            st.session_state["zone_feature_id"] = rows[0]["id"]
-            return rows[0]
-    return None
+    rows = db_exec("SELECT * FROM gis_features WHERE id=?", (zid,), fetch=True) if zid else []
+    return rows[0] if rows else None
+
+
+def load_geometry(obj):
+    try:
+        return json.loads(obj or "[]")
+    except Exception:
+        return []
 
 
 def context():
-    """Source de vérité unique : client -> dossier -> parcelle -> zone.
-    La géométrie de la parcelle active est prioritaire pour les analyses
-    parcellaire (Sols & Eau, irrigation, diagnostic). Une zone SIG explicite
-    reste disponible séparément pour les analyses de zone.
+    """Contexte central unique : client -> dossier -> parcelle -> zone.
+    Une parcelle active devient automatiquement la géométrie de référence
+    lorsqu'aucune autre zone SIG n'est explicitement choisie.
     """
     d = active_dossier() or {}
     p = active_parcelle() or {}
     z = active_zone() or {}
-    parcel_geom = load_geometry(p.get("geometry_json")) if p else []
-    zone_geom = load_geometry(z.get("geometry_json")) if z else []
-    parcel_surface = float(p.get("surface_ha") or 0) if p else 0.0
-    zone_surface = float(z.get("surface_ha") or 0) if z else 0.0
-    # Une zone SIG liée à la parcelle peut représenter exactement la parcelle.
-    # Pour le contexte parcellaire, la donnée maîtresse reste la parcelle.
-    analysis_geom = parcel_geom or zone_geom
-    analysis_surface = parcel_surface or zone_surface
+    parcel_geom = _safe_load_geometry(p.get("geometry_json")) if p else []
+    zone_geom = _safe_load_geometry(z.get("geometry_json")) if z else []
+    # Une parcelle active est prioritaire : une zone SIG ancienne ne doit
+    # jamais remplacer silencieusement la géométrie de la parcelle choisie.
+    geom = parcel_geom or zone_geom
     client_id = d.get("client_id")
     return {
         "client_id": client_id,
@@ -660,17 +647,15 @@ def context():
         "parcelle": p.get("nom"),
         "culture": p.get("culture"),
         "stade": p.get("stade"),
-        "surface_ha": parcel_surface,
+        "surface_ha": float(p.get("surface_ha") or 0),
         "latitude": p.get("latitude") if p.get("latitude") is not None else d.get("latitude"),
         "longitude": p.get("longitude") if p.get("longitude") is not None else d.get("longitude"),
         "zone_id": z.get("id") if z else None,
         "zone_nom": z.get("nom") if z else (p.get("nom") if p else None),
         "zone_type": z.get("type_feature") if z else ("Parcelle" if p else None),
-        "zone_surface_ha": zone_surface or parcel_surface,
-        "zone_geometry": zone_geom or parcel_geom,
+        "zone_surface_ha": float(z.get("surface_ha") or 0) if z else float(p.get("surface_ha") or 0),
+        "zone_geometry": geom,
         "parcelle_geometry": parcel_geom,
-        "analysis_geometry": analysis_geom,
-        "analysis_surface_ha": analysis_surface,
     }
 
 
@@ -695,10 +680,7 @@ def set_active_parcel(pid, *, audit_action=True):
         st.session_state.pop("active_parcel_geometry", None)
         st.session_state.pop("terrain_geometry", None)
     st.session_state["selected_parcelle_id"] = p["id"]
-    st.session_state["zone_feature_id"] = None
-    st.session_state["soil_water_parcelle_id"] = p["id"]
     st.session_state["context_version"] = now()
-    st.session_state["_needs_context_sync"] = True
     if audit_action:
         audit("SELECTION", "parcelle", p["id"])
     return True
@@ -1132,131 +1114,45 @@ def sync_reference_catalog():
 
 
 def sync_active_context():
-    """Réconciliation complète et idempotente du contexte actif.
-
-    Règles :
-      1. le dossier courant est obligatoire ;
-      2. la parcelle active est la source de vérité parcellaire ;
-      3. sa géométrie/surface sont recopiées dans une couche SIG dédiée ;
-      4. la zone active doit appartenir au dossier et, si possible, à la parcelle ;
-      5. Sols & Eau reçoit exactement le même parcelle_id + geometry_json ;
-      6. les données sans parcelle sont rattachées seulement lorsqu'elles sont
-         explicitement orphelines dans le dossier (jamais celles d'une autre parcelle).
+    """Synchronisation interne sans appel réseau : la parcelle active devient une source de vérité.
+    Elle réconcilie parcelle, SIG, observations, analyses, alertes et état de session.
     """
-    did = st.session_state.get("dossier_id")
-    pid = st.session_state.get("parcelle_id") or st.session_state.get("selected_parcelle_id")
-    if not did:
-        return ["Aucun dossier actif."]
-    if not pid:
+    c = context()
+    did, pid = c.get("dossier_id"), c.get("parcelle_id")
+    if not did or not pid:
         return ["Aucune parcelle active à synchroniser."]
-
     p_rows = db_exec("SELECT * FROM parcelles WHERE id=? AND dossier_id=?", (pid, did), fetch=True)
     if not p_rows:
         st.session_state["parcelle_id"] = None
-        st.session_state["selected_parcelle_id"] = None
-        st.session_state["zone_feature_id"] = None
-        st.session_state.pop("active_parcel_geometry", None)
-        st.session_state.pop("terrain_geometry", None)
-        return ["La parcelle active n'existe plus dans ce dossier : sélection réinitialisée."]
-
+        return ["La parcelle active n'existe plus dans le dossier : sélection réinitialisée."]
     p = p_rows[0]
     coords = _geometry_to_coords(p.get("geometry_json"))
-    gj = p.get("geometry_json") or "[]"
-    area = float(p.get("surface_ha") or 0)
-    perim = float(p.get("perimeter_m") or 0)
-    lat = p.get("latitude")
-    lon = p.get("longitude")
     messages = []
-
-    # 1) état de session unique
-    st.session_state["parcelle_id"] = pid
-    st.session_state["selected_parcelle_id"] = pid
+    if coords:
+        # Une couche SIG de type Parcelle est maintenue pour représenter exactement la parcelle active.
+        gis = db_exec("SELECT id FROM gis_features WHERE parcelle_id=? AND type_feature=? ORDER BY updated_at DESC LIMIT 1", (pid, "Parcelle"), fetch=True)
+        gj = p.get("geometry_json") or "[]"
+        vals = (did, pid, p.get("nom") or "Parcelle", gj, float(p.get("surface_ha") or 0), float(p.get("perimeter_m") or 0), p.get("latitude"), p.get("longitude"), "Parcelle active", float(p.get("confidence") or 1.0), p.get("validation_status") or "À valider", now())
+        if gis:
+            db_exec("""UPDATE gis_features SET dossier_id=?,parcelle_id=?,nom=?,geometry_json=?,surface_ha=?,perimeter_m=?,latitude=?,longitude=?,source=?,confidence=?,validation_status=?,updated_at=? WHERE id=?""", vals + (gis[0]["id"],))
+        else:
+            db_exec("""INSERT INTO gis_features(id,dossier_id,parcelle_id,type_feature,nom,geometry_json,surface_ha,perimeter_m,latitude,longitude,source,confidence,validation_status,notes,created_at,updated_at)
+                       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    (new_id("GIS"),did,pid,"Parcelle",p.get("nom") or "Parcelle",gj,float(p.get("surface_ha") or 0),float(p.get("perimeter_m") or 0),p.get("latitude"),p.get("longitude"),"Parcelle active",float(p.get("confidence") or 1.0),p.get("validation_status") or "À valider","Synchronisation centrale de la parcelle.",now(),now()))
+        messages.append("SIG synchronisé")
+    # Rattacher uniquement les données du dossier qui n'ont pas encore de parcelle.
+    for table in ("observations", "analyses", "alerts"):
+        db_exec(f"UPDATE {table} SET parcelle_id=? WHERE dossier_id=? AND parcelle_id IS NULL", (pid, did))
+    messages.append("Observations, analyses et alertes réconciliées")
+    coords = _geometry_to_coords(p.get("geometry_json"))
     if coords:
         st.session_state["active_parcel_geometry"] = coords
         st.session_state["terrain_geometry"] = coords
-
-    # 2) couche SIG officielle de la parcelle (upsert logique)
-    gis = db_exec(
-        "SELECT id FROM gis_features WHERE dossier_id=? AND parcelle_id=? AND type_feature='Parcelle' "
-        "ORDER BY updated_at DESC, created_at DESC LIMIT 1", (did, pid), fetch=True
-    )
-    vals = (did, pid, p.get("nom") or "Parcelle", gj, area, perim, lat, lon,
-            "Parcelle active", float(p.get("confidence") or 1.0),
-            p.get("validation_status") or "À valider", now())
-    if gis:
-        db_exec(
-            "UPDATE gis_features SET dossier_id=?,parcelle_id=?,nom=?,geometry_json=?,surface_ha=?,"
-            "perimeter_m=?,latitude=?,longitude=?,source=?,confidence=?,validation_status=?,updated_at=? WHERE id=?",
-            vals + (gis[0]["id"],)
-        )
-        parcel_gis_id = gis[0]["id"]
-    else:
-        parcel_gis_id = new_id("GIS")
-        db_exec(
-            """INSERT INTO gis_features(id,dossier_id,parcelle_id,type_feature,nom,geometry_json,surface_ha,perimeter_m,latitude,longitude,source,confidence,validation_status,notes,created_at,updated_at)
-             VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-            (parcel_gis_id,did,pid,"Parcelle",p.get("nom") or "Parcelle",gj,area,perim,lat,lon,
-             "Parcelle active",float(p.get("confidence") or 1.0),p.get("validation_status") or "À valider",
-             "Couche canonique de synchronisation de la parcelle.",now(),now())
-        )
-    # Conserver une zone explicitement choisie si elle appartient au dossier et à la parcelle.
-    # Sinon, utiliser la couche SIG canonique de la parcelle.
-    chosen_zid = st.session_state.get("zone_feature_id")
-    chosen = db_exec("SELECT * FROM gis_features WHERE id=? AND dossier_id=?", (chosen_zid, did), fetch=True) if chosen_zid else []
-    if chosen and (chosen[0].get("parcelle_id") in (None, "", pid)):
-        canonical_zone = chosen[0]
-    else:
-        canonical_zone = {"id": parcel_gis_id, "nom": p.get("nom") or "Parcelle", "type_feature": "Parcelle",
-                          "geometry_json": gj, "surface_ha": area, "parcelle_id": pid}
-        st.session_state["zone_feature_id"] = parcel_gis_id
-    messages.append("SIG parcellaire synchronisé")
-
-    # 3) zone de référence et état de session
-    zone_coords = _geometry_to_coords(canonical_zone.get("geometry_json"))
-    st.session_state["zone_surface_ha"] = float(canonical_zone.get("surface_ha") or area or 0)
-    st.session_state["zone_geometry"] = zone_coords or coords
-
-    # 4) Réconciliation des données explicitement orphelines du dossier.
-    for table in ("observations", "analyses", "alerts", "weather_cache"):
-        try:
-            db_exec(f"UPDATE {table} SET parcelle_id=? WHERE dossier_id=? AND parcelle_id IS NULL", (pid, did))
-        except Exception:
-            pass
-    messages.append("Données orphelines réconciliées")
-
-    # 5) Contexte persistant dédié à Sols & Eau : même identifiant, même géométrie, même surface.
-    sw_rows = db_exec(
-        "SELECT id FROM soil_water_context WHERE dossier_id=? AND parcelle_id=? LIMIT 1", (did, pid), fetch=True
-    )
-    sw_id = sw_rows[0]["id"] if sw_rows else new_id("SWE")
-    sw_payload = json.dumps({
-        "parcelle_id": pid, "zone_feature_id": parcel_gis_id,
-        "surface_ha": area, "geometry": coords, "synced_at": now()
-    }, ensure_ascii=False)
-    if sw_rows:
-        db_exec(
-            "UPDATE soil_water_context SET zone_feature_id=?,geometry_json=?,surface_ha=?,latitude=?,longitude=?,source=?,updated_at=? WHERE id=?",
-            (parcel_gis_id, gj, area, lat, lon, "Hub parcellaire", now(), sw_id)
-        )
-    else:
-        db_exec(
-            """INSERT INTO soil_water_context(id,dossier_id,parcelle_id,zone_feature_id,geometry_json,surface_ha,latitude,longitude,pedo_payload_json,irrigation_payload_json,source,updated_at)
-             VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
-            (sw_id,did,pid,parcel_gis_id,gj,area,lat,lon,"{}","{}","Hub parcellaire",now())
-        )
-    st.session_state["soil_water_context_id"] = sw_id
-    st.session_state["soil_water_parcelle_id"] = pid
-    st.session_state["soil_water_geometry"] = coords
-    st.session_state["soil_water_surface_ha"] = area
-    messages.append("Sols & Eau synchronisé")
-
+    st.session_state["selected_parcelle_id"] = pid
     st.session_state["sync_status"] = "Synchronisé"
     st.session_state["sync_time"] = now()
     st.session_state["context_version"] = now()
-    try:
-        log_sync("Hub interne", "Contexte parcellaire", "OK", "; ".join(messages), did)
-    except Exception:
-        pass
+    log_sync("Hub interne", "Contexte parcellaire", "OK", "; ".join(messages), did)
     return messages
 
 
@@ -1518,46 +1414,33 @@ def global_selector():
         culture = row.get("culture") or "Culture non renseignée"
         return f"🌱 {row['nom']} · {surface:.2f} ha · {culture}"
 
-    parcel_widget_key = f"yam_global_parcelle_v3_{did or 'none'}_{current_parcel}"
     pp = st.selectbox(
         "🌱 Parcelle active",
         parcel_options,
         index=parcel_options.index(current_parcel),
         format_func=parcel_label,
-        key=parcel_widget_key,
+        key=f"yam_global_parcelle_v2_{did or 'none'}",
     )
     new_pid = None if pp == "__none_parcel__" else pp
-    old_pid = st.session_state.get("parcelle_id") or st.session_state.get("selected_parcelle_id")
     if new_pid:
-        changed = new_pid != old_pid
-        if changed:
+        if new_pid != st.session_state.get("parcelle_id"):
             st.session_state["zone_feature_id"] = None
-        if set_active_parcel(new_pid, audit_action=changed) and changed:
-            st.rerun()
+        set_active_parcel(new_pid, audit_action=(new_pid != st.session_state.get("parcelle_id")))
     else:
         st.session_state["parcelle_id"] = None
         st.session_state["selected_parcelle_id"] = None
         st.session_state.pop("active_parcel_geometry", None)
         st.session_state.pop("terrain_geometry", None)
-        st.session_state["zone_feature_id"] = None
 
     c = context()
-    z = active_zone() or {}
     st.markdown("---")
     st.markdown("**CONTEXTE ACTUEL**")
     st.caption(f"👤 {c['client'] or 'Client non sélectionné'}")
     st.caption(f"📁 {c['dossier'] or 'Dossier non sélectionné'}")
     if c.get("parcelle_id"):
-        st.success(f"🌱 **Parcelle active : {c['parcelle'] or c['parcelle_id']}** · {c['surface_ha']:.3f} ha")
+        st.success(f"🌱 Parcelle active : {c['parcelle'] or c['parcelle_id']}")
     else:
-        st.warning("🌱 Aucune parcelle active")
-    if z:
-        zarea = float(z.get('surface_ha') or c.get('zone_surface_ha') or 0)
-        st.info(f"🗺️ **Zone active : {z.get('nom') or 'Zone sans nom'}** · {z.get('type_feature') or 'Zone'} · {zarea:.3f} ha")
-    elif c.get('zone_surface_ha'):
-        st.info(f"🗺️ **Zone active : {c.get('zone_nom') or 'Zone cartographiée'}** · {c['zone_surface_ha']:.3f} ha")
-    else:
-        st.caption("🗺️ Zone active : aucune")
+        st.warning("🌱 Aucune parcelle active — sélectionnez-en une pour les analyses détaillées.")
 
 
 # =========================================================
@@ -2187,17 +2070,8 @@ def _legacy_sig_space(selected=None):
                         # 4) Même pour une zone d'étude, on conserve sa surface comme zone active.
                         #    Si une parcelle est active, les modules utilisent désormais le même contexte.
                         st.session_state["map_nonce"] += 1
-                        # Verrouille la zone et la parcelle créées avant le rerun.
-                        if active_pid:
-                            st.session_state["parcelle_id"] = active_pid
-                            st.session_state["selected_parcelle_id"] = active_pid
-                            set_active_parcel(active_pid, audit_action=False)
-                        st.session_state["zone_feature_id"] = zid
-                        st.session_state["zone_surface_ha"] = float(polygon_area_ha(coords))
-                        st.session_state["zone_geometry"] = coords
                         st.session_state["context_version"] = now()
-                        if active_pid:
-                            sync_active_context()
+                        sync_active_context()
                         st.success(
                             f"✅ Synchronisation réussie : {nom or 'Zone'} · "
                             f"{polygon_area_ha(coords):.3f} ha · "
@@ -2238,11 +2112,8 @@ def _legacy_sig_space(selected=None):
                         VALUES(?,?,?,?,?,?,?,?,?,?)""",
                         (pid,did,nom,culture,STAGES[0],lat,lon,"[]",now(),now()))
                     st.session_state["parcelle_id"] = pid
-                    st.session_state["selected_parcelle_id"] = pid
-                    set_active_parcel(pid, audit_action=False)
-                    sync_active_context()
                     audit("CREATION","parcelle",pid)
-                    st.success("Parcelle créée et synchronisée dans tout le site.")
+                    st.success("Parcelle créée.")
 
     if section == '🧭 Couches SIG':
         st.subheader("🧭 Couches SIG du dossier")
@@ -2308,91 +2179,44 @@ def _legacy_sig_space(selected=None):
     if section == '🌱 Sols & Eau':
         st.subheader("🌱 Sols & Eau")
         c = context()
-        pid = c.get("parcelle_id")
-        did = c.get("dossier_id")
+        zone = next((z for z,v in AGROZONES.items() if c["region"] in v["regions"]), None)
+        if zone:
+            st.info(f"Zone agroécologique indicative : {zone}")
+            st.write("**Profil de sol indicatif :**", AGROZONES[zone]["sol"])
+            st.write("**Risques indicatifs :**", AGROZONES[zone]["risques"])
+        st.markdown("#### 🧭 Sol de la zone cartographiée")
+        geom = c.get("zone_geometry") or (active_parcelle() or {}).get("geometry_json")
+        coords_pedo = load_geometry(geom)
+        if st.button("🔄 Synchroniser la parcelle avec toutes les analyses", key="sync_parcelle_global"):
+            ok_sync, msg_sync = _save_active_parcel_geometry(coords_pedo if 'coords_pedo' in locals() else _active_geometry())
+            if ok_sync:
+                st.success(msg_sync)
+                st.rerun()
+            else:
+                st.warning(msg_sync)
 
-        # Le module ne doit jamais prendre une ancienne zone du dossier à la place
-        # de la parcelle choisie. La parcelle active est la source de vérité.
-        if pid and did:
-            try:
-                sync_active_context()
-                c = context()
-            except Exception as exc:
-                st.warning(f"Synchronisation du contexte partielle : {exc}")
-
-        p = active_parcelle() or {}
-        parcel_coords = _geometry_to_coords(p.get("geometry_json")) if p else []
-        zone = active_zone() or {}
-        zone_coords = _geometry_to_coords(zone.get("geometry_json")) if zone else []
-        coords_pedo = parcel_coords or zone_coords
-        surface_active = float(p.get("surface_ha") or 0) if p else float(zone.get("surface_ha") or 0)
-
-        # Bandeau de cohérence visible.
-        a,b,c1,d = st.columns(4)
-        a.metric("Parcelle", p.get("nom") if p else "Aucune")
-        b.metric("Surface", f"{surface_active:.3f} ha")
-        c1.metric("Zone SIG", zone.get("nom") if zone else "—")
-        d.metric("ID parcelle", pid or "—")
-
-        if not pid:
-            st.warning("Sélectionnez une parcelle active dans le contexte global avant toute analyse Sols & Eau.")
-        else:
-            st.success(f"🔗 Sols & Eau relié à la parcelle **{p.get('nom') or pid}** · {surface_active:.3f} ha")
-
-        zone_agro = next((z for z,v in AGROZONES.items() if c.get("region") in v["regions"]), None)
-        if zone_agro:
-            st.info(f"Zone agroécologique indicative : {zone_agro}")
-            st.write("**Profil de sol indicatif :**", AGROZONES[zone_agro]["sol"])
-            st.write("**Risques indicatifs :**", AGROZONES[zone_agro]["risques"])
-
-        st.markdown("#### 🧭 Données pédologiques de la parcelle active")
         if coords_pedo and len(coords_pedo) >= 3:
             pedo_df, pedo_msg = pedo_lookup(coords_pedo)
             if pedo_msg:
                 st.caption(f"ℹ️ {pedo_msg}")
             if not pedo_df.empty:
-                st.success("Unités pédologiques intersectées par la parcelle active.")
+                st.success("Unités pédologiques intersectées par la zone active.")
                 st.dataframe(pedo_df, use_container_width=True, hide_index=True)
             else:
-                st.info("Aucune unité pédologique exploitable ne recoupe la parcelle active.")
+                st.info("Aucune unité pédologique exploitable n'est associée à cette géométrie.")
         else:
-            st.info("La parcelle active n'a pas encore de géométrie. Délimitez-la dans Cartographie / Zone & GPS.")
-
-        if st.button("🔄 Forcer la synchronisation PARCELLE → SIG → SOLS & EAU", type="primary", key="sync_parcelle_global_v4"):
-            if not pid:
-                st.error("Aucune parcelle active.")
-            else:
-                try:
-                    msgs = sync_active_context()
-                    st.success(" • ".join(msgs))
-                    st.rerun()
-                except Exception as exc:
-                    st.error(f"Synchronisation impossible : {exc}")
-
-        st.markdown("#### 💧 Besoin d'irrigation")
+            st.info("Délimitez d'abord la parcelle/zone avec le Polygone pour obtenir les données pédologiques.")
+        st.markdown("#### Besoin d'irrigation")
         a,b,c1,d = st.columns(4)
-        eto = a.number_input("ETo mm/j", 0.0, 20.0, 5.5, key="irrig_eto_pro_v4")
-        kc = b.number_input("Kc", 0.1, 1.5, 1.0, key="irrig_kc_pro_v4")
-        default_surface = max(surface_active, 0.1)
-        surf = c1.number_input("Surface ha", 0.1, 100000.0, default_surface, key="irrig_surface_pro_v4")
-        eff = d.number_input("Efficacité", 0.1, 1.0, 0.75, key="irrig_eff_pro_v4")
+        eto = a.number_input("ETo mm/j", 0.0, 20.0, 5.5, key="irrig_eto_pro")
+        kc = b.number_input("Kc", 0.1, 1.5, 1.0, key="irrig_kc_pro")
+        surf = c1.number_input("Surface ha", 0.1, 100000.0, float(c["zone_surface_ha"] or c["surface_ha"] or 1), key="irrig_surface_pro")
+        eff = d.number_input("Efficacité", 0.1, 1.0, 0.75, key="irrig_eff_pro")
         etc = eto * kc
         gross = etc * 10 * surf / eff
         st.metric("ETc", f"{etc:.2f} mm/j")
         st.metric("Besoin brut", f"{gross:.1f} m³/j")
-
-        # Persistance du calcul pour que les rapports et futurs modules puissent
-        # retrouver exactement les paramètres appliqués à cette parcelle.
-        if pid and did:
-            payload = json.dumps({"eto_mm_j": eto, "kc": kc, "surface_ha": surf, "efficacite": eff,
-                                  "etc_mm_j": etc, "besoin_brut_m3_j": gross}, ensure_ascii=False)
-            try:
-                rows = db_exec("SELECT id FROM soil_water_context WHERE dossier_id=? AND parcelle_id=? LIMIT 1", (did,pid), fetch=True)
-                if rows:
-                    db_exec("UPDATE soil_water_context SET irrigation_payload_json=?,updated_at=? WHERE id=?", (payload,now(),rows[0]["id"]))
-            except Exception:
-                pass
-        st.caption("Calcul indicatif ; confirmer les paramètres avec les conditions locales et les données techniques disponibles.")
+        st.caption("Calcul indicatif; confirmer les paramètres par les conditions locales et les données techniques disponibles.")
 
     if section == '🦠 Phytosanitaire':
         st.subheader("🦠 Pré-diagnostic phytosanitaire")
@@ -3076,14 +2900,6 @@ with st.sidebar:
         st.rerun()
 
 access_guard()
-# Réconciliation automatique UNE FOIS après tout changement de contexte.
-# Elle garantit que SIG, Sols & Eau, diagnostic, observations, alertes et rapports
-# lisent le même dossier/parcelle sans lancer de synchronisation réseau.
-if st.session_state.pop("_needs_context_sync", False):
-    try:
-        sync_active_context()
-    except Exception as _sync_exc:
-        st.session_state["sync_status"] = f"Synchronisation partielle : {_sync_exc}"
 # Navigation différée : ne jamais modifier la clé d'un widget après son instanciation.
 _space_target = st.session_state.pop("v10_space_target", None)
 if _space_target:
