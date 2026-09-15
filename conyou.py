@@ -225,16 +225,19 @@ def _pg_sql(sql):
 
 @st.cache_resource(show_spinner=False)
 def _get_db_pool():
-    """Pool PostgreSQL partagé par le processus Streamlit.
-    Il évite d'ouvrir/fermer une connexion Supabase à chaque requête.
+    """Retourne un pool PostgreSQL si psycopg_pool est installé.
+    Sinon utilise un mode de secours compatible avec psycopg seul.
+    Cela évite que l'application tombe en panne simplement parce que
+    l'extra ``pool`` n'est pas présent dans l'environnement Streamlit Cloud.
     """
     try:
+        import psycopg
         from psycopg.rows import dict_row
-        from psycopg_pool import ConnectionPool
     except ImportError as exc:
         raise RuntimeError(
-            "Installez psycopg avec le pool : psycopg[binary,pool]."
+            "Le paquet psycopg[binary] est requis. Ajoutez psycopg[binary]>=3.2 à requirements.txt."
         ) from exc
+
     kwargs = dict(
         host=st.secrets.get("SUPABASE_DB_HOST", os.getenv("SUPABASE_DB_HOST", "aws-1-eu-west-1.pooler.supabase.com")),
         port=int(st.secrets.get("SUPABASE_DB_PORT", os.getenv("SUPABASE_DB_PORT", "5432"))),
@@ -245,10 +248,31 @@ def _get_db_pool():
         row_factory=dict_row,
         connect_timeout=8,
     )
+
+    # Chemin rapide : psycopg_pool est disponible.
     try:
-        pool = ConnectionPool(conninfo="", kwargs=kwargs, min_size=1, max_size=6, open=True)
+        from psycopg_pool import ConnectionPool
+        pool = ConnectionPool(
+            conninfo="",
+            kwargs=kwargs,
+            min_size=1,
+            max_size=6,
+            open=True,
+        )
         pool.wait(timeout=8)
-        return pool
+        return ("pool", pool)
+    except ImportError:
+        # Fallback : aucune dépendance psycopg_pool obligatoire.
+        # Une seule connexion persistante évite les connexions répétées au démarrage.
+        try:
+            con = psycopg.connect(**kwargs)
+            return ("single", con)
+        except Exception as exc:
+            raise RuntimeError(
+                "Connexion Supabase impossible. Vérifiez SUPABASE_DB_HOST, SUPABASE_DB_PORT, "
+                "SUPABASE_DB_NAME, SUPABASE_DB_USER et SUPABASE_DB_PASSWORD dans Streamlit Secrets. "
+                f"Détail technique: {exc}"
+            ) from exc
     except Exception as exc:
         raise RuntimeError(
             "Connexion Supabase impossible. Vérifiez SUPABASE_DB_HOST, SUPABASE_DB_PORT, "
@@ -258,18 +282,22 @@ def _get_db_pool():
 
 
 def db_conn():
-    """Compatibilité : retourne une connexion issue du pool."""
-    return _get_db_pool().getconn()
+    """Retourne une connexion depuis le pool, ou la connexion de secours."""
+    kind, resource = _get_db_pool()
+    if kind == "pool":
+        return resource.getconn()
+    return resource
 
 
 def db_release(con):
+    """Rend la connexion au pool. En mode secours, elle reste ouverte et réutilisée."""
     try:
-        _get_db_pool().putconn(con)
+        kind, resource = _get_db_pool()
+        if kind == "pool":
+            resource.putconn(con)
     except Exception:
-        try:
-            con.close()
-        except Exception:
-            pass
+        # Ne jamais masquer l'erreur SQL principale par une erreur de libération.
+        pass
 
 
 def db_exec(sql, params=(), *, fetch=False, many=False):
