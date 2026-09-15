@@ -1,3 +1,11 @@
 streamlit
 pandas
+numpy
+psycopg[binary]
+requests
+folium
+streamlit-folium
 reportlab
+geopandas
+shapely
+pyproj
