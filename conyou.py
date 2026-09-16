@@ -597,31 +597,49 @@ def active_zone():
 
 
 def load_geometry(obj):
-    """Convertit toute géométrie enregistrée vers le format interne [[lat, lon], ...].
-    Accepte GeoJSON Polygon/Feature/FeatureCollection, une liste de coordonnées
-    et les anciennes valeurs JSON utilisées par les couches SIG.
+    """Normalise toute géométrie enregistrée vers [[lat, lon], ...].
+    Accepte une liste de coordonnées, GeoJSON Polygon/Feature/FeatureCollection
+    et les anciennes structures imbriquées utilisées par les versions précédentes.
     """
     if not obj:
         return []
     try:
-        # _geometry_to_coords est défini plus bas mais disponible au moment des appels.
-        return _geometry_to_coords(obj)
+        value = json.loads(obj) if isinstance(obj, str) else obj
+        if isinstance(value, dict):
+            typ = value.get("type")
+            if typ == "Feature":
+                value = value.get("geometry") or {}
+                typ = value.get("type")
+            if typ == "FeatureCollection":
+                feats = value.get("features") or []
+                value = feats[0].get("geometry") if feats else {}
+                typ = value.get("type") if isinstance(value, dict) else None
+            if typ == "Polygon":
+                rings = value.get("coordinates") or []
+                ring = rings[0] if rings else []
+                return [[float(pt[1]), float(pt[0])] for pt in ring if isinstance(pt, (list, tuple)) and len(pt) >= 2]
+            if typ == "MultiPolygon":
+                polys = value.get("coordinates") or []
+                ring = polys[0][0] if polys and polys[0] else []
+                return [[float(pt[1]), float(pt[0])] for pt in ring if isinstance(pt, (list, tuple)) and len(pt) >= 2]
+            if typ == "LineString":
+                return [[float(pt[1]), float(pt[0])] for pt in (value.get("coordinates") or []) if len(pt) >= 2]
+            return []
+        if isinstance(value, list):
+            # Format natif interne : [[lat, lon], ...]
+            if value and isinstance(value[0], (list, tuple)) and len(value[0]) >= 2 and not isinstance(value[0][0], (list, tuple)):
+                pts = [[float(pt[0]), float(pt[1])] for pt in value]
+                if all(-90 <= a <= 90 and -180 <= b <= 180 for a,b in pts):
+                    return pts
+            # Ancien Polygon GeoJSON : [[[lon, lat], ...]]
+            ring = value[0] if value and isinstance(value[0], list) else []
+            if ring and isinstance(ring[0], (list, tuple)) and len(ring[0]) >= 2:
+                pts = [[float(pt[1]), float(pt[0])] for pt in ring]
+                if all(-90 <= a <= 90 and -180 <= b <= 180 for a,b in pts):
+                    return pts
     except Exception:
-        try:
-            if isinstance(obj, str):
-                obj = json.loads(obj)
-            if isinstance(obj, dict):
-                g = obj.get("geometry", obj)
-                if g.get("type") == "Feature":
-                    g = g.get("geometry") or {}
-                if g.get("type") == "Polygon":
-                    ring = (g.get("coordinates") or [[]])[0]
-                    return [(float(y), float(x)) for x, y in ring if len((x, y)) >= 2]
-            if isinstance(obj, list) and obj and isinstance(obj[0], (list, tuple)):
-                return [(float(x[0]), float(x[1])) for x in obj if len(x) >= 2]
-        except Exception:
-            pass
         return []
+    return []
 
 
 def context():
@@ -634,8 +652,8 @@ def context():
     z = active_zone() or {}
     parcel_geom = load_geometry(p.get("geometry_json")) if p else []
     zone_geom = load_geometry(z.get("geometry_json")) if z else []
-    # Une parcelle active est la source de vérité pour les analyses
-    # agronomiques. La zone SIG ne remplace jamais sa géométrie.
+    # La parcelle sélectionnée est la source de vérité pour les modules analytiques.
+    # Une zone SIG ne remplace la parcelle que lorsqu'aucune parcelle n'est active.
     geom = parcel_geom or zone_geom
     client_id = d.get("client_id")
     return {
@@ -784,14 +802,7 @@ def _coords_are_valid(coords):
     if not coords or len(coords) < 3:
         return False
     try:
-        pts = [(float(p[0]), float(p[1])) for p in coords if len(p) >= 2]
-        if len(pts) < 3:
-            return False
-        if not all(-90 <= lat <= 90 and -180 <= lon <= 180 for lat, lon in pts):
-            return False
-        # Au moins trois sommets distincts. Un anneau fermé est accepté.
-        distinct = {(round(lat, 10), round(lon, 10)) for lat, lon in pts}
-        return len(distinct) >= 3
+        return all(-90 <= float(p[0]) <= 90 and -180 <= float(p[1]) <= 180 for p in coords)
     except Exception:
         return False
 
@@ -817,15 +828,9 @@ def _geometry_to_coords(geom):
             if obj.get("type") == "LineString":
                 return [(float(x[1]), float(x[0])) for x in obj.get("coordinates", [])]
         if isinstance(obj, list):
-            # Format interne historique [[lat, lon], ...]
-            if obj and isinstance(obj[0], (list, tuple)) and len(obj[0]) >= 2 and isinstance(obj[0][0], (int, float, str)):
+            # Déjà au format [lat, lon]
+            if obj and isinstance(obj[0], (list, tuple)) and len(obj[0]) >= 2:
                 pts = [(float(x[0]), float(x[1])) for x in obj]
-                if _coords_are_valid(pts):
-                    return pts
-            # Ancien format GeoJSON Polygon brut [[ [lon,lat], ... ]]
-            if obj and isinstance(obj[0], list) and obj[0] and isinstance(obj[0][0], (list, tuple)):
-                ring = obj[0]
-                pts = [(float(x[1]), float(x[0])) for x in ring if len(x) >= 2]
                 if _coords_are_valid(pts):
                     return pts
     except Exception:
@@ -896,7 +901,11 @@ def _active_geometry():
 # =========================================================
 PEDO_CANDIDATES = [
     "Morpho_Pedo.shp",
+    "Morpho_Pedo(1).shp",
+    "Morpho_Pedo(2).shp",
     "data/Morpho_Pedo.shp",
+    "data/Morpho_Pedo(1).shp",
+    "data/Morpho_Pedo(2).shp",
     "Morpho_Pedo.geojson",
     "data/Morpho_Pedo.geojson",
 ]
@@ -911,9 +920,23 @@ def load_pedo_layer():
 
     path = next((p for p in PEDO_CANDIDATES if os.path.exists(p)), None)
     if not path:
-        return None, "Couche Morpho_Pedo introuvable. Placez Morpho_Pedo.shp dans le projet."
+        # Recherche tolérante des variantes de nom présentes dans GitHub/Streamlit.
+        for root in (".", "data"):
+            if not os.path.isdir(root):
+                continue
+            for name in sorted(os.listdir(root)):
+                if name.lower().startswith("morpho_pedo") and name.lower().endswith((".shp", ".geojson")):
+                    path = os.path.join(root, name)
+                    break
+            if path:
+                break
+    if not path:
+        return None, "Couche Morpho_Pedo introuvable : ajoutez le jeu complet Morpho_Pedo (.shp + .shx + .dbf + .prj) au dépôt."
 
     try:
+        # Certains dépôts contiennent le .shp/.dbf/.prj mais pas le .shx.
+        # GDAL sait alors reconstruire l'index SHX automatiquement.
+        os.environ.setdefault("SHAPE_RESTORE_SHX", "YES")
         gdf = gpd.read_file(path)
         if gdf.empty:
             return gdf, "La couche Morpho_Pedo est vide."
@@ -2201,10 +2224,12 @@ def _legacy_sig_space(selected=None):
             st.write("**Profil de sol indicatif :**", AGROZONES[zone]["sol"])
             st.write("**Risques indicatifs :**", AGROZONES[zone]["risques"])
         st.markdown("#### 🧭 Sol de la zone cartographiée")
-        # Sols & Eau travaille toujours sur la parcelle active.
-        # Une zone SIG ne sert de secours que s'il n'existe pas de parcelle active.
-        coords_pedo = c.get("parcelle_geometry") or c.get("zone_geometry") or _active_geometry()
-        coords_pedo = _geometry_to_coords(coords_pedo) if not (coords_pedo and isinstance(coords_pedo[0], (list, tuple))) else coords_pedo
+        parcel = active_parcelle() or {}
+        # Toujours analyser la parcelle active si elle existe.
+        geom = parcel.get("geometry_json") if parcel else c.get("zone_geometry")
+        coords_pedo = load_geometry(geom)
+        if coords_pedo and c.get("parcelle_id"):
+            st.caption(f"🔗 Sols & Eau synchronisé avec la parcelle **{c.get('parcelle')}** · {c.get('surface_ha', 0):.3f} ha")
         if st.button("🔄 Synchroniser la parcelle avec toutes les analyses", key="sync_parcelle_global"):
             ok_sync, msg_sync = _save_active_parcel_geometry(coords_pedo if 'coords_pedo' in locals() else _active_geometry())
             if ok_sync:
@@ -2223,10 +2248,7 @@ def _legacy_sig_space(selected=None):
             else:
                 st.info("Aucune unité pédologique exploitable n'est associée à cette géométrie.")
         else:
-            if c.get("parcelle_id"):
-                st.warning("La parcelle active ne contient pas encore de polygone exploitable. Retournez dans Zone & GPS et enregistrez sa délimitation.")
-            else:
-                st.info("Sélectionnez ou délimitez d'abord une parcelle pour obtenir les données pédologiques.")
+            st.info("Délimitez d'abord la parcelle/zone avec le Polygone pour obtenir les données pédologiques.")
         st.markdown("#### Besoin d'irrigation")
         a,b,c1,d = st.columns(4)
         eto = a.number_input("ETo mm/j", 0.0, 20.0, 5.5, key="irrig_eto_pro")
