@@ -73,24 +73,6 @@ except Exception:
 
 
 # ============================================================
-# OUTILS DE GÉOMÉTRIE — définis très tôt pour éviter les NameError
-# ============================================================
-def _safe_load_geometry(obj):
-    """Charge une géométrie JSON/GeoJSON ou une liste de coordonnées.
-    Ne lève jamais d'exception : [] signifie géométrie indisponible.
-    """
-    if obj is None or obj == "":
-        return []
-    if isinstance(obj, (dict, list, tuple)):
-        return obj
-    try:
-        return json.loads(str(obj))
-    except Exception:
-        return []
-
-
-
-# ============================================================
 # CONTRÔLE CENTRAL DES MODULES — DROITS PAR PROFIL
 # ============================================================
 MODULES_AUTORISABLES = {
@@ -148,7 +130,7 @@ st.set_page_config(
     page_title="YouAgronoMe — Consultance Pro 360°",
     page_icon="🌾",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="collapsed",
 )
 
 # Compte propriétaire : valeurs par défaut demandées, surchargeables par Streamlit Secrets.
@@ -603,9 +585,81 @@ def active_dossier():
 
 
 def active_parcelle():
-    pid = st.session_state.get("parcelle_id")
-    rows = db_exec("SELECT * FROM parcelles WHERE id=?", (pid,), fetch=True) if pid else []
-    return rows[0] if rows else None
+    """Retourne la parcelle active et répare automatiquement le contexte perdu après un rerun.
+
+    Ordre de récupération :
+    1. parcelle_id de session ;
+    2. selected_parcelle_id ;
+    3. dernière parcelle du dossier courant possédant une géométrie ;
+    4. géométrie SIG liée à la parcelle si geometry_json est vide.
+    """
+    did = st.session_state.get("dossier_id")
+    pid = st.session_state.get("parcelle_id") or st.session_state.get("selected_parcelle_id")
+
+    rows = []
+    if pid:
+        if did:
+            rows = db_exec("SELECT * FROM parcelles WHERE id=? AND dossier_id=?", (pid, did), fetch=True)
+        if not rows:
+            rows = db_exec("SELECT * FROM parcelles WHERE id=?", (pid,), fetch=True)
+
+    # Récupération après rerun/rechargement si l'ID de session a disparu.
+    if not rows and did:
+        rows = db_exec(
+            "SELECT * FROM parcelles WHERE dossier_id=? "
+            "AND geometry_json IS NOT NULL AND geometry_json<>'' "
+            "ORDER BY COALESCE(updated_at, created_at, '') DESC LIMIT 1",
+            (did,), fetch=True
+        )
+        if rows:
+            pid = rows[0].get("id")
+            st.session_state["parcelle_id"] = pid
+            st.session_state["selected_parcelle_id"] = pid
+
+    if not rows:
+        return None
+
+    p = rows[0]
+    pid = p.get("id")
+    st.session_state["parcelle_id"] = pid
+    st.session_state["selected_parcelle_id"] = pid
+
+    coords = _geometry_to_coords(p.get("geometry_json"))
+
+    # Si la parcelle existe mais sa géométrie n'a pas été persistée, récupérer
+    # la dernière géométrie SIG de type Parcelle qui lui est rattachée.
+    if not coords and pid:
+        gis_rows = db_exec(
+            "SELECT geometry_json,surface_ha,perimeter_m,latitude,longitude "
+            "FROM gis_features WHERE parcelle_id=? AND type_feature='Parcelle' "
+            "AND geometry_json IS NOT NULL AND geometry_json<>'' "
+            "ORDER BY COALESCE(updated_at, created_at, '') DESC LIMIT 1",
+            (pid,), fetch=True
+        )
+        if gis_rows:
+            g = gis_rows[0]
+            coords = _geometry_to_coords(g.get("geometry_json"))
+            if coords:
+                # Répare la persistance pour que tous les modules lisent la même géométrie.
+                try:
+                    db_exec(
+                        "UPDATE parcelles SET geometry_json=?, surface_ha=?, perimeter_m=?, "
+                        "latitude=?, longitude=?, updated_at=? WHERE id=?",
+                        (g.get("geometry_json"),
+                         float(g.get("surface_ha") or 0),
+                         float(g.get("perimeter_m") or 0),
+                         g.get("latitude"), g.get("longitude"), now(), pid)
+                    )
+                    rows = db_exec("SELECT * FROM parcelles WHERE id=?", (pid,), fetch=True) or rows
+                    p = rows[0]
+                except Exception:
+                    pass
+
+    if coords:
+        st.session_state["active_parcel_geometry"] = coords
+        st.session_state["terrain_geometry"] = coords
+
+    return p
 
 
 def active_zone():
@@ -615,10 +669,49 @@ def active_zone():
 
 
 def load_geometry(obj):
+    """Normalise toute géométrie enregistrée vers [[lat, lon], ...].
+    Accepte une liste de coordonnées, GeoJSON Polygon/Feature/FeatureCollection
+    et les anciennes structures imbriquées utilisées par les versions précédentes.
+    """
+    if not obj:
+        return []
     try:
-        return json.loads(obj or "[]")
+        value = json.loads(obj) if isinstance(obj, str) else obj
+        if isinstance(value, dict):
+            typ = value.get("type")
+            if typ == "Feature":
+                value = value.get("geometry") or {}
+                typ = value.get("type")
+            if typ == "FeatureCollection":
+                feats = value.get("features") or []
+                value = feats[0].get("geometry") if feats else {}
+                typ = value.get("type") if isinstance(value, dict) else None
+            if typ == "Polygon":
+                rings = value.get("coordinates") or []
+                ring = rings[0] if rings else []
+                return [[float(pt[1]), float(pt[0])] for pt in ring if isinstance(pt, (list, tuple)) and len(pt) >= 2]
+            if typ == "MultiPolygon":
+                polys = value.get("coordinates") or []
+                ring = polys[0][0] if polys and polys[0] else []
+                return [[float(pt[1]), float(pt[0])] for pt in ring if isinstance(pt, (list, tuple)) and len(pt) >= 2]
+            if typ == "LineString":
+                return [[float(pt[1]), float(pt[0])] for pt in (value.get("coordinates") or []) if len(pt) >= 2]
+            return []
+        if isinstance(value, list):
+            # Format natif interne : [[lat, lon], ...]
+            if value and isinstance(value[0], (list, tuple)) and len(value[0]) >= 2 and not isinstance(value[0][0], (list, tuple)):
+                pts = [[float(pt[0]), float(pt[1])] for pt in value]
+                if all(-90 <= a <= 90 and -180 <= b <= 180 for a,b in pts):
+                    return pts
+            # Ancien Polygon GeoJSON : [[[lon, lat], ...]]
+            ring = value[0] if value and isinstance(value[0], list) else []
+            if ring and isinstance(ring[0], (list, tuple)) and len(ring[0]) >= 2:
+                pts = [[float(pt[1]), float(pt[0])] for pt in ring]
+                if all(-90 <= a <= 90 and -180 <= b <= 180 for a,b in pts):
+                    return pts
     except Exception:
         return []
+    return []
 
 
 def context():
@@ -629,10 +722,10 @@ def context():
     d = active_dossier() or {}
     p = active_parcelle() or {}
     z = active_zone() or {}
-    parcel_geom = _safe_load_geometry(p.get("geometry_json")) if p else []
-    zone_geom = _safe_load_geometry(z.get("geometry_json")) if z else []
-    # Une parcelle active est prioritaire : une zone SIG ancienne ne doit
-    # jamais remplacer silencieusement la géométrie de la parcelle choisie.
+    parcel_geom = load_geometry(p.get("geometry_json")) if p else []
+    zone_geom = load_geometry(z.get("geometry_json")) if z else []
+    # La parcelle sélectionnée est la source de vérité pour les modules analytiques.
+    # Une zone SIG ne remplace la parcelle que lorsqu'aucune parcelle n'est active.
     geom = parcel_geom or zone_geom
     client_id = d.get("client_id")
     return {
@@ -672,14 +765,36 @@ def set_active_parcel(pid, *, audit_action=True):
         return False
     p = rows[0]
     st.session_state["parcelle_id"] = p["id"]
+    st.session_state["selected_parcelle_id"] = p["id"]
     coords = _geometry_to_coords(p.get("geometry_json"))
-    if coords:
+
+    # Une ancienne version pouvait enregistrer la géométrie dans gis_features
+    # sans la recopier dans parcelles. On récupère donc le SIG avant de déclarer
+    # à tort « aucune géométrie ».
+    if not coords:
+        try:
+            gis_rows = db_exec(
+                "SELECT geometry_json FROM gis_features WHERE parcelle_id=? "
+                "AND type_feature='Parcelle' AND geometry_json IS NOT NULL "
+                "AND geometry_json<>'' ORDER BY COALESCE(updated_at, created_at, '') DESC LIMIT 1",
+                (p["id"],), fetch=True
+            )
+            if gis_rows:
+                coords = _geometry_to_coords(gis_rows[0].get("geometry_json"))
+                if coords:
+                    db_exec(
+                        "UPDATE parcelles SET geometry_json=?, updated_at=? WHERE id=?",
+                        (gis_rows[0].get("geometry_json"), now(), p["id"])
+                    )
+        except Exception:
+            pass
+
+    if coords and _coords_are_valid(coords):
         st.session_state["active_parcel_geometry"] = coords
         st.session_state["terrain_geometry"] = coords
     else:
         st.session_state.pop("active_parcel_geometry", None)
         st.session_state.pop("terrain_geometry", None)
-    st.session_state["selected_parcelle_id"] = p["id"]
     st.session_state["context_version"] = now()
     if audit_action:
         audit("SELECTION", "parcelle", p["id"])
@@ -854,23 +969,39 @@ def _save_active_parcel_geometry(coords, label="Parcelle délimitée"):
 
 
 def _active_geometry():
+    """Retourne TOUJOURS la géométrie de la parcelle active, avec récupération DB/SIG."""
     coords = st.session_state.get("active_parcel_geometry") or st.session_state.get("terrain_geometry")
-    if coords:
+    if coords and _coords_are_valid(coords):
         return coords
-    c = context()
-    pid = c.get("parcelle_id")
-    if not pid:
-        return []
-    try:
-        rows = db_exec("SELECT geometry_json FROM parcelles WHERE id=?", (pid,), fetch=True)
-        if rows:
-            coords = _geometry_to_coords(rows[0].get("geometry_json"))
-            if coords:
-                st.session_state["active_parcel_geometry"] = coords
-                st.session_state["terrain_geometry"] = coords
-                return coords
-    except Exception:
-        pass
+
+    # active_parcelle() contient la logique de récupération après rerun.
+    p = active_parcelle() or {}
+    coords = _geometry_to_coords(p.get("geometry_json")) if p else []
+    if coords and _coords_are_valid(coords):
+        st.session_state["active_parcel_geometry"] = coords
+        st.session_state["terrain_geometry"] = coords
+        st.session_state["selected_parcelle_id"] = p.get("id")
+        return coords
+
+    pid = p.get("id") or st.session_state.get("parcelle_id") or st.session_state.get("selected_parcelle_id")
+    if pid:
+        try:
+            rows = db_exec(
+                "SELECT geometry_json FROM gis_features WHERE parcelle_id=? "
+                "AND type_feature='Parcelle' AND geometry_json IS NOT NULL "
+                "AND geometry_json<>'' ORDER BY COALESCE(updated_at, created_at, '') DESC LIMIT 1",
+                (pid,), fetch=True
+            )
+            if rows:
+                coords = _geometry_to_coords(rows[0].get("geometry_json"))
+                if coords and _coords_are_valid(coords):
+                    st.session_state["active_parcel_geometry"] = coords
+                    st.session_state["terrain_geometry"] = coords
+                    st.session_state["parcelle_id"] = pid
+                    st.session_state["selected_parcelle_id"] = pid
+                    return coords
+        except Exception:
+            pass
     return []
 
 
@@ -878,64 +1009,65 @@ def _active_geometry():
 # =========================================================
 # COUCHE PÉDOLOGIQUE — Morpho_Pedo
 # =========================================================
-PEDO_DEFAULT_CRS = "EPSG:32628"
-PEDO_FILENAMES = [
-    "Morpho_Pedo.shp", "Morpho_Pedo(1).shp", "Morpho_Pedo(2).shp",
-    "Morpho_Pedo.geojson", "Morpho_Pedo(1).geojson"
+PEDO_CANDIDATES = [
+    "Morpho_Pedo.shp",
+    "Morpho_Pedo(1).shp",
+    "Morpho_Pedo(2).shp",
+    "data/Morpho_Pedo.shp",
+    "data/Morpho_Pedo(1).shp",
+    "data/Morpho_Pedo(2).shp",
+    "Morpho_Pedo.geojson",
+    "data/Morpho_Pedo.geojson",
 ]
-
-
-def _pedo_candidate_paths():
-    """Construit des chemins absolus depuis le dossier réel du script."""
-    base = Path(__file__).resolve().parent
-    roots = [base, base / "data"]
-    found=[]
-    for root in roots:
-        if not root.exists():
-            continue
-        for name in PEDO_FILENAMES:
-            pth=root/name
-            if pth.exists():
-                found.append(str(pth))
-        # Recherche tolérante des variantes déposées sur GitHub.
-        try:
-            for pth in sorted(root.glob("Morpho_Pedo*.shp")):
-                if str(pth) not in found:
-                    found.append(str(pth))
-            for pth in sorted(root.glob("Morpho_Pedo*.geojson")):
-                if str(pth) not in found:
-                    found.append(str(pth))
-        except Exception:
-            pass
-    return found
+PEDO_DEFAULT_CRS = "EPSG:32628"  # UTM 28N, uniquement comme hypothèse si le fichier n'indique pas son CRS.
 
 
 @st.cache_data(show_spinner=False)
 def load_pedo_layer():
-    """Charge Morpho_Pedo depuis le dossier du script, même sur Streamlit Cloud."""
+    """Charge la couche Morpho_Pedo sans inventer d'attributs absents."""
     if not HAS_PEDO:
         return None, "GeoPandas/Shapely/PyProj n'est pas installé."
-    candidates=_pedo_candidate_paths()
-    if not candidates:
-        return None, "Couche Morpho_Pedo introuvable : vérifiez data/Morpho_Pedo.shp + .shx + .dbf + .prj."
+
+    path = next((p for p in PEDO_CANDIDATES if os.path.exists(p)), None)
+    if not path:
+        # Recherche tolérante des variantes de nom présentes dans GitHub/Streamlit.
+        for root in (".", "data"):
+            if not os.path.isdir(root):
+                continue
+            for name in sorted(os.listdir(root)):
+                if name.lower().startswith("morpho_pedo") and name.lower().endswith((".shp", ".geojson")):
+                    path = os.path.join(root, name)
+                    break
+            if path:
+                break
+    if not path:
+        return None, "Couche Morpho_Pedo introuvable : ajoutez le jeu complet Morpho_Pedo (.shp + .shx + .dbf + .prj) au dépôt."
+
     try:
+        # Certains dépôts contiennent le .shp/.dbf/.prj mais pas le .shx.
+        # GDAL sait alors reconstruire l'index SHX automatiquement.
         os.environ.setdefault("SHAPE_RESTORE_SHX", "YES")
-        path=candidates[0]
-        gdf=gpd.read_file(path)
+        gdf = gpd.read_file(path)
         if gdf.empty:
-            return gdf, f"La couche Morpho_Pedo est vide : {path}"
-        assumed=False
+            return gdf, "La couche Morpho_Pedo est vide."
+
+        # Le fichier fourni peut ne pas contenir de .prj : on ne prétend pas connaître
+        # son CRS. Ici les coordonnées observées correspondent à de l'UTM 28N,
+        # mais cette hypothèse est explicitement signalée.
+        assumed_crs = False
         if gdf.crs is None:
-            gdf=gdf.set_crs(PEDO_DEFAULT_CRS,allow_override=True)
-            assumed=True
-        gdf=gdf[gdf.geometry.notna()].copy()
-        gdf=gdf[~gdf.geometry.is_empty].copy()
-        msg=f"{len(gdf):,} unités chargées depuis {path} · CRS {gdf.crs}."
-        if assumed:
-            msg += f" CRS absent : hypothèse {PEDO_DEFAULT_CRS}."
-        return gdf,msg
+            gdf = gdf.set_crs(PEDO_DEFAULT_CRS, allow_override=True)
+            assumed_crs = True
+
+        gdf = gdf[gdf.geometry.notna()].copy()
+        gdf = gdf[~gdf.geometry.is_empty].copy()
+
+        msg = f"{len(gdf):,} unités géométriques chargées depuis {path}."
+        if assumed_crs:
+            msg += f" CRS absent du fichier : hypothèse {PEDO_DEFAULT_CRS}. À confirmer avec le .prj/source SIG."
+        return gdf, msg
     except Exception as exc:
-        return None,f"Lecture Morpho_Pedo impossible : {exc}"
+        return None, f"Lecture Morpho_Pedo impossible : {exc}"
 
 
 def pedo_lookup(coords):
@@ -2149,190 +2281,95 @@ def _legacy_sig_space(selected=None):
                     st.rerun()
 
     if section == '🔬 Diagnostic 360°':
-        st.subheader("🔬 Diagnostic 360° — synthèse complète")
+        st.subheader("🔬 Diagnostic 360°")
         c = context()
         if not c["dossier_id"]:
-            st.warning("Sélectionnez ou créez un dossier dans la barre latérale avant de lancer le diagnostic.")
+            st.info("Sélectionnez d'abord un dossier.")
         else:
-            did = c["dossier_id"]
-            pid = c.get("parcelle_id")
-            obs = db_exec("SELECT * FROM observations WHERE dossier_id=? ORDER BY created_at DESC LIMIT 100", (did,), fetch=True)
-            ana = db_exec("SELECT * FROM analyses WHERE dossier_id=? ORDER BY date_analyse DESC LIMIT 100", (did,), fetch=True)
-            acts = db_exec("SELECT * FROM actions WHERE dossier_id=? ORDER BY echeance", (did,), fetch=True)
-            missions = db_exec("SELECT * FROM missions WHERE dossier_id=? ORDER BY created_at DESC", (did,), fetch=True)
-            alerts = db_exec("SELECT * FROM alerts WHERE dossier_id=? ORDER BY created_at DESC", (did,), fetch=True)
+            obs = db_exec("SELECT * FROM observations WHERE dossier_id=? ORDER BY created_at DESC LIMIT 100", (c["dossier_id"],), fetch=True)
+            ana = db_exec("SELECT * FROM analyses WHERE dossier_id=? ORDER BY date_analyse DESC LIMIT 100", (c["dossier_id"],), fetch=True)
             q, checks = data_quality()
             conf = confidence_from_sources()
             risk = risk_score()
-            surface = float(c.get("surface_ha") or c.get("zone_surface_ha") or 0)
-
-            # Résultats pédologiques liés à la parcelle active.
-            pedo_df, pedo_msg = pedo_lookup(c.get("parcelle_geometry") or c.get("zone_geometry") or [])
-
-            # Paramètres d'irrigation conservés dans la session et réutilisés par le rapport.
-            irr = st.session_state.get("irrigation_current", {})
-            eto = float(irr.get("eto", 5.56))
-            kc = float(irr.get("kc", 1.0))
-            irr_surface = float(irr.get("surface", surface or 1.0))
-            eff = float(irr.get("eff", 0.75))
-            etc = eto * kc
-            besoin_net = etc * 10 * irr_surface
-            besoin_brut = besoin_net / max(eff, 0.01)
-
-            k1,k2,k3,k4,k5 = st.columns(5)
-            k1.metric("Qualité", f"{q}/100")
-            k2.metric("Confiance", f"{conf*100:.0f}%")
-            k3.metric("Risque", f"{risk}/100")
-            k4.metric("Observations", len(obs))
-            k5.metric("Analyses", len(ana))
-
-            st.markdown("#### 1. Identité du dossier")
-            ident = pd.DataFrame([{
-                "Client": c.get("client") or "À renseigner",
-                "Dossier": c.get("dossier") or "À renseigner",
-                "Région": c.get("region") or "À renseigner",
-                "Commune": c.get("commune") or "À renseigner",
-                "Village": c.get("village") or "À renseigner",
-                "Parcelle": c.get("parcelle") or "À renseigner",
-                "Culture": c.get("culture") or "À renseigner",
-                "Stade": c.get("stade") or "À renseigner",
-                "Surface (ha)": round(surface, 3),
-                "Latitude": c.get("latitude") if c.get("latitude") is not None else "À renseigner",
-                "Longitude": c.get("longitude") if c.get("longitude") is not None else "À renseigner",
-            }])
-            st.dataframe(ident, use_container_width=True, hide_index=True)
-
-            st.markdown("#### 2. Sol & eau")
+            surface = float(c.get("zone_surface_ha") or c.get("surface_ha") or 0)
+            st.markdown("#### 📊 Tableau de synthèse")
             a,b,c1,d = st.columns(4)
-            a.metric("ETo", f"{eto:.2f} mm/j")
-            b.metric("Kc", f"{kc:.2f}")
-            c1.metric("ETc", f"{etc:.2f} mm/j")
-            d.metric("Besoin brut", f"{besoin_brut:,.1f} m³/j")
-            if not pedo_df.empty:
-                st.dataframe(pedo_df, use_container_width=True, hide_index=True)
+            a.metric("Qualité des données", f"{q}/100")
+            b.metric("Confiance", f"{conf*100:.0f}%")
+            c1.metric("Risque", f"{risk}/100")
+            d.metric("Observations / analyses", f"{len(obs)} / {len(ana)}")
+
+            st.markdown("#### 🎯 Contexte étudié")
+            st.info(f"Client : {c['client'] or '—'} · Dossier : {c['dossier'] or '—'} · Parcelle : {c['parcelle'] or '—'} · Surface : {surface:.2f} ha · Culture : {c['culture'] or '—'}")
+
+            if checks:
+                st.markdown("#### 🔎 Contrôle des preuves")
+                st.dataframe(pd.DataFrame(checks), use_container_width=True, hide_index=True)
+
+            st.markdown("#### 🧭 Lecture opérationnelle")
+            if not c.get("parcelle_id"):
+                st.warning("Aucune parcelle active. Le diagnostic reste au niveau du dossier et doit être complété par une parcelle/zone d'étude.")
+            if not obs:
+                st.warning("Aucune observation récente enregistrée.")
+            if not ana:
+                st.warning("Aucune analyse disponible dans le dossier.")
+            if q < 70:
+                st.warning("La qualité des données est insuffisante pour une conclusion forte : compléter les preuves terrain, la géométrie et/ou les analyses.")
             else:
-                st.info(pedo_msg or "Aucune unité pédologique intersectée par la parcelle active.")
+                st.success("Le dossier dispose d'un socle de données exploitable ; confirmer les recommandations avec les preuves disponibles.")
 
-            st.markdown("#### 3. Observations terrain")
-            if obs:
-                odf = pd.DataFrame(obs)
-                cols = [x for x in ["date_observation","domaine","type_observation","gravite","incidence","surface_affectee_ha","description","validation_status"] if x in odf.columns]
-                st.dataframe(odf[cols] if cols else odf, use_container_width=True, hide_index=True)
-            else:
-                st.warning("Aucune observation enregistrée. Utilisez Terrain → Observations pour renseigner les preuves terrain.")
-
-            st.markdown("#### 4. Analyses")
-            if ana:
-                adf = pd.DataFrame(ana)
-                cols = [x for x in ["date_analyse","type_analyse","parametre","valeur","unite","methode","laboratoire","validation_status","notes"] if x in adf.columns]
-                st.dataframe(adf[cols] if cols else adf, use_container_width=True, hide_index=True)
-            else:
-                st.warning("Aucune analyse enregistrée. Ajoutez les analyses de sol, eau, végétal ou autres dans Terrain → Analyses.")
-
-            st.markdown("#### 5. Santé / risques")
-            open_alerts = [x for x in alerts if (x.get("statut") or "Ouverte") == "Ouverte"]
-            if open_alerts:
-                st.dataframe(pd.DataFrame(open_alerts), use_container_width=True, hide_index=True)
-            else:
-                st.success("Aucune alerte ouverte enregistrée.")
-
-            st.markdown("#### 6. Météo / climat")
-            weather = st.session_state.get("weather")
-            if weather:
-                cur = weather.get("current", {})
-                wc1,wc2,wc3,wc4 = st.columns(4)
-                wc1.metric("Température", f"{cur.get('temperature_2m','—')} °C")
-                wc2.metric("Humidité", f"{cur.get('relative_humidity_2m','—')} %")
-                wc3.metric("Pluie", f"{cur.get('precipitation','—')} mm")
-                wc4.metric("Vent", f"{cur.get('wind_speed_10m','—')} km/h")
-            else:
-                st.info("Météo non synchronisée. Utilisez Diagnostic → Climat & risques.")
-
-            st.markdown("#### 7. Actions, missions et suivi")
-            s1,s2,s3 = st.columns(3)
-            s1.metric("Actions", len(acts))
-            s2.metric("Missions", len(missions))
-            s3.metric("Alertes", len(alerts))
-            if acts:
-                st.dataframe(pd.DataFrame(acts), use_container_width=True, hide_index=True)
-            if missions:
-                st.dataframe(pd.DataFrame(missions), use_container_width=True, hide_index=True)
-
-            st.markdown("#### 8. Contrôles de qualité")
-            st.dataframe(pd.DataFrame(checks), use_container_width=True, hide_index=True)
-
-            st.markdown("#### 9. Conclusion opérationnelle")
-            gaps=[]
-            if not c.get("client_id"): gaps.append("client")
-            if not c.get("dossier_id"): gaps.append("dossier")
-            if not c.get("parcelle_id"): gaps.append("parcelle")
-            if surface <= 0: gaps.append("surface")
-            if not obs: gaps.append("observations")
-            if not ana: gaps.append("analyses")
-            if gaps:
-                st.warning("Éléments à compléter : " + ", ".join(gaps) + ".")
-            else:
-                st.success("Le dossier contient les principaux éléments nécessaires à une analyse transversale. Les recommandations restent à confirmer avec les preuves et références techniques applicables.")
+            st.markdown("#### 📋 Conclusion synthétique")
+            st.write(
+                f"Le dossier présente une qualité de données de {q}/100, une confiance calculée de {conf*100:.0f}% "
+                f"et un niveau de risque de {risk}/100. La conclusion doit rester proportionnée aux observations, "
+                "aux analyses disponibles et au périmètre géographique effectivement documenté."
+            )
 
     if section == '🌱 Sols & Eau':
-        st.subheader("🌱 Sols & Eau — données synchronisées")
+        st.subheader("🌱 Sols & Eau")
         c = context()
         zone = next((z for z,v in AGROZONES.items() if c["region"] in v["regions"]), None)
         if zone:
             st.info(f"Zone agroécologique indicative : {zone}")
-            z1,z2 = st.columns(2)
-            z1.markdown("**Profil de sol indicatif :**")
-            z1.write(str(AGROZONES[zone].get("sol", "Non renseigné")))
-            z2.markdown("**Risques indicatifs :**")
-            z2.write(str(AGROZONES[zone].get("risques", "Non renseigné")))
+            st.write("**Profil de sol indicatif :**", AGROZONES[zone]["sol"])
+            st.write("**Risques indicatifs :**", AGROZONES[zone]["risques"])
+        st.markdown("#### 🧭 Sol de la zone cartographiée")
+        parcel = active_parcelle() or {}
+        # Toujours analyser la parcelle active si elle existe.
+        geom = parcel.get("geometry_json") if parcel else c.get("zone_geometry")
+        coords_pedo = load_geometry(geom)
+        if coords_pedo and c.get("parcelle_id"):
+            st.caption(f"🔗 Sols & Eau synchronisé avec la parcelle **{c.get('parcelle')}** · {c.get('surface_ha', 0):.3f} ha")
+        if st.button("🔄 Synchroniser la parcelle avec toutes les analyses", key="sync_parcelle_global"):
+            ok_sync, msg_sync = _save_active_parcel_geometry(coords_pedo if 'coords_pedo' in locals() else _active_geometry())
+            if ok_sync:
+                st.success(msg_sync)
+                st.rerun()
+            else:
+                st.warning(msg_sync)
 
-        st.markdown("#### 🧭 Sol de la parcelle active")
-        coords_pedo = c.get("parcelle_geometry") or _active_geometry()
         if coords_pedo and len(coords_pedo) >= 3:
             pedo_df, pedo_msg = pedo_lookup(coords_pedo)
             if pedo_msg:
                 st.caption(f"ℹ️ {pedo_msg}")
             if not pedo_df.empty:
-                st.success("Morpho_Pedo synchronisé avec la parcelle active.")
+                st.success("Unités pédologiques intersectées par la zone active.")
                 st.dataframe(pedo_df, use_container_width=True, hide_index=True)
             else:
-                st.info("Aucune unité pédologique intersectée par la parcelle active.")
+                st.info("Aucune unité pédologique exploitable n'est associée à cette géométrie.")
         else:
-            st.warning("Aucune géométrie de parcelle active. Délimitez une parcelle dans Diagnostic → Zone & GPS.")
-
-        st.markdown("#### 💧 Besoin d'irrigation — calcul synchronisé")
-        saved = st.session_state.get("irrigation_current", {})
-        default_surface = float(c.get("surface_ha") or c.get("zone_surface_ha") or 1.0)
-        eto_default = float(saved.get("eto", 5.56))
-        kc_default = float(saved.get("kc", 1.00))
-        surf_default = float(saved.get("surface", default_surface))
-        eff_default = float(saved.get("eff", 0.75))
+            st.info("Délimitez d'abord la parcelle/zone avec le Polygone pour obtenir les données pédologiques.")
+        st.markdown("#### Besoin d'irrigation")
         a,b,c1,d = st.columns(4)
-        eto = a.number_input("ETo (mm/j)", 0.0, 20.0, eto_default, step=0.01, key="irrig_eto_sync")
-        kc = b.number_input("Kc", 0.1, 1.5, kc_default, step=0.01, key="irrig_kc_sync")
-        surf = c1.number_input("Surface (ha)", 0.01, 100000.0, surf_default, step=0.01, key="irrig_surface_sync")
-        eff = d.number_input("Efficacité", 0.1, 1.0, eff_default, step=0.01, key="irrig_eff_sync")
+        eto = a.number_input("ETo mm/j", 0.0, 20.0, 5.5, key="irrig_eto_pro")
+        kc = b.number_input("Kc", 0.1, 1.5, 1.0, key="irrig_kc_pro")
+        surf = c1.number_input("Surface ha", 0.1, 100000.0, float(c["zone_surface_ha"] or c["surface_ha"] or 1), key="irrig_surface_pro")
+        eff = d.number_input("Efficacité", 0.1, 1.0, 0.75, key="irrig_eff_pro")
         etc = eto * kc
-        besoin_net = etc * 10.0 * surf
-        besoin_brut = besoin_net / max(eff, 0.01)
-        dose_brute_mm = etc / max(eff, 0.01)
-        st.session_state["irrigation_current"] = {
-            "eto": float(eto), "kc": float(kc), "surface": float(surf), "eff": float(eff),
-            "etc": float(etc), "besoin_net": float(besoin_net), "besoin_brut": float(besoin_brut),
-            "dose_brute_mm": float(dose_brute_mm), "updated_at": now()
-        }
-        m1,m2,m3,m4 = st.columns(4)
-        m1.metric("ETc", f"{etc:.2f} mm/j")
-        m2.metric("Besoin net", f"{besoin_net:,.1f} m³/j")
-        m3.metric("Besoin brut", f"{besoin_brut:,.1f} m³/j")
-        m4.metric("Lame brute", f"{dose_brute_mm:.2f} mm/j")
-        st.caption("Formule : ETc = ETo × Kc ; 1 mm sur 1 ha = 10 m³ ; besoin brut = besoin net / efficacité.")
-        if st.button("💾 Enregistrer les paramètres d'irrigation", type="primary", key="save_irrigation_sync"):
-            key = f"irrigation:{c.get('dossier_id')}:{c.get('parcelle_id') or 'dossier'}"
-            db_exec("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value",
-                    (key, json.dumps(st.session_state["irrigation_current"], ensure_ascii=False)))
-            audit("IRRIGATION_SYNC", "parcelle", c.get("parcelle_id") or c.get("dossier_id"), st.session_state["irrigation_current"])
-            st.success("Paramètres d'irrigation enregistrés et disponibles pour le diagnostic et le rapport.")
+        gross = etc * 10 * surf / eff
+        st.metric("ETc", f"{etc:.2f} mm/j")
+        st.metric("Besoin brut", f"{gross:.1f} m³/j")
+        st.caption("Calcul indicatif; confirmer les paramètres par les conditions locales et les données techniques disponibles.")
 
     if section == '🦠 Phytosanitaire':
         st.subheader("🦠 Pré-diagnostic phytosanitaire")
@@ -2343,7 +2380,7 @@ def _legacy_sig_space(selected=None):
             checks = verification_phytosanitaire(symptoms, severity)
             st.markdown("### Vérifications à effectuer")
             for item in checks:
-                st.write(f"• {item}")
+                st.write("•", item)
             st.caption("Ces éléments sont des contrôles terrain et non un diagnostic automatisé ni une prescription.")
             audit("VERIFICATION_PHYTOSANITAIRE","phytosanitaire",context()["parcelle_id"] or "")
 
@@ -2387,63 +2424,19 @@ def _legacy_decision_space(selected=None):
     section = selected or st.session_state.get("compact__legacy_decision_space", '🔬 Diagnostic multi-domaine')
 
     if section == '🔬 Diagnostic multi-domaine':
-        st.subheader("🔬 Décision — analyse multi-domaine")
+        st.subheader("🔬 Diagnostic transversal")
         c = context()
         if not c["dossier_id"]:
-            st.warning("Sélectionnez un dossier dans la barre latérale.")
+            st.info("Sélectionnez un dossier.")
         else:
-            did=c["dossier_id"]
-            obs=db_exec("SELECT * FROM observations WHERE dossier_id=? ORDER BY created_at DESC LIMIT 100",(did,),fetch=True)
-            ana=db_exec("SELECT * FROM analyses WHERE dossier_id=? ORDER BY date_analyse DESC LIMIT 100",(did,),fetch=True)
-            acts=db_exec("SELECT * FROM actions WHERE dossier_id=? ORDER BY echeance",(did,),fetch=True)
-            alerts=db_exec("SELECT * FROM alerts WHERE dossier_id=? AND statut='Ouverte' ORDER BY created_at DESC",(did,),fetch=True)
-            q,_=data_quality(); conf=confidence_from_sources(); risk=risk_score()
-            irr=st.session_state.get("irrigation_current",{})
-            eto=float(irr.get("eto",5.56)); kc=float(irr.get("kc",1.0)); surf=float(irr.get("surface",c.get("surface_ha") or 1)); eff=float(irr.get("eff",0.75))
-            etc=eto*kc; gross=etc*10*surf/max(eff,0.01)
-            scores={
-                "Contexte client/dossier": 100 if c.get("client_id") and c.get("dossier_id") else 40,
-                "Parcelle & géométrie": 100 if c.get("parcelle_id") and c.get("parcelle_geometry") else 20,
-                "Culture": 100 if c.get("culture") else 20,
-                "Preuves terrain": min(100,20+len(obs)*20),
-                "Analyses": min(100,20+len(ana)*20),
-                "Gestion de l'eau": 100 if surf>0 and eto>0 and kc>0 else 30,
-                "Suivi des actions": min(100,20+len(acts)*20),
-                "Alertes maîtrisées": max(20,100-len(alerts)*15),
-            }
-            decision=int(np.mean(list(scores.values())))
-            a,b,c1,d=st.columns(4)
-            a.metric("Indice de préparation décision",f"{decision}/100")
-            b.metric("Qualité",f"{q}/100")
-            c1.metric("Confiance",f"{conf*100:.0f}%")
-            d.metric("Risque",f"{risk}/100")
-            st.dataframe(pd.DataFrame([{"Domaine":k,"Niveau":v} for k,v in scores.items()]),use_container_width=True,hide_index=True)
-
-            st.markdown("#### 💧 Données d'irrigation utilisées")
-            st.write(f"ETo **{eto:.2f} mm/j** · Kc **{kc:.2f}** · Surface **{surf:.2f} ha** · efficacité **{eff:.2f}** → ETc **{etc:.2f} mm/j**, besoin brut **{gross:,.1f} m³/j**.")
-
-            st.markdown("#### 🧭 Points nécessitant une décision ou une vérification")
-            rec=[]
-            if not c.get("parcelle_id"): rec.append("Sélectionner/créer la parcelle avant toute décision spatialisée.")
-            if not c.get("parcelle_geometry"): rec.append("Compléter la géométrie GPS de la parcelle.")
-            if not c.get("culture"): rec.append("Renseigner la culture et le stade cultural.")
-            if not obs: rec.append("Ajouter au moins une observation terrain datée et localisée.")
-            if not ana: rec.append("Ajouter les analyses disponibles ou documenter leur absence.")
-            if alerts: rec.append(f"Examiner {len(alerts)} alerte(s) ouverte(s) avant clôture du diagnostic.")
-            if risk>=60: rec.append("Revoir les facteurs de risque avant validation de la décision.")
-            if not rec: rec.append("Aucun manque structurel détecté par les contrôles actuels ; valider néanmoins les hypothèses techniques.")
-            for r in rec: st.write("• "+r)
-
-            st.markdown("#### 📝 Décision à enregistrer")
-            with st.form("decision_note_form"):
-                decision_type=st.selectbox("Domaine de décision",DOMAINS)
-                conclusion=st.text_area("Décision / recommandation à inscrire au dossier",height=120)
-                responsable=st.text_input("Responsable de validation",value=(current_user().get("nom") or current_user().get("email") or ""))
-                if st.form_submit_button("Enregistrer la décision"):
-                    db_exec("INSERT INTO actions(id,dossier_id,mission_id,domaine,titre,responsable,echeance,priorite,statut,cout_estime,preuve,notes,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                            (new_id("ACT"),did,st.session_state.get("selected_mission"),decision_type,conclusion[:180] or "Décision à confirmer",responsable,str(date.today()),"Haute","À faire",0,"",conclusion,now(),now()))
-                    audit("DECISION_ENREGISTREE","dossier",did,decision_type)
-                    st.success("Décision enregistrée dans le plan de suivi.")
+            obs = db_exec("SELECT * FROM observations WHERE dossier_id=? ORDER BY created_at DESC LIMIT 50", (c["dossier_id"],), fetch=True)
+            ana = db_exec("SELECT * FROM analyses WHERE dossier_id=? ORDER BY date_analyse DESC LIMIT 50", (c["dossier_id"],), fetch=True)
+            a,b,c1 = st.columns(3)
+            a.metric("Observations", len(obs))
+            b.metric("Analyses", len(ana))
+            c1.metric("Confiance", f"{confidence_from_sources()*100:.0f}%")
+            if obs: st.dataframe(pd.DataFrame(obs), use_container_width=True, hide_index=True)
+            if ana: st.dataframe(pd.DataFrame(ana), use_container_width=True, hide_index=True)
 
     if section == '📊 Simulations':
         st.subheader("📊 Simulations de scénarios")
@@ -2591,60 +2584,9 @@ def _legacy_consultancy_space(selected=None):
     section = selected or st.session_state.get("compact__legacy_consultancy_space", '👥 Clients')
 
     if section == '👥 Clients':
-        st.subheader("👥 Clients & dossiers — gestion complète")
-        st.markdown("#### ➕ Nouveau client")
-        with st.form("cabinet_new_client_complete"):
-            a,b,c1,d=st.columns(4)
-            nom=a.text_input("Nom / exploitation", key="cab_cli_nom")
-            tel=b.text_input("Téléphone", key="cab_cli_tel")
-            email=c1.text_input("E-mail", key="cab_cli_email")
-            org=d.text_input("Organisation", key="cab_cli_org")
-            a2,b2,c2=st.columns(3)
-            region=a2.selectbox("Région",list(REGIONS_COORD),key="cab_cli_region")
-            adresse=b2.text_input("Adresse / localité",key="cab_cli_addr")
-            notes=c2.text_area("Notes",key="cab_cli_notes")
-            if st.form_submit_button("💾 Créer le client",type="primary"):
-                cid=new_id("CLI")
-                db_exec("INSERT INTO clients(id,nom,telephone,email,organisation,adresse,region,notes,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
-                        (cid,nom or "Client sans nom",tel,email,org,adresse,region,notes,now(),now()))
-                st.session_state["client_id"]=cid
-                st.session_state["dossier_id"]=None
-                st.session_state["parcelle_id"]=None
-                audit("CREATION","client",cid)
-                st.success("Client créé et sélectionné.")
-                st.rerun()
-
-        clients=accessible_clients()
-        if clients:
-            st.markdown("#### 👥 Portefeuille clients")
-            st.dataframe(pd.DataFrame(clients),use_container_width=True,hide_index=True)
-        else:
-            st.info("Aucun client disponible pour ce compte. Créez le premier client ci-dessus.")
-
-        st.markdown("#### 📁 Dossiers du client actif")
-        cid=context().get("client_id")
-        if cid:
-            dossiers=accessible_dossiers(cid)
-            with st.form("cabinet_new_dossier_complete"):
-                a,b,c1,d=st.columns(4)
-                dnom=a.text_input("Nom du dossier")
-                typ=b.selectbox("Type d'exploitation",["Agriculture","Élevage","Aquaculture","Agroalimentaire","Mixte"])
-                reg=c1.selectbox("Région",list(REGIONS_COORD))
-                commune=d.text_input("Commune")
-                village=st.text_input("Village")
-                notes=st.text_area("Notes du dossier")
-                if st.form_submit_button("💾 Créer le dossier"):
-                    did=new_id("DOS"); lat,lon=REGIONS_COORD[reg]
-                    db_exec("INSERT INTO dossiers(id,client_id,nom,type_exploitation,region,commune,village,latitude,longitude,notes,statut,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                            (did,cid,dnom or "Dossier sans nom",typ,reg,commune,village,lat,lon,notes,"Actif",now(),now()))
-                    set_active_dossier(did)
-                    audit("CREATION","dossier",did)
-                    st.success("Dossier créé et sélectionné.")
-                    st.rerun()
-            if dossiers:
-                st.dataframe(pd.DataFrame(dossiers),use_container_width=True,hide_index=True)
-            else:
-                st.info("Aucun dossier pour le client actif.")
+        st.subheader("👥 Portefeuille clients")
+        rows = db_exec("SELECT * FROM clients ORDER BY COALESCE(updated_at, created_at, '') DESC", fetch=True)
+        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
     if section == '📋 Missions':
         st.subheader("📋 Workflow professionnel des missions")
@@ -2695,51 +2637,11 @@ def _legacy_consultancy_space(selected=None):
             st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
     if section == '💳 Finance':
-        st.subheader("💳 Finance — recettes, dépenses et rentabilité")
-        did=context().get("dossier_id")
-        if not did:
-            st.warning("Sélectionnez un dossier dans la barre latérale.")
-        else:
-            with st.form("cabinet_finance_complete"):
-                a,b,c1,d=st.columns(4)
-                typ=a.selectbox("Type",["Recette","Dépense"])
-                cat=b.selectbox("Catégorie",["Intrants","Main-d'œuvre","Irrigation","Transport","Conseil","Vente","Équipement","Autre"])
-                lib=c1.text_input("Libellé")
-                amount=d.number_input("Montant FCFA",0.0,1e12,0.0)
-                ref=st.text_input("Référence")
-                notes=st.text_area("Notes")
-                if st.form_submit_button("💾 Enregistrer l'opération",type="primary"):
-                    db_exec("INSERT INTO finance(id,dossier_id,mission_id,type_operation,categorie,libelle,montant_fcfa,date_operation,statut,reference,notes) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
-                            (new_id("FIN"),did,st.session_state.get("selected_mission"),typ,cat,lib,amount,now(),"Enregistré",ref,notes))
-                    audit("FINANCE","finance",did,lib)
-                    st.success("Opération financière enregistrée.")
-            st.markdown("#### 📝 Devis du dossier")
-            with st.form("cabinet_quote_inside_finance"):
-                qa,qb,qc,qd=st.columns(4)
-                qref=qa.text_input("Référence devis")
-                qobj=qb.text_input("Objet du devis")
-                qht=qc.number_input("Montant HT FCFA",0.0,1e12,0.0)
-                qtax=qd.number_input("Taxes FCFA",0.0,1e12,0.0)
-                qvalid=st.date_input("Validité",date.today()+timedelta(days=15))
-                qstat=st.selectbox("Statut du devis",["Brouillon","Envoyé","Accepté","Refusé","Expiré"])
-                if st.form_submit_button("💾 Enregistrer le devis"):
-                    db_exec("INSERT INTO quotes(id,client_id,dossier_id,reference,objet,montant_ht,taxes,total,statut,date_creation,date_validite,notes) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
-                            (new_id("QTE"),context().get("client_id"),did,qref or new_id("DEV"),qobj,qht,qtax,qht+qtax,qstat,now(),str(qvalid),""))
-                    audit("DEVIS","quote",did,qref or qobj)
-                    st.success("Devis enregistré.")
-
-            rows=db_exec("SELECT * FROM finance WHERE dossier_id=? ORDER BY date_operation DESC",(did,),fetch=True)
-            if rows:
-                df=pd.DataFrame(rows)
-                recettes=float(df.loc[df["type_operation"]=="Recette","montant_fcfa"].sum())
-                depenses=float(df.loc[df["type_operation"]=="Dépense","montant_fcfa"].sum())
-                a,b,c1=st.columns(3)
-                a.metric("Recettes",f"{recettes:,.0f} FCFA")
-                b.metric("Dépenses",f"{depenses:,.0f} FCFA")
-                c1.metric("Solde",f"{recettes-depenses:,.0f} FCFA")
-                st.dataframe(df,use_container_width=True,hide_index=True)
-            else:
-                st.info("Aucune opération financière enregistrée pour ce dossier.")
+        st.subheader("💳 Finance et rentabilité du cabinet")
+        did = context()["dossier_id"]
+        if did:
+            rows = db_exec("SELECT * FROM finance WHERE dossier_id=? ORDER BY date_operation DESC",(did,), fetch=True)
+            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
     if section == '📄 Rapports':
         st.subheader("📄 Rapports professionnels")
@@ -2767,47 +2669,25 @@ def _legacy_consultancy_space(selected=None):
                 obs = db_exec("SELECT * FROM observations WHERE dossier_id=? ORDER BY created_at DESC LIMIT 20", (c["dossier_id"],), fetch=True)
                 ana = db_exec("SELECT * FROM analyses WHERE dossier_id=? ORDER BY date_analyse DESC LIMIT 20", (c["dossier_id"],), fetch=True)
                 actions = db_exec("SELECT * FROM actions WHERE dossier_id=? ORDER BY created_at DESC LIMIT 10", (c["dossier_id"],), fetch=True)
-                pedo_df, pedo_msg = pedo_lookup(c.get("parcelle_geometry") or c.get("zone_geometry") or [])
-                irr = st.session_state.get("irrigation_current", {})
-                eto=float(irr.get("eto",5.56)); kc=float(irr.get("kc",1.0)); irr_surface=float(irr.get("surface",c.get("surface_ha") or 1)); eff=float(irr.get("eff",0.75))
-                etc=eto*kc; besoin_net=etc*10*irr_surface; besoin_brut=besoin_net/max(eff,0.01)
-                missions = db_exec("SELECT * FROM missions WHERE dossier_id=? ORDER BY created_at DESC LIMIT 20", (c["dossier_id"],), fetch=True)
-                alerts = db_exec("SELECT * FROM alerts WHERE dossier_id=? ORDER BY created_at DESC LIMIT 50", (c["dossier_id"],), fetch=True)
-                finances = db_exec("SELECT * FROM finance WHERE dossier_id=? ORDER BY date_operation DESC LIMIT 100", (c["dossier_id"],), fetch=True)
-                quotes = db_exec("SELECT * FROM quotes WHERE dossier_id=? ORDER BY date_creation DESC LIMIT 20", (c["dossier_id"],), fetch=True)
-                weather = st.session_state.get("weather") or {}
-                cur_weather = weather.get("current", {}) if weather else {}
-                pedo_summary = "Aucune unité pédologique intersectée."
-                if not pedo_df.empty:
-                    pedo_summary = "; ".join([str(x) for x in pedo_df.astype(str).head(10).to_dict("records")])
-                finance_rec=sum(float(x.get("montant_fcfa") or 0) for x in finances if x.get("type_operation")=="Recette")
-                finance_dep=sum(float(x.get("montant_fcfa") or 0) for x in finances if x.get("type_operation")=="Dépense")
                 text = (
                     f"RAPPORT SYNTHÉTIQUE DE DIAGNOSTIC\n"
-                    f"Date : {report_date}\nConsultant : {consultant}\nType : {report_type}\n\n"
-                    f"1. IDENTIFICATION\nClient : {c['client'] or 'À renseigner'}\nDossier : {c['dossier'] or 'À renseigner'}\n"
-                    f"Région : {c.get('region') or 'À renseigner'}\nCommune : {c.get('commune') or 'À renseigner'}\nVillage : {c.get('village') or 'À renseigner'}\n"
-                    f"Parcelle : {c['parcelle'] or 'À renseigner'}\nCulture : {c['culture'] or 'À renseigner'}\nStade : {c['stade'] or 'À renseigner'}\n"
-                    f"Surface : {float(c.get('surface_ha') or c.get('zone_surface_ha') or 0):.3f} ha\n"
-                    f"GPS : {c.get('latitude') or '—'}, {c.get('longitude') or '—'}\n\n"
-                    f"2. FIABILITÉ DES DONNÉES\nQualité : {q}/100\nConfiance : {conf*100:.0f}%\nRisque : {risk}/100\n"
-                    f"Observations : {len(obs)}\nAnalyses : {len(ana)}\nMissions : {len(missions)}\nActions : {len(actions)}\nAlertes : {len(alerts)}\n\n"
-                    f"3. SOL & PÉDOLOGIE\n{pedo_summary}\nMessage couche : {pedo_msg or 'OK'}\n\n"
-                    f"4. IRRIGATION\nETo : {eto:.2f} mm/j\nKc : {kc:.2f}\nSurface utilisée : {irr_surface:.2f} ha\n"
-                    f"Efficacité : {eff:.2f}\nETc : {etc:.2f} mm/j\nBesoin net : {besoin_net:,.1f} m³/j\nBesoin brut : {besoin_brut:,.1f} m³/j\n\n"
-                    f"5. MÉTÉO DISPONIBLE\nTempérature : {cur_weather.get('temperature_2m','—')} °C\nHumidité : {cur_weather.get('relative_humidity_2m','—')} %\n"
-                    f"Précipitation : {cur_weather.get('precipitation','—')} mm\nVent : {cur_weather.get('wind_speed_10m','—')} km/h\n\n"
-                    f"6. OBSERVATIONS\n" + "\n".join([f"- {o.get('date_observation','—')} | {o.get('domaine','—')} | {o.get('gravite','—')} | {o.get('description','')}" for o in obs[:20]]) + "\n\n"
-                    f"7. ANALYSES\n" + "\n".join([f"- {a.get('date_analyse','—')} | {a.get('type_analyse','—')} | {a.get('parametre','—')} = {a.get('valeur','—')} {a.get('unite','')} | {a.get('laboratoire','')}" for a in ana[:20]]) + "\n\n"
-                    f"8. ACTIONS\n" + "\n".join([f"- {a.get('titre','—')} | {a.get('responsable','—')} | {a.get('echeance','—')} | {a.get('statut','—')} | {a.get('priorite','—')}" for a in actions[:20]]) + "\n\n"
-                    f"9. FINANCE\nRecettes : {finance_rec:,.0f} FCFA\nDépenses : {finance_dep:,.0f} FCFA\nSolde : {finance_rec-finance_dep:,.0f} FCFA\nDevis enregistrés : {len(quotes)}\n\n"
-                    f"10. CONCLUSION / POINTS À VALIDER\n"
-                    "Les informations ci-dessus constituent l'état documenté du dossier au moment de l'édition. "
-                    "Les recommandations doivent être confirmées avec les observations de terrain, les analyses validées, "
-                    "les références techniques applicables et les conditions locales.\n\n"
-                    "11. ESPACE DE VALIDATION\nDécision / recommandation finale : ________________________________________________\n"
-                    "Responsable : ______________________________  Date : ____/____/________\n"
-                    "Signature : ________________________________________________________________"
+                    f"Date : {report_date}\n"
+                    f"Consultant : {consultant}\n\n"
+                    f"CLIENT : {c['client'] or '—'}\n"
+                    f"DOSSIER : {c['dossier'] or '—'}\n"
+                    f"ZONE : {c['zone_nom'] or 'Non délimitée'} ({c['zone_surface_ha']:.3f} ha)\n"
+                    f"PARCELLE : {c['parcelle'] or '—'}\n"
+                    f"CULTURE : {c['culture'] or '—'}\n\n"
+                    f"QUALITÉ DES DONNÉES : {q}/100\n"
+                    f"CONFIANCE : {conf*100:.0f}%\n"
+                    f"RISQUE : {risk}/100\n\n"
+                    f"DONNÉES OBSERVÉES : {len(obs)} observation(s)\n"
+                    f"ANALYSES DISPONIBLES : {len(ana)}\n"
+                    f"ACTIONS / SUIVI : {len(actions)}\n\n"
+                    "CONCLUSION\n"
+                    "Les éléments disponibles permettent une lecture synthétique du dossier. "
+                    "Les recommandations doivent être confirmées selon les preuves terrain, les analyses disponibles "
+                    "et les sources techniques applicables au contexte local."
                 )
                 db_exec("""INSERT INTO reports(id,dossier_id,mission_id,type_rapport,titre,contenu,confidence,created_at)
                            VALUES(?,?,?,?,?,?,?,?)""",
@@ -2948,7 +2828,7 @@ def _legacy_consultancy_space(selected=None):
         if st.button("🔄 Synchroniser tout le HUB", key="audit_global_sync"):
             messages = sync_all()
             for m in messages:
-                st.write(f"• {m}")
+                st.write("•",m)
             st.success("Synchronisation terminée avec conservation du dernier état connu.")
 
 
@@ -2984,7 +2864,7 @@ def dashboard():
     flow = pd.DataFrame({
         "Étape":["Client","Dossier","Zone GPS","Observations","Analyses","Décision","Mission","Rapport"],
         "État":[
-            bool(c["client_id"]),bool(c["dossier_id"]),bool(c.get("parcelle_geometry") or c.get("zone_geometry")),obs>0,
+            bool(c["client_id"]),bool(c["dossier_id"]),bool(c["zone_geometry"]),obs>0,
             analyses_count>0,
             obs>0 or missions>0,missions>0,
             reports_count>0
@@ -3165,7 +3045,7 @@ with st.sidebar:
     if st.button("🔄 Synchroniser tout le dossier", type="primary", key="v10_sync"):
         with st.spinner("Synchronisation interne puis données externes..."):
             msgs=sync_all()
-        for m in msgs: st.write(f"• {m}")
+        for m in msgs: st.write("•",m)
         st.success("Synchronisation terminée.")
     if st.button("🚪 Déconnexion", key="v10_logout"):
         audit("DECONNEXION","user",(st.session_state.get("user") or {}).get("email",""))
