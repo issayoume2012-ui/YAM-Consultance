@@ -2281,8 +2281,10 @@ def _legacy_sig_space(selected=None):
         if zone:
             st.info(f"Zone agroécologique indicative : {zone}")
             z1,z2 = st.columns(2)
-            z1.write("**Profil de sol indicatif :**", AGROZONES[zone]["sol"])
-            z2.write("**Risques indicatifs :**", AGROZONES[zone]["risques"])
+            z1.markdown("**Profil de sol indicatif :**")
+            z1.write(str(AGROZONES[zone].get("sol", "Non renseigné")))
+            z2.markdown("**Risques indicatifs :**")
+            z2.write(str(AGROZONES[zone].get("risques", "Non renseigné")))
 
         st.markdown("#### 🧭 Sol de la parcelle active")
         coords_pedo = c.get("parcelle_geometry") or _active_geometry()
@@ -2341,7 +2343,7 @@ def _legacy_sig_space(selected=None):
             checks = verification_phytosanitaire(symptoms, severity)
             st.markdown("### Vérifications à effectuer")
             for item in checks:
-                st.write("•", item)
+                st.write(f"• {item}")
             st.caption("Ces éléments sont des contrôles terrain et non un diagnostic automatisé ni une prescription.")
             audit("VERIFICATION_PHYTOSANITAIRE","phytosanitaire",context()["parcelle_id"] or "")
 
@@ -2946,7 +2948,7 @@ def _legacy_consultancy_space(selected=None):
         if st.button("🔄 Synchroniser tout le HUB", key="audit_global_sync"):
             messages = sync_all()
             for m in messages:
-                st.write("•",m)
+                st.write(f"• {m}")
             st.success("Synchronisation terminée avec conservation du dernier état connu.")
 
 
@@ -3163,7 +3165,7 @@ with st.sidebar:
     if st.button("🔄 Synchroniser tout le dossier", type="primary", key="v10_sync"):
         with st.spinner("Synchronisation interne puis données externes..."):
             msgs=sync_all()
-        for m in msgs: st.write("•",m)
+        for m in msgs: st.write(f"• {m}")
         st.success("Synchronisation terminée.")
     if st.button("🚪 Déconnexion", key="v10_logout"):
         audit("DECONNEXION","user",(st.session_state.get("user") or {}).get("email",""))
