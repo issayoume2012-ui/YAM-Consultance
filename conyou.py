@@ -17,7 +17,6 @@ Base PostgreSQL : psycopg[binary,pool]
 """
 
 from datetime import datetime, date, timedelta
-from pathlib import Path
 import hashlib
 import io
 import json
@@ -70,6 +69,24 @@ try:
     HAS_PDF = True
 except Exception:
     HAS_PDF = False
+
+
+
+# ============================================================
+# OUTILS DE GÉOMÉTRIE — définis très tôt pour éviter les NameError
+# ============================================================
+def _safe_load_geometry(obj):
+    """Charge une géométrie JSON/GeoJSON ou une liste de coordonnées.
+    Ne lève jamais d'exception : [] signifie géométrie indisponible.
+    """
+    if obj is None or obj == "":
+        return []
+    if isinstance(obj, (dict, list, tuple)):
+        return obj
+    try:
+        return json.loads(str(obj))
+    except Exception:
+        return []
 
 
 
@@ -434,16 +451,6 @@ def init_db():
         niveau TEXT, titre TEXT, message TEXT, source TEXT, due_date TEXT,
         statut TEXT DEFAULT 'Ouverte', created_at TEXT
     );
-    CREATE TABLE IF NOT EXISTS diagnostic_records(
-        id TEXT PRIMARY KEY, dossier_id TEXT, parcelle_id TEXT, domaine TEXT,
-        constat TEXT, cause_possible TEXT, preuve TEXT, gravite TEXT, priorite TEXT,
-        recommandation TEXT, responsable TEXT, statut TEXT, created_at TEXT, updated_at TEXT
-    );
-    CREATE TABLE IF NOT EXISTS decision_records(
-        id TEXT PRIMARY KEY, dossier_id TEXT, parcelle_id TEXT, domaine TEXT, decision TEXT,
-        justification TEXT, actions TEXT, responsable TEXT, echeance TEXT, niveau_confiance REAL,
-        statut TEXT, created_at TEXT, updated_at TEXT
-    );
     CREATE TABLE IF NOT EXISTS gis_features(
         id TEXT PRIMARY KEY, dossier_id TEXT, parcelle_id TEXT, type_feature TEXT,
         nom TEXT, geometry_json TEXT, surface_ha REAL, perimeter_m REAL,
@@ -608,49 +615,10 @@ def active_zone():
 
 
 def load_geometry(obj):
-    """Normalise toute géométrie enregistrée vers [[lat, lon], ...].
-    Accepte une liste de coordonnées, GeoJSON Polygon/Feature/FeatureCollection
-    et les anciennes structures imbriquées utilisées par les versions précédentes.
-    """
-    if not obj:
-        return []
     try:
-        value = json.loads(obj) if isinstance(obj, str) else obj
-        if isinstance(value, dict):
-            typ = value.get("type")
-            if typ == "Feature":
-                value = value.get("geometry") or {}
-                typ = value.get("type")
-            if typ == "FeatureCollection":
-                feats = value.get("features") or []
-                value = feats[0].get("geometry") if feats else {}
-                typ = value.get("type") if isinstance(value, dict) else None
-            if typ == "Polygon":
-                rings = value.get("coordinates") or []
-                ring = rings[0] if rings else []
-                return [[float(pt[1]), float(pt[0])] for pt in ring if isinstance(pt, (list, tuple)) and len(pt) >= 2]
-            if typ == "MultiPolygon":
-                polys = value.get("coordinates") or []
-                ring = polys[0][0] if polys and polys[0] else []
-                return [[float(pt[1]), float(pt[0])] for pt in ring if isinstance(pt, (list, tuple)) and len(pt) >= 2]
-            if typ == "LineString":
-                return [[float(pt[1]), float(pt[0])] for pt in (value.get("coordinates") or []) if len(pt) >= 2]
-            return []
-        if isinstance(value, list):
-            # Format natif interne : [[lat, lon], ...]
-            if value and isinstance(value[0], (list, tuple)) and len(value[0]) >= 2 and not isinstance(value[0][0], (list, tuple)):
-                pts = [[float(pt[0]), float(pt[1])] for pt in value]
-                if all(-90 <= a <= 90 and -180 <= b <= 180 for a,b in pts):
-                    return pts
-            # Ancien Polygon GeoJSON : [[[lon, lat], ...]]
-            ring = value[0] if value and isinstance(value[0], list) else []
-            if ring and isinstance(ring[0], (list, tuple)) and len(ring[0]) >= 2:
-                pts = [[float(pt[1]), float(pt[0])] for pt in ring]
-                if all(-90 <= a <= 90 and -180 <= b <= 180 for a,b in pts):
-                    return pts
+        return json.loads(obj or "[]")
     except Exception:
         return []
-    return []
 
 
 def context():
@@ -661,10 +629,10 @@ def context():
     d = active_dossier() or {}
     p = active_parcelle() or {}
     z = active_zone() or {}
-    parcel_geom = load_geometry(p.get("geometry_json")) if p else []
-    zone_geom = load_geometry(z.get("geometry_json")) if z else []
-    # La parcelle sélectionnée est la source de vérité pour les modules analytiques.
-    # Une zone SIG ne remplace la parcelle que lorsqu'aucune parcelle n'est active.
+    parcel_geom = _safe_load_geometry(p.get("geometry_json")) if p else []
+    zone_geom = _safe_load_geometry(z.get("geometry_json")) if z else []
+    # Une parcelle active est prioritaire : une zone SIG ancienne ne doit
+    # jamais remplacer silencieusement la géométrie de la parcelle choisie.
     geom = parcel_geom or zone_geom
     client_id = d.get("client_id")
     return {
@@ -910,78 +878,64 @@ def _active_geometry():
 # =========================================================
 # COUCHE PÉDOLOGIQUE — Morpho_Pedo
 # =========================================================
-# Résolution robuste : Streamlit Cloud peut utiliser un répertoire de travail
-# différent du dossier contenant conyou.py. On travaille donc toujours à partir
-# du dossier réel du script.
-APP_DIR = Path(__file__).resolve().parent
-PEDO_DEFAULT_CRS = "EPSG:32628"  # UTM 28N ; CRS confirmé par le .prj fourni.
+PEDO_DEFAULT_CRS = "EPSG:32628"
+PEDO_FILENAMES = [
+    "Morpho_Pedo.shp", "Morpho_Pedo(1).shp", "Morpho_Pedo(2).shp",
+    "Morpho_Pedo.geojson", "Morpho_Pedo(1).geojson"
+]
 
 
-def _pedo_file_candidates():
-    """Retourne les chemins Morpho_Pedo possibles, indépendamment du cwd."""
-    names = [
-        "Morpho_Pedo.shp",
-        "Morpho_Pedo(1).shp",
-        "Morpho_Pedo(2).shp",
-        "Morpho_Pedo.geojson",
-        "Morpho_Pedo(1).geojson",
-        "Morpho_Pedo(2).geojson",
-    ]
-    roots = [APP_DIR, APP_DIR / "data"]
-    candidates = []
+def _pedo_candidate_paths():
+    """Construit des chemins absolus depuis le dossier réel du script."""
+    base = Path(__file__).resolve().parent
+    roots = [base, base / "data"]
+    found=[]
     for root in roots:
-        for name in names:
-            candidates.append(root / name)
-    # File glob limité au dossier data : accepte aussi un nom légèrement différent.
-    data_dir = APP_DIR / "data"
-    if data_dir.is_dir():
-        candidates.extend(sorted(data_dir.glob("Morpho_Pedo*.shp")))
-        candidates.extend(sorted(data_dir.glob("Morpho_Pedo*.geojson")))
-    # Puis le dossier du script.
-    candidates.extend(sorted(APP_DIR.glob("Morpho_Pedo*.shp")))
-    candidates.extend(sorted(APP_DIR.glob("Morpho_Pedo*.geojson")))
-    # Déduplication en conservant l'ordre.
-    seen = set()
-    return [p for p in candidates if not (str(p) in seen or seen.add(str(p)))]
+        if not root.exists():
+            continue
+        for name in PEDO_FILENAMES:
+            pth=root/name
+            if pth.exists():
+                found.append(str(pth))
+        # Recherche tolérante des variantes déposées sur GitHub.
+        try:
+            for pth in sorted(root.glob("Morpho_Pedo*.shp")):
+                if str(pth) not in found:
+                    found.append(str(pth))
+            for pth in sorted(root.glob("Morpho_Pedo*.geojson")):
+                if str(pth) not in found:
+                    found.append(str(pth))
+        except Exception:
+            pass
+    return found
 
 
 @st.cache_data(show_spinner=False)
 def load_pedo_layer():
-    """Charge Morpho_Pedo depuis le dépôt, avec résolution de chemin robuste."""
+    """Charge Morpho_Pedo depuis le dossier du script, même sur Streamlit Cloud."""
     if not HAS_PEDO:
-        return None, "GeoPandas/Shapely/PyProj n'est pas installé. Ajoutez geopandas, shapely et pyproj dans requirements.txt."
-
-    path = next((p for p in _pedo_file_candidates() if p.is_file()), None)
-    if path is None:
-        return None, (
-            "Couche Morpho_Pedo introuvable. Chemins testés : "
-            f"{APP_DIR} et {APP_DIR / 'data'}. "
-            "Le dépôt doit contenir Morpho_Pedo.shp + .shx + .dbf + .prj."
-        )
-
+        return None, "GeoPandas/Shapely/PyProj n'est pas installé."
+    candidates=_pedo_candidate_paths()
+    if not candidates:
+        return None, "Couche Morpho_Pedo introuvable : vérifiez data/Morpho_Pedo.shp + .shx + .dbf + .prj."
     try:
-        # Autorise GDAL/Fiona à reconstruire un SHX absent, sans dépendre du cwd.
         os.environ.setdefault("SHAPE_RESTORE_SHX", "YES")
-        gdf = gpd.read_file(str(path))
+        path=candidates[0]
+        gdf=gpd.read_file(path)
         if gdf.empty:
-            return gdf, f"La couche Morpho_Pedo est vide : {path.name}."
-
-        assumed_crs = False
+            return gdf, f"La couche Morpho_Pedo est vide : {path}"
+        assumed=False
         if gdf.crs is None:
-            gdf = gdf.set_crs(PEDO_DEFAULT_CRS, allow_override=True)
-            assumed_crs = True
-
-        gdf = gdf[gdf.geometry.notna()].copy()
-        gdf = gdf[~gdf.geometry.is_empty].copy()
-        if gdf.empty:
-            return gdf, f"La couche Morpho_Pedo ne contient aucune géométrie exploitable : {path.name}."
-
-        msg = f"{len(gdf):,} unités pédologiques chargées depuis {path.relative_to(APP_DIR) if path.is_relative_to(APP_DIR) else path}. CRS={gdf.crs}."
-        if assumed_crs:
-            msg += f" CRS absent du fichier : hypothèse {PEDO_DEFAULT_CRS}."
-        return gdf, msg
+            gdf=gdf.set_crs(PEDO_DEFAULT_CRS,allow_override=True)
+            assumed=True
+        gdf=gdf[gdf.geometry.notna()].copy()
+        gdf=gdf[~gdf.geometry.is_empty].copy()
+        msg=f"{len(gdf):,} unités chargées depuis {path} · CRS {gdf.crs}."
+        if assumed:
+            msg += f" CRS absent : hypothèse {PEDO_DEFAULT_CRS}."
+        return gdf,msg
     except Exception as exc:
-        return None, f"Lecture Morpho_Pedo impossible ({path.name}) : {exc}"
+        return None,f"Lecture Morpho_Pedo impossible : {exc}"
 
 
 def pedo_lookup(coords):
@@ -2054,23 +2008,6 @@ def _legacy_terrain_space(selected=None):
 # =========================================================
 # 11. ESPACE 2 — SIG & DIAGNOSTIC
 # =========================================================
-def calculate_irrigation(eto, kc, surface_ha, efficiency):
-    """Calcul standardisé : ETc puis besoins net/brut en eau."""
-    eto=max(float(eto or 0),0.0); kc=max(float(kc or 0),0.0); surface_ha=max(float(surface_ha or 0),0.0)
-    efficiency=min(max(float(efficiency or 0),0.01),1.0)
-    etc=eto*kc
-    net=etc*10.0*surface_ha
-    gross=net/efficiency
-    return {"eto_mm_j":eto,"kc":kc,"surface_ha":surface_ha,"efficacite":efficiency,"etc_mm_j":etc,
-            "besoin_net_m3_j":net,"besoin_brut_m3_j":gross,"apport_brut_mm_j":etc/efficiency,
-            "besoin_brut_m3_h":gross/24.0,"besoin_brut_m3_semaine":gross*7.0}
-
-def _irrigation_defaults(c):
-    surface=float(c.get("surface_ha") or c.get("zone_surface_ha") or 0)
-    if surface<=0: surface=35.43
-    return {"eto":5.56,"kc":1.00,"surface":surface,"eff":0.75}
-
-
 def _legacy_sig_space(selected=None):
     section = selected or st.session_state.get("compact__legacy_sig_space", '🗺️ Zone concernée')
 
@@ -2212,49 +2149,188 @@ def _legacy_sig_space(selected=None):
                     st.rerun()
 
     if section == '🔬 Diagnostic 360°':
-        st.subheader("🔬 Diagnostic 360°")
+        st.subheader("🔬 Diagnostic 360° — synthèse complète")
         c = context()
         if not c["dossier_id"]:
-            st.info("Sélectionnez ou créez d'abord un dossier dans la barre latérale.")
+            st.warning("Sélectionnez ou créez un dossier dans la barre latérale avant de lancer le diagnostic.")
         else:
-            did=c["dossier_id"]; pid=c.get("parcelle_id")
-            obs=db_exec("SELECT * FROM observations WHERE dossier_id=? ORDER BY created_at DESC",(did,),fetch=True)
-            ana=db_exec("SELECT * FROM analyses WHERE dossier_id=? ORDER BY date_analyse DESC, created_at DESC",(did,),fetch=True)
-            diag=db_exec("SELECT * FROM diagnostic_records WHERE dossier_id=? ORDER BY created_at DESC",(did,),fetch=True)
-            q,checks=data_quality(); conf=confidence_from_sources(); risk=risk_score()
-            coords=_active_geometry()
-            pedo,pedo_msg=pedo_lookup(coords) if coords and len(coords)>=3 else (pd.DataFrame(),"Géométrie parcellaire non disponible.")
-            irr=st.session_state.get("irrigation_result") or calculate_irrigation(5.56,1.0,float(c.get("surface_ha") or 0),0.75)
-            st.markdown("#### 📌 Fiche de diagnostic — à renseigner")
-            st.info(f"Client : {c.get('client') or '—'} · Dossier : {c.get('dossier') or '—'} · Parcelle : {c.get('parcelle') or '—'} · Surface : {float(c.get('surface_ha') or 0):.2f} ha · Culture : {c.get('culture') or '—'} · Stade : {c.get('stade') or '—'}")
-            with st.form("diagnostic_360_form", clear_on_submit=True):
-                a,b,c1,d=st.columns(4)
-                domaine=a.selectbox("Domaine",DOMAINS)
-                gravite=b.selectbox("Gravité",["Information","Faible","Moyenne","Élevée","Critique"])
-                priorite=c1.selectbox("Priorité",["Basse","Normale","Haute","Critique"])
-                statut=d.selectbox("Statut",["À vérifier","En cours","Confirmé","Clôturé"])
-                constat=st.text_area("Constat terrain / problème observé",height=90)
-                cause=st.text_area("Cause ou hypothèse à vérifier",height=80)
-                preuve=st.text_area("Preuves disponibles (photo, analyse, mesure, observation)",height=80)
-                reco=st.text_area("Recommandation / mesure proposée",height=90)
-                responsable=st.text_input("Responsable du suivi")
-                if st.form_submit_button("💾 Enregistrer le diagnostic",type="primary",use_container_width=True):
-                    if not constat.strip(): st.warning("Renseignez au moins le constat terrain.")
-                    else:
-                        db_exec("""INSERT INTO diagnostic_records(id,dossier_id,parcelle_id,domaine,constat,cause_possible,preuve,gravite,priorite,recommandation,responsable,statut,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",(new_id("DIA"),did,pid,domaine,constat,cause,preuve,gravite,priorite,reco,responsable,statut,now(),now()))
-                        audit("CREATION","diagnostic",did,constat[:120]); st.success("Diagnostic enregistré et rattaché à la parcelle active."); st.rerun()
-            a,b,c1,d=st.columns(4)
-            a.metric("Qualité",f"{q}/100"); b.metric("Confiance",f"{conf*100:.0f}%"); c1.metric("Risque",f"{risk}/100"); d.metric("Diagnostics",len(diag))
-            st.markdown("#### 🧪 Synthèse technique")
-            st.write(f"Observations : **{len(obs)}** · Analyses : **{len(ana)}** · Unités pédologiques intersectées : **{len(pedo) if isinstance(pedo,pd.DataFrame) else 0}**")
-            st.write(f"Irrigation : ETc **{irr['etc_mm_j']:.2f} mm/j** · besoin net **{irr['besoin_net_m3_j']:.1f} m³/j** · besoin brut **{irr['besoin_brut_m3_j']:.1f} m³/j**.")
-            if isinstance(pedo,pd.DataFrame) and not pedo.empty: st.dataframe(pedo,use_container_width=True,hide_index=True)
-            else: st.caption(pedo_msg)
-            st.markdown("#### 📋 Diagnostics enregistrés")
-            if diag: st.dataframe(pd.DataFrame(diag),use_container_width=True,hide_index=True)
-            else: st.info("Aucun diagnostic enregistré. Utilisez la fiche ci-dessus.")
-            st.markdown("#### 🔎 Contrôle des preuves")
-            st.dataframe(pd.DataFrame(checks),use_container_width=True,hide_index=True)
+            did = c["dossier_id"]
+            pid = c.get("parcelle_id")
+            obs = db_exec("SELECT * FROM observations WHERE dossier_id=? ORDER BY created_at DESC LIMIT 100", (did,), fetch=True)
+            ana = db_exec("SELECT * FROM analyses WHERE dossier_id=? ORDER BY date_analyse DESC LIMIT 100", (did,), fetch=True)
+            acts = db_exec("SELECT * FROM actions WHERE dossier_id=? ORDER BY echeance", (did,), fetch=True)
+            missions = db_exec("SELECT * FROM missions WHERE dossier_id=? ORDER BY created_at DESC", (did,), fetch=True)
+            alerts = db_exec("SELECT * FROM alerts WHERE dossier_id=? ORDER BY created_at DESC", (did,), fetch=True)
+            q, checks = data_quality()
+            conf = confidence_from_sources()
+            risk = risk_score()
+            surface = float(c.get("surface_ha") or c.get("zone_surface_ha") or 0)
+
+            # Résultats pédologiques liés à la parcelle active.
+            pedo_df, pedo_msg = pedo_lookup(c.get("parcelle_geometry") or c.get("zone_geometry") or [])
+
+            # Paramètres d'irrigation conservés dans la session et réutilisés par le rapport.
+            irr = st.session_state.get("irrigation_current", {})
+            eto = float(irr.get("eto", 5.56))
+            kc = float(irr.get("kc", 1.0))
+            irr_surface = float(irr.get("surface", surface or 1.0))
+            eff = float(irr.get("eff", 0.75))
+            etc = eto * kc
+            besoin_net = etc * 10 * irr_surface
+            besoin_brut = besoin_net / max(eff, 0.01)
+
+            k1,k2,k3,k4,k5 = st.columns(5)
+            k1.metric("Qualité", f"{q}/100")
+            k2.metric("Confiance", f"{conf*100:.0f}%")
+            k3.metric("Risque", f"{risk}/100")
+            k4.metric("Observations", len(obs))
+            k5.metric("Analyses", len(ana))
+
+            st.markdown("#### 1. Identité du dossier")
+            ident = pd.DataFrame([{
+                "Client": c.get("client") or "À renseigner",
+                "Dossier": c.get("dossier") or "À renseigner",
+                "Région": c.get("region") or "À renseigner",
+                "Commune": c.get("commune") or "À renseigner",
+                "Village": c.get("village") or "À renseigner",
+                "Parcelle": c.get("parcelle") or "À renseigner",
+                "Culture": c.get("culture") or "À renseigner",
+                "Stade": c.get("stade") or "À renseigner",
+                "Surface (ha)": round(surface, 3),
+                "Latitude": c.get("latitude") if c.get("latitude") is not None else "À renseigner",
+                "Longitude": c.get("longitude") if c.get("longitude") is not None else "À renseigner",
+            }])
+            st.dataframe(ident, use_container_width=True, hide_index=True)
+
+            st.markdown("#### 2. Sol & eau")
+            a,b,c1,d = st.columns(4)
+            a.metric("ETo", f"{eto:.2f} mm/j")
+            b.metric("Kc", f"{kc:.2f}")
+            c1.metric("ETc", f"{etc:.2f} mm/j")
+            d.metric("Besoin brut", f"{besoin_brut:,.1f} m³/j")
+            if not pedo_df.empty:
+                st.dataframe(pedo_df, use_container_width=True, hide_index=True)
+            else:
+                st.info(pedo_msg or "Aucune unité pédologique intersectée par la parcelle active.")
+
+            st.markdown("#### 3. Observations terrain")
+            if obs:
+                odf = pd.DataFrame(obs)
+                cols = [x for x in ["date_observation","domaine","type_observation","gravite","incidence","surface_affectee_ha","description","validation_status"] if x in odf.columns]
+                st.dataframe(odf[cols] if cols else odf, use_container_width=True, hide_index=True)
+            else:
+                st.warning("Aucune observation enregistrée. Utilisez Terrain → Observations pour renseigner les preuves terrain.")
+
+            st.markdown("#### 4. Analyses")
+            if ana:
+                adf = pd.DataFrame(ana)
+                cols = [x for x in ["date_analyse","type_analyse","parametre","valeur","unite","methode","laboratoire","validation_status","notes"] if x in adf.columns]
+                st.dataframe(adf[cols] if cols else adf, use_container_width=True, hide_index=True)
+            else:
+                st.warning("Aucune analyse enregistrée. Ajoutez les analyses de sol, eau, végétal ou autres dans Terrain → Analyses.")
+
+            st.markdown("#### 5. Santé / risques")
+            open_alerts = [x for x in alerts if (x.get("statut") or "Ouverte") == "Ouverte"]
+            if open_alerts:
+                st.dataframe(pd.DataFrame(open_alerts), use_container_width=True, hide_index=True)
+            else:
+                st.success("Aucune alerte ouverte enregistrée.")
+
+            st.markdown("#### 6. Météo / climat")
+            weather = st.session_state.get("weather")
+            if weather:
+                cur = weather.get("current", {})
+                wc1,wc2,wc3,wc4 = st.columns(4)
+                wc1.metric("Température", f"{cur.get('temperature_2m','—')} °C")
+                wc2.metric("Humidité", f"{cur.get('relative_humidity_2m','—')} %")
+                wc3.metric("Pluie", f"{cur.get('precipitation','—')} mm")
+                wc4.metric("Vent", f"{cur.get('wind_speed_10m','—')} km/h")
+            else:
+                st.info("Météo non synchronisée. Utilisez Diagnostic → Climat & risques.")
+
+            st.markdown("#### 7. Actions, missions et suivi")
+            s1,s2,s3 = st.columns(3)
+            s1.metric("Actions", len(acts))
+            s2.metric("Missions", len(missions))
+            s3.metric("Alertes", len(alerts))
+            if acts:
+                st.dataframe(pd.DataFrame(acts), use_container_width=True, hide_index=True)
+            if missions:
+                st.dataframe(pd.DataFrame(missions), use_container_width=True, hide_index=True)
+
+            st.markdown("#### 8. Contrôles de qualité")
+            st.dataframe(pd.DataFrame(checks), use_container_width=True, hide_index=True)
+
+            st.markdown("#### 9. Conclusion opérationnelle")
+            gaps=[]
+            if not c.get("client_id"): gaps.append("client")
+            if not c.get("dossier_id"): gaps.append("dossier")
+            if not c.get("parcelle_id"): gaps.append("parcelle")
+            if surface <= 0: gaps.append("surface")
+            if not obs: gaps.append("observations")
+            if not ana: gaps.append("analyses")
+            if gaps:
+                st.warning("Éléments à compléter : " + ", ".join(gaps) + ".")
+            else:
+                st.success("Le dossier contient les principaux éléments nécessaires à une analyse transversale. Les recommandations restent à confirmer avec les preuves et références techniques applicables.")
+
+    if section == '🌱 Sols & Eau':
+        st.subheader("🌱 Sols & Eau — données synchronisées")
+        c = context()
+        zone = next((z for z,v in AGROZONES.items() if c["region"] in v["regions"]), None)
+        if zone:
+            st.info(f"Zone agroécologique indicative : {zone}")
+            z1,z2 = st.columns(2)
+            z1.write("**Profil de sol indicatif :**", AGROZONES[zone]["sol"])
+            z2.write("**Risques indicatifs :**", AGROZONES[zone]["risques"])
+
+        st.markdown("#### 🧭 Sol de la parcelle active")
+        coords_pedo = c.get("parcelle_geometry") or _active_geometry()
+        if coords_pedo and len(coords_pedo) >= 3:
+            pedo_df, pedo_msg = pedo_lookup(coords_pedo)
+            if pedo_msg:
+                st.caption(f"ℹ️ {pedo_msg}")
+            if not pedo_df.empty:
+                st.success("Morpho_Pedo synchronisé avec la parcelle active.")
+                st.dataframe(pedo_df, use_container_width=True, hide_index=True)
+            else:
+                st.info("Aucune unité pédologique intersectée par la parcelle active.")
+        else:
+            st.warning("Aucune géométrie de parcelle active. Délimitez une parcelle dans Diagnostic → Zone & GPS.")
+
+        st.markdown("#### 💧 Besoin d'irrigation — calcul synchronisé")
+        saved = st.session_state.get("irrigation_current", {})
+        default_surface = float(c.get("surface_ha") or c.get("zone_surface_ha") or 1.0)
+        eto_default = float(saved.get("eto", 5.56))
+        kc_default = float(saved.get("kc", 1.00))
+        surf_default = float(saved.get("surface", default_surface))
+        eff_default = float(saved.get("eff", 0.75))
+        a,b,c1,d = st.columns(4)
+        eto = a.number_input("ETo (mm/j)", 0.0, 20.0, eto_default, step=0.01, key="irrig_eto_sync")
+        kc = b.number_input("Kc", 0.1, 1.5, kc_default, step=0.01, key="irrig_kc_sync")
+        surf = c1.number_input("Surface (ha)", 0.01, 100000.0, surf_default, step=0.01, key="irrig_surface_sync")
+        eff = d.number_input("Efficacité", 0.1, 1.0, eff_default, step=0.01, key="irrig_eff_sync")
+        etc = eto * kc
+        besoin_net = etc * 10.0 * surf
+        besoin_brut = besoin_net / max(eff, 0.01)
+        dose_brute_mm = etc / max(eff, 0.01)
+        st.session_state["irrigation_current"] = {
+            "eto": float(eto), "kc": float(kc), "surface": float(surf), "eff": float(eff),
+            "etc": float(etc), "besoin_net": float(besoin_net), "besoin_brut": float(besoin_brut),
+            "dose_brute_mm": float(dose_brute_mm), "updated_at": now()
+        }
+        m1,m2,m3,m4 = st.columns(4)
+        m1.metric("ETc", f"{etc:.2f} mm/j")
+        m2.metric("Besoin net", f"{besoin_net:,.1f} m³/j")
+        m3.metric("Besoin brut", f"{besoin_brut:,.1f} m³/j")
+        m4.metric("Lame brute", f"{dose_brute_mm:.2f} mm/j")
+        st.caption("Formule : ETc = ETo × Kc ; 1 mm sur 1 ha = 10 m³ ; besoin brut = besoin net / efficacité.")
+        if st.button("💾 Enregistrer les paramètres d'irrigation", type="primary", key="save_irrigation_sync"):
+            key = f"irrigation:{c.get('dossier_id')}:{c.get('parcelle_id') or 'dossier'}"
+            db_exec("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value",
+                    (key, json.dumps(st.session_state["irrigation_current"], ensure_ascii=False)))
+            audit("IRRIGATION_SYNC", "parcelle", c.get("parcelle_id") or c.get("dossier_id"), st.session_state["irrigation_current"])
+            st.success("Paramètres d'irrigation enregistrés et disponibles pour le diagnostic et le rapport.")
 
     if section == '🦠 Phytosanitaire':
         st.subheader("🦠 Pré-diagnostic phytosanitaire")
@@ -2309,43 +2385,63 @@ def _legacy_decision_space(selected=None):
     section = selected or st.session_state.get("compact__legacy_decision_space", '🔬 Diagnostic multi-domaine')
 
     if section == '🔬 Diagnostic multi-domaine':
-        st.subheader("🔬 Diagnostic transversal et décision")
+        st.subheader("🔬 Décision — analyse multi-domaine")
         c = context()
-        if c.get("dossier_id"):
-            did=c["dossier_id"]; pid=c.get("parcelle_id")
-            decisions=db_exec("SELECT * FROM decision_records WHERE dossier_id=? ORDER BY created_at DESC",(did,),fetch=True)
-            st.markdown("#### 🧭 Décision à formaliser")
-            with st.form("decision_form_pro",clear_on_submit=True):
-                a,b,c1,d=st.columns(4)
-                domaine=a.selectbox("Domaine décisionnel",DOMAINS)
-                niveau=b.selectbox("Niveau de confiance",["Faible","Moyen","Élevé"])
-                statut=c1.selectbox("Statut décision",["À préparer","Validée","À surveiller","Clôturée"])
-                responsable=d.text_input("Responsable",value=(st.session_state.get("user") or {}).get("nom",""))
-                decision=st.text_area("Décision / orientation retenue",height=80)
-                justification=st.text_area("Justification fondée sur observations, analyses, sol, eau, climat et contraintes",height=90)
-                actions_txt=st.text_area("Actions à réaliser",height=80)
-                echeance=st.date_input("Échéance",date.today()+timedelta(days=7))
-                if st.form_submit_button("💾 Enregistrer la décision",type="primary",use_container_width=True):
-                    if not decision.strip(): st.warning("Renseignez la décision.")
-                    else:
-                        conf_val={"Faible":0.45,"Moyen":0.70,"Élevé":0.90}[niveau]
-                        db_exec("""INSERT INTO decision_records(id,dossier_id,parcelle_id,domaine,decision,justification,actions,responsable,echeance,niveau_confiance,statut,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",(new_id("DEC"),did,pid,domaine,decision,justification,actions_txt,responsable,str(echeance),conf_val,statut,now(),now()))
-                        audit("CREATION","decision",did,decision[:120]); st.success("Décision enregistrée dans le dossier actif."); st.rerun()
-            if decisions:
-                st.markdown("#### 📚 Historique des décisions")
-                st.dataframe(pd.DataFrame(decisions),use_container_width=True,hide_index=True)
-
         if not c["dossier_id"]:
-            st.info("Sélectionnez un dossier.")
+            st.warning("Sélectionnez un dossier dans la barre latérale.")
         else:
-            obs = db_exec("SELECT * FROM observations WHERE dossier_id=? ORDER BY created_at DESC LIMIT 50", (c["dossier_id"],), fetch=True)
-            ana = db_exec("SELECT * FROM analyses WHERE dossier_id=? ORDER BY date_analyse DESC LIMIT 50", (c["dossier_id"],), fetch=True)
-            a,b,c1 = st.columns(3)
-            a.metric("Observations", len(obs))
-            b.metric("Analyses", len(ana))
-            c1.metric("Confiance", f"{confidence_from_sources()*100:.0f}%")
-            if obs: st.dataframe(pd.DataFrame(obs), use_container_width=True, hide_index=True)
-            if ana: st.dataframe(pd.DataFrame(ana), use_container_width=True, hide_index=True)
+            did=c["dossier_id"]
+            obs=db_exec("SELECT * FROM observations WHERE dossier_id=? ORDER BY created_at DESC LIMIT 100",(did,),fetch=True)
+            ana=db_exec("SELECT * FROM analyses WHERE dossier_id=? ORDER BY date_analyse DESC LIMIT 100",(did,),fetch=True)
+            acts=db_exec("SELECT * FROM actions WHERE dossier_id=? ORDER BY echeance",(did,),fetch=True)
+            alerts=db_exec("SELECT * FROM alerts WHERE dossier_id=? AND statut='Ouverte' ORDER BY created_at DESC",(did,),fetch=True)
+            q,_=data_quality(); conf=confidence_from_sources(); risk=risk_score()
+            irr=st.session_state.get("irrigation_current",{})
+            eto=float(irr.get("eto",5.56)); kc=float(irr.get("kc",1.0)); surf=float(irr.get("surface",c.get("surface_ha") or 1)); eff=float(irr.get("eff",0.75))
+            etc=eto*kc; gross=etc*10*surf/max(eff,0.01)
+            scores={
+                "Contexte client/dossier": 100 if c.get("client_id") and c.get("dossier_id") else 40,
+                "Parcelle & géométrie": 100 if c.get("parcelle_id") and c.get("parcelle_geometry") else 20,
+                "Culture": 100 if c.get("culture") else 20,
+                "Preuves terrain": min(100,20+len(obs)*20),
+                "Analyses": min(100,20+len(ana)*20),
+                "Gestion de l'eau": 100 if surf>0 and eto>0 and kc>0 else 30,
+                "Suivi des actions": min(100,20+len(acts)*20),
+                "Alertes maîtrisées": max(20,100-len(alerts)*15),
+            }
+            decision=int(np.mean(list(scores.values())))
+            a,b,c1,d=st.columns(4)
+            a.metric("Indice de préparation décision",f"{decision}/100")
+            b.metric("Qualité",f"{q}/100")
+            c1.metric("Confiance",f"{conf*100:.0f}%")
+            d.metric("Risque",f"{risk}/100")
+            st.dataframe(pd.DataFrame([{"Domaine":k,"Niveau":v} for k,v in scores.items()]),use_container_width=True,hide_index=True)
+
+            st.markdown("#### 💧 Données d'irrigation utilisées")
+            st.write(f"ETo **{eto:.2f} mm/j** · Kc **{kc:.2f}** · Surface **{surf:.2f} ha** · efficacité **{eff:.2f}** → ETc **{etc:.2f} mm/j**, besoin brut **{gross:,.1f} m³/j**.")
+
+            st.markdown("#### 🧭 Points nécessitant une décision ou une vérification")
+            rec=[]
+            if not c.get("parcelle_id"): rec.append("Sélectionner/créer la parcelle avant toute décision spatialisée.")
+            if not c.get("parcelle_geometry"): rec.append("Compléter la géométrie GPS de la parcelle.")
+            if not c.get("culture"): rec.append("Renseigner la culture et le stade cultural.")
+            if not obs: rec.append("Ajouter au moins une observation terrain datée et localisée.")
+            if not ana: rec.append("Ajouter les analyses disponibles ou documenter leur absence.")
+            if alerts: rec.append(f"Examiner {len(alerts)} alerte(s) ouverte(s) avant clôture du diagnostic.")
+            if risk>=60: rec.append("Revoir les facteurs de risque avant validation de la décision.")
+            if not rec: rec.append("Aucun manque structurel détecté par les contrôles actuels ; valider néanmoins les hypothèses techniques.")
+            for r in rec: st.write("• "+r)
+
+            st.markdown("#### 📝 Décision à enregistrer")
+            with st.form("decision_note_form"):
+                decision_type=st.selectbox("Domaine de décision",DOMAINS)
+                conclusion=st.text_area("Décision / recommandation à inscrire au dossier",height=120)
+                responsable=st.text_input("Responsable de validation",value=(current_user().get("nom") or current_user().get("email") or ""))
+                if st.form_submit_button("Enregistrer la décision"):
+                    db_exec("INSERT INTO actions(id,dossier_id,mission_id,domaine,titre,responsable,echeance,priorite,statut,cout_estime,preuve,notes,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                            (new_id("ACT"),did,st.session_state.get("selected_mission"),decision_type,conclusion[:180] or "Décision à confirmer",responsable,str(date.today()),"Haute","À faire",0,"",conclusion,now(),now()))
+                    audit("DECISION_ENREGISTREE","dossier",did,decision_type)
+                    st.success("Décision enregistrée dans le plan de suivi.")
 
     if section == '📊 Simulations':
         st.subheader("📊 Simulations de scénarios")
@@ -2493,25 +2589,60 @@ def _legacy_consultancy_space(selected=None):
     section = selected or st.session_state.get("compact__legacy_consultancy_space", '👥 Clients')
 
     if section == '👥 Clients':
-        st.subheader("👥 Portefeuille clients")
-        with st.form("cabinet_client_form",clear_on_submit=True):
+        st.subheader("👥 Clients & dossiers — gestion complète")
+        st.markdown("#### ➕ Nouveau client")
+        with st.form("cabinet_new_client_complete"):
             a,b,c1,d=st.columns(4)
-            nom=a.text_input("Nom / exploitation")
-            tel=b.text_input("Téléphone")
-            email=c1.text_input("E-mail")
-            region=d.selectbox("Région",list(REGIONS_COORD))
-            org=st.text_input("Organisation")
-            notes=st.text_area("Notes client",height=70)
-            if st.form_submit_button("➕ Enregistrer le client",type="primary"):
-                if not nom.strip(): st.warning("Le nom du client est obligatoire.")
-                else:
-                    cid=new_id("CLI")
-                    db_exec("INSERT INTO clients(id,nom,telephone,email,organisation,adresse,region,notes,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)",(cid,nom,tel,email,org,"",region,notes,now(),now()))
-                    st.session_state["client_id"]=cid; st.session_state["dossier_id"]=None
-                    audit("CREATION","client",cid,nom); st.success("Client enregistré."); st.rerun()
-        rows=db_exec("SELECT * FROM clients ORDER BY COALESCE(updated_at, created_at, '') DESC",fetch=True)
-        if rows: st.dataframe(pd.DataFrame(rows),use_container_width=True,hide_index=True)
-        else: st.info("Aucun client. Utilisez le formulaire ci-dessus.")
+            nom=a.text_input("Nom / exploitation", key="cab_cli_nom")
+            tel=b.text_input("Téléphone", key="cab_cli_tel")
+            email=c1.text_input("E-mail", key="cab_cli_email")
+            org=d.text_input("Organisation", key="cab_cli_org")
+            a2,b2,c2=st.columns(3)
+            region=a2.selectbox("Région",list(REGIONS_COORD),key="cab_cli_region")
+            adresse=b2.text_input("Adresse / localité",key="cab_cli_addr")
+            notes=c2.text_area("Notes",key="cab_cli_notes")
+            if st.form_submit_button("💾 Créer le client",type="primary"):
+                cid=new_id("CLI")
+                db_exec("INSERT INTO clients(id,nom,telephone,email,organisation,adresse,region,notes,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
+                        (cid,nom or "Client sans nom",tel,email,org,adresse,region,notes,now(),now()))
+                st.session_state["client_id"]=cid
+                st.session_state["dossier_id"]=None
+                st.session_state["parcelle_id"]=None
+                audit("CREATION","client",cid)
+                st.success("Client créé et sélectionné.")
+                st.rerun()
+
+        clients=accessible_clients()
+        if clients:
+            st.markdown("#### 👥 Portefeuille clients")
+            st.dataframe(pd.DataFrame(clients),use_container_width=True,hide_index=True)
+        else:
+            st.info("Aucun client disponible pour ce compte. Créez le premier client ci-dessus.")
+
+        st.markdown("#### 📁 Dossiers du client actif")
+        cid=context().get("client_id")
+        if cid:
+            dossiers=accessible_dossiers(cid)
+            with st.form("cabinet_new_dossier_complete"):
+                a,b,c1,d=st.columns(4)
+                dnom=a.text_input("Nom du dossier")
+                typ=b.selectbox("Type d'exploitation",["Agriculture","Élevage","Aquaculture","Agroalimentaire","Mixte"])
+                reg=c1.selectbox("Région",list(REGIONS_COORD))
+                commune=d.text_input("Commune")
+                village=st.text_input("Village")
+                notes=st.text_area("Notes du dossier")
+                if st.form_submit_button("💾 Créer le dossier"):
+                    did=new_id("DOS"); lat,lon=REGIONS_COORD[reg]
+                    db_exec("INSERT INTO dossiers(id,client_id,nom,type_exploitation,region,commune,village,latitude,longitude,notes,statut,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                            (did,cid,dnom or "Dossier sans nom",typ,reg,commune,village,lat,lon,notes,"Actif",now(),now()))
+                    set_active_dossier(did)
+                    audit("CREATION","dossier",did)
+                    st.success("Dossier créé et sélectionné.")
+                    st.rerun()
+            if dossiers:
+                st.dataframe(pd.DataFrame(dossiers),use_container_width=True,hide_index=True)
+            else:
+                st.info("Aucun dossier pour le client actif.")
 
     if section == '📋 Missions':
         st.subheader("📋 Workflow professionnel des missions")
@@ -2562,102 +2693,154 @@ def _legacy_consultancy_space(selected=None):
             st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
     if section == '💳 Finance':
-        st.subheader("💳 Finance et rentabilité du cabinet")
-        did = context()["dossier_id"]
-        if did:
-            rows = db_exec("SELECT * FROM finance WHERE dossier_id=? ORDER BY date_operation DESC",(did,), fetch=True)
-            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+        st.subheader("💳 Finance — recettes, dépenses et rentabilité")
+        did=context().get("dossier_id")
+        if not did:
+            st.warning("Sélectionnez un dossier dans la barre latérale.")
+        else:
+            with st.form("cabinet_finance_complete"):
+                a,b,c1,d=st.columns(4)
+                typ=a.selectbox("Type",["Recette","Dépense"])
+                cat=b.selectbox("Catégorie",["Intrants","Main-d'œuvre","Irrigation","Transport","Conseil","Vente","Équipement","Autre"])
+                lib=c1.text_input("Libellé")
+                amount=d.number_input("Montant FCFA",0.0,1e12,0.0)
+                ref=st.text_input("Référence")
+                notes=st.text_area("Notes")
+                if st.form_submit_button("💾 Enregistrer l'opération",type="primary"):
+                    db_exec("INSERT INTO finance(id,dossier_id,mission_id,type_operation,categorie,libelle,montant_fcfa,date_operation,statut,reference,notes) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                            (new_id("FIN"),did,st.session_state.get("selected_mission"),typ,cat,lib,amount,now(),"Enregistré",ref,notes))
+                    audit("FINANCE","finance",did,lib)
+                    st.success("Opération financière enregistrée.")
+            st.markdown("#### 📝 Devis du dossier")
+            with st.form("cabinet_quote_inside_finance"):
+                qa,qb,qc,qd=st.columns(4)
+                qref=qa.text_input("Référence devis")
+                qobj=qb.text_input("Objet du devis")
+                qht=qc.number_input("Montant HT FCFA",0.0,1e12,0.0)
+                qtax=qd.number_input("Taxes FCFA",0.0,1e12,0.0)
+                qvalid=st.date_input("Validité",date.today()+timedelta(days=15))
+                qstat=st.selectbox("Statut du devis",["Brouillon","Envoyé","Accepté","Refusé","Expiré"])
+                if st.form_submit_button("💾 Enregistrer le devis"):
+                    db_exec("INSERT INTO quotes(id,client_id,dossier_id,reference,objet,montant_ht,taxes,total,statut,date_creation,date_validite,notes) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                            (new_id("QTE"),context().get("client_id"),did,qref or new_id("DEV"),qobj,qht,qtax,qht+qtax,qstat,now(),str(qvalid),""))
+                    audit("DEVIS","quote",did,qref or qobj)
+                    st.success("Devis enregistré.")
 
-def _report_data_full(c):
-    did=c.get("dossier_id")
-    obs=db_exec("SELECT * FROM observations WHERE dossier_id=? ORDER BY created_at DESC",(did,),fetch=True) if did else []
-    ana=db_exec("SELECT * FROM analyses WHERE dossier_id=? ORDER BY date_analyse DESC, created_at DESC",(did,),fetch=True) if did else []
-    actions=db_exec("SELECT * FROM actions WHERE dossier_id=? ORDER BY COALESCE(echeance, created_at), created_at DESC",(did,),fetch=True) if did else []
-    missions=db_exec("SELECT * FROM missions WHERE dossier_id=? ORDER BY COALESCE(date_debut, created_at), created_at DESC",(did,),fetch=True) if did else []
-    alerts=db_exec("SELECT * FROM alerts WHERE dossier_id=? ORDER BY created_at DESC",(did,),fetch=True) if did else []
-    entretiens=interview_transcript(did) if did else []
-    documents=db_exec("SELECT * FROM documents WHERE dossier_id=? ORDER BY created_at DESC",(did,),fetch=True) if did else []
-    diagnostics=db_exec("SELECT * FROM diagnostic_records WHERE dossier_id=? ORDER BY created_at DESC",(did,),fetch=True) if did else []
-    decisions=db_exec("SELECT * FROM decision_records WHERE dossier_id=? ORDER BY created_at DESC",(did,),fetch=True) if did else []
-    vals=_irrigation_defaults(c)
-    vals.update({"eto":float(st.session_state.get("irrig_eto_pro",vals["eto"])),"kc":float(st.session_state.get("irrig_kc_pro",vals["kc"])),"surface":float(st.session_state.get("irrig_surface_pro",vals["surface"])),"eff":float(st.session_state.get("irrig_eff_pro",vals["eff"]))})
-    irr=calculate_irrigation(vals["eto"],vals["kc"],vals["surface"],vals["eff"])
-    coords=_active_geometry(); pedo,pedo_msg=pedo_lookup(coords) if coords and len(coords)>=3 else (pd.DataFrame(),"Aucune géométrie parcellaire active.")
-    return {"obs":obs,"ana":ana,"actions":actions,"missions":missions,"alerts":alerts,"entretiens":entretiens,"documents":documents,"diagnostics":diagnostics,"decisions":decisions,"irr":irr,"pedo":pedo,"pedo_msg":pedo_msg}
-
-def build_full_report_pdf(c,meta,data):
-    if not HAS_PDF:return None
-    styles=_pdf_styles();buf=io.BytesIO();doc=SimpleDocTemplate(buf,pagesize=A4,rightMargin=34,leftMargin=34,topMargin=42,bottomMargin=42,title=str(meta.get("title","Rapport YouAgronoMe")),author="YouAgronoMe")
-    irr=data["irr"]
-    story=[Spacer(1,20),Paragraph("YOUAGRONOME",styles["cover"]),Paragraph("CABINET DE CONSULTANCE AGRICOLE • DOSSIER 360°",styles["kicker"]),Spacer(1,12),Table([[Paragraph(xml_escape(str(meta.get("title","Rapport synthétique — YouAgronoMe"))),styles["cover"])]],colWidths=[527],style=TableStyle([("BACKGROUND",(0,0),(-1,-1),colors.HexColor("#edf6f1")),("BOX",(0,0),(-1,-1),1,colors.HexColor("#9db9ad")),("TOPPADDING",(0,0),(-1,-1),14),("BOTTOMPADDING",(0,0),(-1,-1),14)])),Spacer(1,12),_pdf_meta_table([("Type",meta.get("type","Rapport synthétique")),("Date",meta.get("date","—")),("Consultant",meta.get("consultant","—")),("Client",c.get("client") or "—"),("Dossier",c.get("dossier") or "—"),("Parcelle",c.get("parcelle") or "—"),("Culture",c.get("culture") or "—"),("Stade",c.get("stade") or "—"),("Région",c.get("region") or "—"),("Commune",c.get("commune") or "—"),("Surface",f"{float(c.get('surface_ha') or 0):.2f} ha")]),Spacer(1,10),Paragraph("1. INDICATEURS DE FIABILITÉ",styles["section"]),_pdf_meta_table([("Qualité des données",f"{meta.get('quality',0)}/100"),("Confiance",f"{float(meta.get('confidence',0))*100:.0f}%"),("Indice de risque",f"{meta.get('risk','—')}/100")]),Spacer(1,10),Paragraph("2. SOL ET PÉDOLOGIE",styles["section"]),Paragraph(xml_escape(data["pedo_msg"] or "—"),styles["small"]) ]
-    pedo=data["pedo"]
-    if isinstance(pedo,pd.DataFrame) and not pedo.empty:
-        cols=[x for x in ["MAPU","MAPUSUB","MSD","MSDNOM","surface_intersection_ha","part_surface_pct"] if x in pedo.columns]
-        rows=[[Paragraph(xml_escape(x),styles["label"]) for x in cols]]
-        for _,r in pedo.head(20).iterrows():rows.append([Paragraph(xml_escape(str(r.get(x,"—"))),styles["small"]) for x in cols])
-        story.append(Table(rows,repeatRows=1,colWidths=[527/max(1,len(cols))]*len(cols),style=TableStyle([("BACKGROUND",(0,0),(-1,0),colors.HexColor("#edf6f1")),("GRID",(0,0),(-1,-1),.35,colors.HexColor("#d7e4de")),("VALIGN",(0,0),(-1,-1),"TOP")])))
-    story += [Spacer(1,10),Paragraph("3. BESOIN D'IRRIGATION",styles["section"]),_pdf_meta_table([("ETo",f"{irr['eto_mm_j']:.2f} mm/j"),("Kc",f"{irr['kc']:.2f}"),("Surface",f"{irr['surface_ha']:.2f} ha"),("Efficacité",f"{irr['efficacite']*100:.0f}%"),("ETc",f"{irr['etc_mm_j']:.2f} mm/j"),("Besoin net",f"{irr['besoin_net_m3_j']:.1f} m³/j"),("Besoin brut",f"{irr['besoin_brut_m3_j']:.1f} m³/j"),("Apport brut",f"{irr['apport_brut_mm_j']:.2f} mm/j"),("Semaine",f"{irr['besoin_brut_m3_semaine']:.1f} m³"),("Débit moyen",f"{irr['besoin_brut_m3_h']:.1f} m³/h")]),Spacer(1,10),Paragraph("4. OBSERVATIONS TERRAIN",styles["section"])]
-    for i,r in enumerate(data["obs"][:30],1):story.append(Paragraph(xml_escape(f"{i}. {r.get('domaine','—')} | {r.get('type_observation','Observation')} | Gravité : {r.get('gravite','—')} | {r.get('description','')}"),styles["body"]))
-    if not data["obs"]:story.append(Paragraph("Aucune observation enregistrée.",styles["small"]))
-    story += [Spacer(1,8),Paragraph("5. ANALYSES",styles["section"])]
-    if data["ana"]:
-        rows=[[Paragraph(x,styles["label"]) for x in ["Type","Paramètre","Valeur","Unité","Date"]]]
-        for r in data["ana"][:30]:rows.append([Paragraph(xml_escape(str(r.get(k,"—"))),styles["small"]) for k in ["type_analyse","parametre","valeur","unite","date_analyse"]])
-        story.append(Table(rows,repeatRows=1,colWidths=[105,130,70,65,157],style=TableStyle([("BACKGROUND",(0,0),(-1,0),colors.HexColor("#edf6f1")),("GRID",(0,0),(-1,-1),.35,colors.HexColor("#d7e4de"))])))
-    else:story.append(Paragraph("Aucune analyse enregistrée.",styles["small"]))
-    story += [Spacer(1,8),Paragraph("6. ACTIONS, MISSIONS ET ALERTES",styles["section"])]
-    for r in data["actions"][:20]:story.append(Paragraph(xml_escape(f"Action : {r.get('titre','—')} | Échéance : {r.get('echeance','—')} | Statut : {r.get('statut','—')} | Priorité : {r.get('priorite','—')}"),styles["body"]))
-    for r in data["missions"][:20]:story.append(Paragraph(xml_escape(f"Mission : {r.get('objet','—')} | Statut : {r.get('statut','—')} | Échéance : {r.get('echeance','—')} | Avancement : {r.get('avancement','—')}"),styles["body"]))
-    for r in data["alerts"][:20]:story.append(Paragraph(xml_escape(f"Alerte : {r.get('titre',r.get('type_alerte','—'))} | Niveau : {r.get('niveau','—')} | Statut : {r.get('statut','—')} | {r.get('message',r.get('description',''))}"),styles["body"]))
-    if not data["actions"] and not data["missions"] and not data["alerts"]:story.append(Paragraph("Aucune action, mission ou alerte enregistrée.",styles["small"]))
-    story += [Spacer(1,8),Paragraph("7. ENTRETIEN / INFORMATIONS DE L'EXPLOITANT",styles["section"])]
-    for i,r in enumerate(data["entretiens"][:30],1):story.append(Paragraph(xml_escape(f"Q{i}. {r.get('question','—')}"),styles["question"]));story.append(Paragraph(xml_escape(str(r.get('reponse','—'))).replace("\n","<br/>"),styles["body"]))
-    if not data["entretiens"]:story.append(Paragraph("Aucun entretien enregistré.",styles["small"]))
-    story += [Spacer(1,8),Paragraph("8. DOCUMENTS RÉFÉRENCÉS",styles["section"])]
-    for r in data["documents"][:30]:story.append(Paragraph(xml_escape(f"{r.get('nom','—')} | Type : {r.get('type_document','—')} | Référence : {r.get('chemin','—')} | {r.get('description','')}"),styles["body"]))
-    if not data["documents"]:story.append(Paragraph("Aucun document référencé.",styles["small"]))
-    story += [Spacer(1,8),Paragraph("9. DIAGNOSTICS ENREGISTRÉS",styles["section"])]
-    for r in data.get("diagnostics",[])[:30]:
-        story.append(Paragraph(xml_escape(f"{r.get('domaine','—')} | Gravité : {r.get('gravite','—')} | Priorité : {r.get('priorite','—')}"),styles["question"]))
-        story.append(Paragraph(xml_escape(f"Constat : {r.get('constat','—')} | Cause à vérifier : {r.get('cause_possible','—')} | Preuve : {r.get('preuve','—')} | Recommandation : {r.get('recommandation','—')} | Responsable : {r.get('responsable','—')}"),styles["body"]))
-    if not data.get("diagnostics"):story.append(Paragraph("Aucun diagnostic enregistré.",styles["small"]))
-    story += [Spacer(1,8),Paragraph("10. DÉCISIONS ET PLAN DE SUIVI",styles["section"])]
-    for r in data.get("decisions",[])[:30]:
-        story.append(Paragraph(xml_escape(f"{r.get('domaine','—')} | Décision : {r.get('decision','—')} | Statut : {r.get('statut','—')} | Confiance : {float(r.get('niveau_confiance') or 0)*100:.0f}%"),styles["question"]))
-        story.append(Paragraph(xml_escape(f"Justification : {r.get('justification','—')} | Actions : {r.get('actions','—')} | Responsable : {r.get('responsable','—')} | Échéance : {r.get('echeance','—')}"),styles["body"]))
-    if not data.get("decisions"):story.append(Paragraph("Aucune décision enregistrée.",styles["small"]))
-    story += [Spacer(1,10),Paragraph("11. CONCLUSION / VÉRIFICATIONS À EFFECTUER",styles["section"]),Paragraph("Les données de ce rapport correspondent au dossier actif au moment de la génération. Avant toute décision opérationnelle, vérifier la géométrie de la parcelle, la culture et son stade, l'état hydrique, les caractéristiques du sol et du réseau d'irrigation, les pluies utiles, les analyses et les contraintes de l'exploitation. Les calculs d'irrigation sont des estimations techniques et doivent être ajustés aux conditions réelles.",styles["body"]),Spacer(1,16),_pdf_signature_block(meta.get("consultant","Consultant responsable")),Spacer(1,8),Paragraph("Signature et validation à compléter par le responsable du dossier. Ce document ne constitue pas une signature électronique qualifiée.",styles["small"])]
-    doc.build(story,onFirstPage=_pdf_header_footer,onLaterPages=_pdf_header_footer);buf.seek(0);return buf.getvalue()
-
+            rows=db_exec("SELECT * FROM finance WHERE dossier_id=? ORDER BY date_operation DESC",(did,),fetch=True)
+            if rows:
+                df=pd.DataFrame(rows)
+                recettes=float(df.loc[df["type_operation"]=="Recette","montant_fcfa"].sum())
+                depenses=float(df.loc[df["type_operation"]=="Dépense","montant_fcfa"].sum())
+                a,b,c1=st.columns(3)
+                a.metric("Recettes",f"{recettes:,.0f} FCFA")
+                b.metric("Dépenses",f"{depenses:,.0f} FCFA")
+                c1.metric("Solde",f"{recettes-depenses:,.0f} FCFA")
+                st.dataframe(df,use_container_width=True,hide_index=True)
+            else:
+                st.info("Aucune opération financière enregistrée pour ce dossier.")
 
     if section == '📄 Rapports':
-        st.subheader("📄 Rapports professionnels — dossier complet")
-        c=context()
+        st.subheader("📄 Rapports professionnels")
+        c = context()
         if not c["dossier_id"]:
             st.info("Sélectionnez un dossier pour produire un rapport.")
         else:
-            st.markdown("### 🧾 Rapport complet, signé et daté")
-            a,b=st.columns([2,1])
-            report_type=a.selectbox("Type de rapport",["Rapport synthétique de diagnostic","Diagnostic initial","Rapport de mission","Rapport de suivi","Rapport économique","Rapport final","Note de conseil"],key="report_type_xxl")
-            title=b.text_input("Titre","Rapport synthétique — YouAgronoMe",key="report_title_xxl")
-            q,_=data_quality();conf=confidence_from_sources();risk=risk_score();consultant=current_user().get("nom") or current_user().get("email") or "Consultant responsable";report_date=datetime.now().strftime("%d/%m/%Y")
-            irr=st.session_state.get("irrigation_result") or calculate_irrigation(5.56,1.0,float(c.get("surface_ha") or c.get("zone_surface_ha") or 35.43),0.75)
-            k1,k2,k3,k4=st.columns(4);k1.metric("Qualité",f"{q}/100");k2.metric("Confiance",f"{conf*100:.0f}%");k3.metric("Risque",f"{risk}/100");k4.metric("Besoin brut",f"{irr['besoin_brut_m3_j']:.1f} m³/j")
-            if st.button("📝 Générer le rapport complet",type="primary",use_container_width=True,key="report_prepare_xxl"):
-                data=_report_data_full(c)
-                text=(f"RAPPORT SYNTHÉTIQUE DE DIAGNOSTIC\nDate : {report_date}\nConsultant : {consultant}\n\nCLIENT : {c.get('client') or '—'}\nDOSSIER : {c.get('dossier') or '—'}\nPARCELLE : {c.get('parcelle') or '—'}\nCULTURE : {c.get('culture') or '—'}\nSURFACE : {float(c.get('surface_ha') or 0):.2f} ha\nRÉGION : {c.get('region') or '—'}\n\nQUALITÉ : {q}/100\nCONFIANCE : {conf*100:.0f}%\nRISQUE : {risk}/100\n\nIRRIGATION\nETo : {data['irr']['eto_mm_j']:.2f} mm/j\nKc : {data['irr']['kc']:.2f}\nSurface : {data['irr']['surface_ha']:.2f} ha\nEfficacité : {data['irr']['efficacite']*100:.0f}%\nETc : {data['irr']['etc_mm_j']:.2f} mm/j\nBesoin net : {data['irr']['besoin_net_m3_j']:.1f} m³/j\nBesoin brut : {data['irr']['besoin_brut_m3_j']:.1f} m³/j\nBesoin hebdomadaire : {data['irr']['besoin_brut_m3_semaine']:.1f} m³/semaine\n\nPÉDOLOGIE : {len(data['pedo']) if isinstance(data['pedo'],pd.DataFrame) else 0} unité(s) intersectée(s)\nOBSERVATIONS : {len(data['obs'])}\nANALYSES : {len(data['ana'])}\nACTIONS : {len(data['actions'])}\nMISSIONS : {len(data['missions'])}\nALERTES : {len(data['alerts'])}\nENTRETIENS : {len(data['entretiens'])}\nDOCUMENTS : {len(data['documents'])}")
-                text += "\n\nDIAGNOSTICS ENREGISTRÉS\n" + ("\n".join([f"- {r.get('domaine','—')} | Gravité: {r.get('gravite','—')} | Constat: {r.get('constat','—')} | Recommandation: {r.get('recommandation','—')}" for r in data.get('diagnostics',[])[:20]]) or "- Aucun diagnostic enregistré.")
-                text += "\n\nDÉCISIONS ENREGISTRÉES\n" + ("\n".join([f"- {r.get('domaine','—')} | Décision: {r.get('decision','—')} | Statut: {r.get('statut','—')} | Échéance: {r.get('echeance','—')}" for r in data.get('decisions',[])[:20]]) or "- Aucune décision enregistrée.")
-                db_exec("""INSERT INTO reports(id,dossier_id,mission_id,type_rapport,titre,contenu,confidence,created_at) VALUES(?,?,?,?,?,?,?,?)""",(new_id("RPT"),c["dossier_id"],st.session_state.get("selected_mission"),report_type,title,text,conf,now()))
-                st.session_state["report_text"]=text;st.session_state["report_meta"]={"title":title,"date":report_date,"consultant":consultant,"type":report_type,"confidence":conf,"risk":risk,"quality":q};st.session_state["report_data"]=data
-                audit("RAPPORT_SYNTHETIQUE","report",c["dossier_id"],report_type);st.success("Rapport complet généré avec les données du dossier, la pédologie et l'irrigation.")
+            st.markdown("### 🧾 Rapport synthétique signé et daté")
+            a,b = st.columns([2,1])
+            report_type = a.selectbox("Type de rapport", ["Rapport synthétique de diagnostic","Diagnostic initial","Rapport de mission","Rapport de suivi","Rapport économique","Rapport final","Note de conseil"], key="report_type_xxl")
+            title = b.text_input("Titre", "Rapport synthétique — YouAgronoMe", key="report_title_xxl")
+            q,_ = data_quality()
+            conf = confidence_from_sources()
+            risk = risk_score()
+            consultant = current_user().get("nom") or current_user().get("email") or "Consultant responsable"
+            report_date = datetime.now().strftime("%d/%m/%Y")
+
+            k1,k2,k3,k4 = st.columns(4)
+            k1.metric("Qualité", f"{q}/100")
+            k2.metric("Confiance", f"{conf*100:.0f}%")
+            k3.metric("Risque", f"{risk}/100")
+            k4.metric("Date", report_date)
+
+            if st.button("📝 Générer le rapport synthétique", type="primary", use_container_width=True, key="report_prepare_xxl"):
+                obs = db_exec("SELECT * FROM observations WHERE dossier_id=? ORDER BY created_at DESC LIMIT 20", (c["dossier_id"],), fetch=True)
+                ana = db_exec("SELECT * FROM analyses WHERE dossier_id=? ORDER BY date_analyse DESC LIMIT 20", (c["dossier_id"],), fetch=True)
+                actions = db_exec("SELECT * FROM actions WHERE dossier_id=? ORDER BY created_at DESC LIMIT 10", (c["dossier_id"],), fetch=True)
+                pedo_df, pedo_msg = pedo_lookup(c.get("parcelle_geometry") or c.get("zone_geometry") or [])
+                irr = st.session_state.get("irrigation_current", {})
+                eto=float(irr.get("eto",5.56)); kc=float(irr.get("kc",1.0)); irr_surface=float(irr.get("surface",c.get("surface_ha") or 1)); eff=float(irr.get("eff",0.75))
+                etc=eto*kc; besoin_net=etc*10*irr_surface; besoin_brut=besoin_net/max(eff,0.01)
+                missions = db_exec("SELECT * FROM missions WHERE dossier_id=? ORDER BY created_at DESC LIMIT 20", (c["dossier_id"],), fetch=True)
+                alerts = db_exec("SELECT * FROM alerts WHERE dossier_id=? ORDER BY created_at DESC LIMIT 50", (c["dossier_id"],), fetch=True)
+                finances = db_exec("SELECT * FROM finance WHERE dossier_id=? ORDER BY date_operation DESC LIMIT 100", (c["dossier_id"],), fetch=True)
+                quotes = db_exec("SELECT * FROM quotes WHERE dossier_id=? ORDER BY date_creation DESC LIMIT 20", (c["dossier_id"],), fetch=True)
+                weather = st.session_state.get("weather") or {}
+                cur_weather = weather.get("current", {}) if weather else {}
+                pedo_summary = "Aucune unité pédologique intersectée."
+                if not pedo_df.empty:
+                    pedo_summary = "; ".join([str(x) for x in pedo_df.astype(str).head(10).to_dict("records")])
+                finance_rec=sum(float(x.get("montant_fcfa") or 0) for x in finances if x.get("type_operation")=="Recette")
+                finance_dep=sum(float(x.get("montant_fcfa") or 0) for x in finances if x.get("type_operation")=="Dépense")
+                text = (
+                    f"RAPPORT SYNTHÉTIQUE DE DIAGNOSTIC\n"
+                    f"Date : {report_date}\nConsultant : {consultant}\nType : {report_type}\n\n"
+                    f"1. IDENTIFICATION\nClient : {c['client'] or 'À renseigner'}\nDossier : {c['dossier'] or 'À renseigner'}\n"
+                    f"Région : {c.get('region') or 'À renseigner'}\nCommune : {c.get('commune') or 'À renseigner'}\nVillage : {c.get('village') or 'À renseigner'}\n"
+                    f"Parcelle : {c['parcelle'] or 'À renseigner'}\nCulture : {c['culture'] or 'À renseigner'}\nStade : {c['stade'] or 'À renseigner'}\n"
+                    f"Surface : {float(c.get('surface_ha') or c.get('zone_surface_ha') or 0):.3f} ha\n"
+                    f"GPS : {c.get('latitude') or '—'}, {c.get('longitude') or '—'}\n\n"
+                    f"2. FIABILITÉ DES DONNÉES\nQualité : {q}/100\nConfiance : {conf*100:.0f}%\nRisque : {risk}/100\n"
+                    f"Observations : {len(obs)}\nAnalyses : {len(ana)}\nMissions : {len(missions)}\nActions : {len(actions)}\nAlertes : {len(alerts)}\n\n"
+                    f"3. SOL & PÉDOLOGIE\n{pedo_summary}\nMessage couche : {pedo_msg or 'OK'}\n\n"
+                    f"4. IRRIGATION\nETo : {eto:.2f} mm/j\nKc : {kc:.2f}\nSurface utilisée : {irr_surface:.2f} ha\n"
+                    f"Efficacité : {eff:.2f}\nETc : {etc:.2f} mm/j\nBesoin net : {besoin_net:,.1f} m³/j\nBesoin brut : {besoin_brut:,.1f} m³/j\n\n"
+                    f"5. MÉTÉO DISPONIBLE\nTempérature : {cur_weather.get('temperature_2m','—')} °C\nHumidité : {cur_weather.get('relative_humidity_2m','—')} %\n"
+                    f"Précipitation : {cur_weather.get('precipitation','—')} mm\nVent : {cur_weather.get('wind_speed_10m','—')} km/h\n\n"
+                    f"6. OBSERVATIONS\n" + "\n".join([f"- {o.get('date_observation','—')} | {o.get('domaine','—')} | {o.get('gravite','—')} | {o.get('description','')}" for o in obs[:20]]) + "\n\n"
+                    f"7. ANALYSES\n" + "\n".join([f"- {a.get('date_analyse','—')} | {a.get('type_analyse','—')} | {a.get('parametre','—')} = {a.get('valeur','—')} {a.get('unite','')} | {a.get('laboratoire','')}" for a in ana[:20]]) + "\n\n"
+                    f"8. ACTIONS\n" + "\n".join([f"- {a.get('titre','—')} | {a.get('responsable','—')} | {a.get('echeance','—')} | {a.get('statut','—')} | {a.get('priorite','—')}" for a in actions[:20]]) + "\n\n"
+                    f"9. FINANCE\nRecettes : {finance_rec:,.0f} FCFA\nDépenses : {finance_dep:,.0f} FCFA\nSolde : {finance_rec-finance_dep:,.0f} FCFA\nDevis enregistrés : {len(quotes)}\n\n"
+                    f"10. CONCLUSION / POINTS À VALIDER\n"
+                    "Les informations ci-dessus constituent l'état documenté du dossier au moment de l'édition. "
+                    "Les recommandations doivent être confirmées avec les observations de terrain, les analyses validées, "
+                    "les références techniques applicables et les conditions locales.\n\n"
+                    "11. ESPACE DE VALIDATION\nDécision / recommandation finale : ________________________________________________\n"
+                    "Responsable : ______________________________  Date : ____/____/________\n"
+                    "Signature : ________________________________________________________________"
+                )
+                db_exec("""INSERT INTO reports(id,dossier_id,mission_id,type_rapport,titre,contenu,confidence,created_at)
+                           VALUES(?,?,?,?,?,?,?,?)""",
+                        (new_id("RPT"),c["dossier_id"],st.session_state.get("selected_mission"),report_type,title,text,conf,now()))
+                st.session_state["report_text"] = text
+                st.session_state["report_meta"] = {"title": title, "date": report_date, "consultant": consultant, "type": report_type, "confidence": conf, "risk": risk}
+                audit("RAPPORT_SYNTHETIQUE", "report", c["dossier_id"], report_type)
+                st.success("Rapport synthétique généré, daté et prêt à être signé dans le PDF.")
+
             if st.session_state.get("report_text"):
-                meta=st.session_state.get("report_meta",{});data=st.session_state.get("report_data") or _report_data_full(c)
-                st.markdown("#### 👁️ Aperçu synthétique");st.text_area("Contenu",st.session_state["report_text"],height=380,key="report_text_view_xxl")
+                meta = st.session_state.get("report_meta", {})
+                st.markdown("#### 👁️ Aperçu du rapport")
+                st.text_area("Contenu", st.session_state["report_text"], height=380, key="report_text_view_xxl")
                 if HAS_PDF:
-                    pdf=build_full_report_pdf(c,meta,data)
-                    if pdf:st.download_button("📥 Télécharger le rapport PDF professionnel complet",pdf,f"rapport_youagronome_{datetime.now():%Y%m%d_%H%M}.pdf","application/pdf",key="report_pdf_xxl",use_container_width=True)
-                else:st.warning("Le module PDF ReportLab n'est pas disponible sur cet environnement.")
+                    buf = io.BytesIO()
+                    styles = _pdf_styles()
+                    doc = SimpleDocTemplate(buf, pagesize=A4, rightMargin=38, leftMargin=38, topMargin=43, bottomMargin=40, title=meta.get("title", title), author="YouAgronoMe")
+                    report_title=xml_escape(str(meta.get("title", title)))
+                    report_text=st.session_state["report_text"]
+                    story=[Spacer(1,28),Paragraph("YO UAGRONOME",styles["cover"]),Paragraph("CABINET DE CONSULTANCE AGRICOLE • RAPPORT 360°",styles["kicker"]),Spacer(1,14),
+                           Table([[Paragraph(report_title,styles["cover"])]],colWidths=[519],style=TableStyle([("BACKGROUND",(0,0),(-1,-1),colors.HexColor("#edf6f1")),("BOX",(0,0),(-1,-1),1,colors.HexColor("#9db9ad")),("TOPPADDING",(0,0),(-1,-1),13),("BOTTOMPADDING",(0,0),(-1,-1),13)])),Spacer(1,15),
+                           _pdf_meta_table([("Type de rapport",meta.get("type","Rapport synthétique")),("Date",meta.get("date",report_date)),("Consultant",meta.get("consultant",consultant)),("Niveau de confiance",f"{float(meta.get('confidence',0))*100:.0f}%"),("Indice de risque",str(meta.get("risk","—")))]),Spacer(1,15),Paragraph("SYNTHÈSE ET CONSTATS",styles["section"])]
+                    for line in report_text.splitlines():
+                        clean=line.strip()
+                        if not clean: story.append(Spacer(1,7)); continue
+                        escaped=xml_escape(clean)
+                        if clean.upper() in {"CONCLUSION","RAPPORT SYNTHÉTIQUE DE DIAGNOSTIC"}: story.append(Paragraph(escaped,styles["section"]))
+                        elif clean.upper().endswith(":") or clean.isupper(): story.append(Paragraph(escaped,styles["subtitle"]))
+                        else: story.append(Paragraph(escaped,styles["body"]))
+                    story += [Spacer(1,16),_pdf_signature_block(meta.get("consultant",consultant)),Spacer(1,9),Paragraph("La signature est un emplacement réservé au responsable du dossier. Elle ne constitue pas une signature électronique qualifiée.",styles["small"])]
+                    doc.build(story,onFirstPage=_pdf_header_footer,onLaterPages=_pdf_header_footer)
+                    buf.seek(0)
+                    st.download_button("📥 Télécharger le rapport PDF professionnel", buf.getvalue(), f"rapport_youagronome_{datetime.now():%Y%m%d_%H%M}.pdf", "application/pdf", key="report_pdf_xxl", use_container_width=True)
+                else:
+                    st.warning("Le module PDF ReportLab n'est pas disponible sur cet environnement.")
 
     if section == '📚 Documents':
         st.subheader("📚 Documents et référentiels")
@@ -2799,7 +2982,7 @@ def dashboard():
     flow = pd.DataFrame({
         "Étape":["Client","Dossier","Zone GPS","Observations","Analyses","Décision","Mission","Rapport"],
         "État":[
-            bool(c["client_id"]),bool(c["dossier_id"]),bool(c["zone_geometry"]),obs>0,
+            bool(c["client_id"]),bool(c["dossier_id"]),bool(c.get("parcelle_geometry") or c.get("zone_geometry")),obs>0,
             analyses_count>0,
             obs>0 or missions>0,missions>0,
             reports_count>0
