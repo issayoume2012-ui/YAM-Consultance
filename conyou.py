@@ -2229,6 +2229,23 @@ def _legacy_sig_space(selected=None):
                 "aux analyses disponibles et au périmètre géographique effectivement documenté."
             )
 
+def calculate_irrigation(eto, kc, surface_ha, efficiency):
+    """Calcul standardisé : ETc puis besoins net/brut en eau."""
+    eto=max(float(eto or 0),0.0); kc=max(float(kc or 0),0.0); surface_ha=max(float(surface_ha or 0),0.0)
+    efficiency=min(max(float(efficiency or 0),0.01),1.0)
+    etc=eto*kc
+    net=etc*10.0*surface_ha
+    gross=net/efficiency
+    return {"eto_mm_j":eto,"kc":kc,"surface_ha":surface_ha,"efficacite":efficiency,"etc_mm_j":etc,
+            "besoin_net_m3_j":net,"besoin_brut_m3_j":gross,"apport_brut_mm_j":etc/efficiency,
+            "besoin_brut_m3_h":gross/24.0,"besoin_brut_m3_semaine":gross*7.0}
+
+def _irrigation_defaults(c):
+    surface=float(c.get("surface_ha") or c.get("zone_surface_ha") or 0)
+    if surface<=0: surface=35.43
+    return {"eto":5.56,"kc":1.00,"surface":surface,"eff":0.75}
+
+
     if section == '🌱 Sols & Eau':
         st.subheader("🌱 Sols & Eau")
         c = context()
@@ -2263,17 +2280,25 @@ def _legacy_sig_space(selected=None):
                 st.info("Aucune unité pédologique exploitable n'est associée à cette géométrie.")
         else:
             st.info("Délimitez d'abord la parcelle/zone avec le Polygone pour obtenir les données pédologiques.")
-        st.markdown("#### Besoin d'irrigation")
-        a,b,c1,d = st.columns(4)
-        eto = a.number_input("ETo mm/j", 0.0, 20.0, 5.5, key="irrig_eto_pro")
-        kc = b.number_input("Kc", 0.1, 1.5, 1.0, key="irrig_kc_pro")
-        surf = c1.number_input("Surface ha", 0.1, 100000.0, float(c["zone_surface_ha"] or c["surface_ha"] or 1), key="irrig_surface_pro")
-        eff = d.number_input("Efficacité", 0.1, 1.0, 0.75, key="irrig_eff_pro")
-        etc = eto * kc
-        gross = etc * 10 * surf / eff
-        st.metric("ETc", f"{etc:.2f} mm/j")
-        st.metric("Besoin brut", f"{gross:.1f} m³/j")
-        st.caption("Calcul indicatif; confirmer les paramètres par les conditions locales et les données techniques disponibles.")
+        st.markdown("#### 💧 Besoin d'irrigation — synchronisé avec la parcelle active")
+        defaults=_irrigation_defaults(c)
+        a,b,c1,d=st.columns(4)
+        eto=a.number_input("ETo mm/j",0.0,20.0,defaults["eto"],step=0.01,key="irrig_eto_pro")
+        kc=b.number_input("Kc",0.1,1.5,defaults["kc"],step=0.01,key="irrig_kc_pro")
+        surf=c1.number_input("Surface ha",0.1,100000.0,defaults["surface"],step=0.01,key="irrig_surface_pro")
+        eff=d.number_input("Efficacité",0.1,1.0,defaults["eff"],step=0.01,key="irrig_eff_pro")
+        irr=calculate_irrigation(eto,kc,surf,eff)
+        st.session_state["irrigation_result"]=irr
+        k1,k2,k3,k4=st.columns(4)
+        k1.metric("ETc",f"{irr['etc_mm_j']:.2f} mm/j")
+        k2.metric("Besoin net",f"{irr['besoin_net_m3_j']:.1f} m³/j")
+        k3.metric("Besoin brut",f"{irr['besoin_brut_m3_j']:.1f} m³/j")
+        k4.metric("Apport brut",f"{irr['apport_brut_mm_j']:.2f} mm/j")
+        x1,x2=st.columns(2)
+        x1.info(f"📅 Besoin brut : **{irr['besoin_brut_m3_semaine']:.1f} m³/semaine**")
+        x2.info(f"⚙️ Débit moyen équivalent : **{irr['besoin_brut_m3_h']:.1f} m³/h** sur 24 h")
+        st.caption("Formules : ETc = ETo × Kc ; besoin net = ETc × 10 × surface ; besoin brut = besoin net / efficacité. Ajuster selon pluies utiles, sol, profondeur racinaire, stade cultural et réseau réel.")
+        st.caption(f"🔗 Parcelle active : **{c.get('parcelle') or '—'}** · Surface utilisée : **{surf:.2f} ha**")
 
     if section == '🦠 Phytosanitaire':
         st.subheader("🦠 Pré-diagnostic phytosanitaire")
@@ -2547,86 +2572,82 @@ def _legacy_consultancy_space(selected=None):
             rows = db_exec("SELECT * FROM finance WHERE dossier_id=? ORDER BY date_operation DESC",(did,), fetch=True)
             st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
+def _report_data_full(c):
+    did=c.get("dossier_id")
+    obs=db_exec("SELECT * FROM observations WHERE dossier_id=? ORDER BY created_at DESC",(did,),fetch=True) if did else []
+    ana=db_exec("SELECT * FROM analyses WHERE dossier_id=? ORDER BY date_analyse DESC, created_at DESC",(did,),fetch=True) if did else []
+    actions=db_exec("SELECT * FROM actions WHERE dossier_id=? ORDER BY COALESCE(echeance, created_at), created_at DESC",(did,),fetch=True) if did else []
+    missions=db_exec("SELECT * FROM missions WHERE dossier_id=? ORDER BY COALESCE(date_debut, created_at), created_at DESC",(did,),fetch=True) if did else []
+    alerts=db_exec("SELECT * FROM alerts WHERE dossier_id=? ORDER BY created_at DESC",(did,),fetch=True) if did else []
+    entretiens=interview_transcript(did) if did else []
+    documents=db_exec("SELECT * FROM documents WHERE dossier_id=? ORDER BY created_at DESC",(did,),fetch=True) if did else []
+    vals=_irrigation_defaults(c)
+    vals.update({"eto":float(st.session_state.get("irrig_eto_pro",vals["eto"])),"kc":float(st.session_state.get("irrig_kc_pro",vals["kc"])),"surface":float(st.session_state.get("irrig_surface_pro",vals["surface"])),"eff":float(st.session_state.get("irrig_eff_pro",vals["eff"]))})
+    irr=calculate_irrigation(vals["eto"],vals["kc"],vals["surface"],vals["eff"])
+    coords=_active_geometry(); pedo,pedo_msg=pedo_lookup(coords) if coords and len(coords)>=3 else (pd.DataFrame(),"Aucune géométrie parcellaire active.")
+    return {"obs":obs,"ana":ana,"actions":actions,"missions":missions,"alerts":alerts,"entretiens":entretiens,"documents":documents,"irr":irr,"pedo":pedo,"pedo_msg":pedo_msg}
+
+def build_full_report_pdf(c,meta,data):
+    if not HAS_PDF:return None
+    styles=_pdf_styles();buf=io.BytesIO();doc=SimpleDocTemplate(buf,pagesize=A4,rightMargin=34,leftMargin=34,topMargin=42,bottomMargin=42,title=str(meta.get("title","Rapport YouAgronoMe")),author="YouAgronoMe")
+    irr=data["irr"]
+    story=[Spacer(1,20),Paragraph("YOUAGRONOME",styles["cover"]),Paragraph("CABINET DE CONSULTANCE AGRICOLE • DOSSIER 360°",styles["kicker"]),Spacer(1,12),Table([[Paragraph(xml_escape(str(meta.get("title","Rapport synthétique — YouAgronoMe"))),styles["cover"])]],colWidths=[527],style=TableStyle([("BACKGROUND",(0,0),(-1,-1),colors.HexColor("#edf6f1")),("BOX",(0,0),(-1,-1),1,colors.HexColor("#9db9ad")),("TOPPADDING",(0,0),(-1,-1),14),("BOTTOMPADDING",(0,0),(-1,-1),14)])),Spacer(1,12),_pdf_meta_table([("Type",meta.get("type","Rapport synthétique")),("Date",meta.get("date","—")),("Consultant",meta.get("consultant","—")),("Client",c.get("client") or "—"),("Dossier",c.get("dossier") or "—"),("Parcelle",c.get("parcelle") or "—"),("Culture",c.get("culture") or "—"),("Stade",c.get("stade") or "—"),("Région",c.get("region") or "—"),("Commune",c.get("commune") or "—"),("Surface",f"{float(c.get('surface_ha') or 0):.2f} ha")]),Spacer(1,10),Paragraph("1. INDICATEURS DE FIABILITÉ",styles["section"]),_pdf_meta_table([("Qualité des données",f"{meta.get('quality',0)}/100"),("Confiance",f"{float(meta.get('confidence',0))*100:.0f}%"),("Indice de risque",f"{meta.get('risk','—')}/100")]),Spacer(1,10),Paragraph("2. SOL ET PÉDOLOGIE",styles["section"]),Paragraph(xml_escape(data["pedo_msg"] or "—"),styles["small"]) ]
+    pedo=data["pedo"]
+    if isinstance(pedo,pd.DataFrame) and not pedo.empty:
+        cols=[x for x in ["MAPU","MAPUSUB","MSD","MSDNOM","surface_intersection_ha","part_surface_pct"] if x in pedo.columns]
+        rows=[[Paragraph(xml_escape(x),styles["label"]) for x in cols]]
+        for _,r in pedo.head(20).iterrows():rows.append([Paragraph(xml_escape(str(r.get(x,"—"))),styles["small"]) for x in cols])
+        story.append(Table(rows,repeatRows=1,colWidths=[527/max(1,len(cols))]*len(cols),style=TableStyle([("BACKGROUND",(0,0),(-1,0),colors.HexColor("#edf6f1")),("GRID",(0,0),(-1,-1),.35,colors.HexColor("#d7e4de")),("VALIGN",(0,0),(-1,-1),"TOP")])))
+    story += [Spacer(1,10),Paragraph("3. BESOIN D'IRRIGATION",styles["section"]),_pdf_meta_table([("ETo",f"{irr['eto_mm_j']:.2f} mm/j"),("Kc",f"{irr['kc']:.2f}"),("Surface",f"{irr['surface_ha']:.2f} ha"),("Efficacité",f"{irr['efficacite']*100:.0f}%"),("ETc",f"{irr['etc_mm_j']:.2f} mm/j"),("Besoin net",f"{irr['besoin_net_m3_j']:.1f} m³/j"),("Besoin brut",f"{irr['besoin_brut_m3_j']:.1f} m³/j"),("Apport brut",f"{irr['apport_brut_mm_j']:.2f} mm/j"),("Semaine",f"{irr['besoin_brut_m3_semaine']:.1f} m³"),("Débit moyen",f"{irr['besoin_brut_m3_h']:.1f} m³/h")]),Spacer(1,10),Paragraph("4. OBSERVATIONS TERRAIN",styles["section"])]
+    for i,r in enumerate(data["obs"][:30],1):story.append(Paragraph(xml_escape(f"{i}. {r.get('domaine','—')} | {r.get('type_observation','Observation')} | Gravité : {r.get('gravite','—')} | {r.get('description','')}"),styles["body"]))
+    if not data["obs"]:story.append(Paragraph("Aucune observation enregistrée.",styles["small"]))
+    story += [Spacer(1,8),Paragraph("5. ANALYSES",styles["section"])]
+    if data["ana"]:
+        rows=[[Paragraph(x,styles["label"]) for x in ["Type","Paramètre","Valeur","Unité","Date"]]]
+        for r in data["ana"][:30]:rows.append([Paragraph(xml_escape(str(r.get(k,"—"))),styles["small"]) for k in ["type_analyse","parametre","valeur","unite","date_analyse"]])
+        story.append(Table(rows,repeatRows=1,colWidths=[105,130,70,65,157],style=TableStyle([("BACKGROUND",(0,0),(-1,0),colors.HexColor("#edf6f1")),("GRID",(0,0),(-1,-1),.35,colors.HexColor("#d7e4de"))])))
+    else:story.append(Paragraph("Aucune analyse enregistrée.",styles["small"]))
+    story += [Spacer(1,8),Paragraph("6. ACTIONS, MISSIONS ET ALERTES",styles["section"])]
+    for r in data["actions"][:20]:story.append(Paragraph(xml_escape(f"Action : {r.get('titre','—')} | Échéance : {r.get('echeance','—')} | Statut : {r.get('statut','—')} | Priorité : {r.get('priorite','—')}"),styles["body"]))
+    for r in data["missions"][:20]:story.append(Paragraph(xml_escape(f"Mission : {r.get('objet','—')} | Statut : {r.get('statut','—')} | Échéance : {r.get('echeance','—')} | Avancement : {r.get('avancement','—')}"),styles["body"]))
+    for r in data["alerts"][:20]:story.append(Paragraph(xml_escape(f"Alerte : {r.get('titre',r.get('type_alerte','—'))} | Niveau : {r.get('niveau','—')} | Statut : {r.get('statut','—')} | {r.get('message',r.get('description',''))}"),styles["body"]))
+    if not data["actions"] and not data["missions"] and not data["alerts"]:story.append(Paragraph("Aucune action, mission ou alerte enregistrée.",styles["small"]))
+    story += [Spacer(1,8),Paragraph("7. ENTRETIEN / INFORMATIONS DE L'EXPLOITANT",styles["section"])]
+    for i,r in enumerate(data["entretiens"][:30],1):story.append(Paragraph(xml_escape(f"Q{i}. {r.get('question','—')}"),styles["question"]));story.append(Paragraph(xml_escape(str(r.get('reponse','—'))).replace("\n","<br/>"),styles["body"]))
+    if not data["entretiens"]:story.append(Paragraph("Aucun entretien enregistré.",styles["small"]))
+    story += [Spacer(1,8),Paragraph("8. DOCUMENTS RÉFÉRENCÉS",styles["section"])]
+    for r in data["documents"][:30]:story.append(Paragraph(xml_escape(f"{r.get('nom','—')} | Type : {r.get('type_document','—')} | Référence : {r.get('chemin','—')} | {r.get('description','')}"),styles["body"]))
+    if not data["documents"]:story.append(Paragraph("Aucun document référencé.",styles["small"]))
+    story += [Spacer(1,10),Paragraph("9. CONCLUSION / VÉRIFICATIONS À EFFECTUER",styles["section"]),Paragraph("Les données de ce rapport correspondent au dossier actif au moment de la génération. Avant toute décision opérationnelle, vérifier la géométrie de la parcelle, la culture et son stade, l'état hydrique, les caractéristiques du sol et du réseau d'irrigation, les pluies utiles, les analyses et les contraintes de l'exploitation. Les calculs d'irrigation sont des estimations techniques et doivent être ajustés aux conditions réelles.",styles["body"]),Spacer(1,16),_pdf_signature_block(meta.get("consultant","Consultant responsable")),Spacer(1,8),Paragraph("Signature et validation à compléter par le responsable du dossier. Ce document ne constitue pas une signature électronique qualifiée.",styles["small"])]
+    doc.build(story,onFirstPage=_pdf_header_footer,onLaterPages=_pdf_header_footer);buf.seek(0);return buf.getvalue()
+
+
     if section == '📄 Rapports':
-        st.subheader("📄 Rapports professionnels")
-        c = context()
+        st.subheader("📄 Rapports professionnels — dossier complet")
+        c=context()
         if not c["dossier_id"]:
             st.info("Sélectionnez un dossier pour produire un rapport.")
         else:
-            st.markdown("### 🧾 Rapport synthétique signé et daté")
-            a,b = st.columns([2,1])
-            report_type = a.selectbox("Type de rapport", ["Rapport synthétique de diagnostic","Diagnostic initial","Rapport de mission","Rapport de suivi","Rapport économique","Rapport final","Note de conseil"], key="report_type_xxl")
-            title = b.text_input("Titre", "Rapport synthétique — YouAgronoMe", key="report_title_xxl")
-            q,_ = data_quality()
-            conf = confidence_from_sources()
-            risk = risk_score()
-            consultant = current_user().get("nom") or current_user().get("email") or "Consultant responsable"
-            report_date = datetime.now().strftime("%d/%m/%Y")
-
-            k1,k2,k3,k4 = st.columns(4)
-            k1.metric("Qualité", f"{q}/100")
-            k2.metric("Confiance", f"{conf*100:.0f}%")
-            k3.metric("Risque", f"{risk}/100")
-            k4.metric("Date", report_date)
-
-            if st.button("📝 Générer le rapport synthétique", type="primary", use_container_width=True, key="report_prepare_xxl"):
-                obs = db_exec("SELECT * FROM observations WHERE dossier_id=? ORDER BY created_at DESC LIMIT 20", (c["dossier_id"],), fetch=True)
-                ana = db_exec("SELECT * FROM analyses WHERE dossier_id=? ORDER BY date_analyse DESC LIMIT 20", (c["dossier_id"],), fetch=True)
-                actions = db_exec("SELECT * FROM actions WHERE dossier_id=? ORDER BY created_at DESC LIMIT 10", (c["dossier_id"],), fetch=True)
-                text = (
-                    f"RAPPORT SYNTHÉTIQUE DE DIAGNOSTIC\n"
-                    f"Date : {report_date}\n"
-                    f"Consultant : {consultant}\n\n"
-                    f"CLIENT : {c['client'] or '—'}\n"
-                    f"DOSSIER : {c['dossier'] or '—'}\n"
-                    f"ZONE : {c['zone_nom'] or 'Non délimitée'} ({c['zone_surface_ha']:.3f} ha)\n"
-                    f"PARCELLE : {c['parcelle'] or '—'}\n"
-                    f"CULTURE : {c['culture'] or '—'}\n\n"
-                    f"QUALITÉ DES DONNÉES : {q}/100\n"
-                    f"CONFIANCE : {conf*100:.0f}%\n"
-                    f"RISQUE : {risk}/100\n\n"
-                    f"DONNÉES OBSERVÉES : {len(obs)} observation(s)\n"
-                    f"ANALYSES DISPONIBLES : {len(ana)}\n"
-                    f"ACTIONS / SUIVI : {len(actions)}\n\n"
-                    "CONCLUSION\n"
-                    "Les éléments disponibles permettent une lecture synthétique du dossier. "
-                    "Les recommandations doivent être confirmées selon les preuves terrain, les analyses disponibles "
-                    "et les sources techniques applicables au contexte local."
-                )
-                db_exec("""INSERT INTO reports(id,dossier_id,mission_id,type_rapport,titre,contenu,confidence,created_at)
-                           VALUES(?,?,?,?,?,?,?,?)""",
-                        (new_id("RPT"),c["dossier_id"],st.session_state.get("selected_mission"),report_type,title,text,conf,now()))
-                st.session_state["report_text"] = text
-                st.session_state["report_meta"] = {"title": title, "date": report_date, "consultant": consultant, "type": report_type, "confidence": conf, "risk": risk}
-                audit("RAPPORT_SYNTHETIQUE", "report", c["dossier_id"], report_type)
-                st.success("Rapport synthétique généré, daté et prêt à être signé dans le PDF.")
-
+            st.markdown("### 🧾 Rapport complet, signé et daté")
+            a,b=st.columns([2,1])
+            report_type=a.selectbox("Type de rapport",["Rapport synthétique de diagnostic","Diagnostic initial","Rapport de mission","Rapport de suivi","Rapport économique","Rapport final","Note de conseil"],key="report_type_xxl")
+            title=b.text_input("Titre","Rapport synthétique — YouAgronoMe",key="report_title_xxl")
+            q,_=data_quality();conf=confidence_from_sources();risk=risk_score();consultant=current_user().get("nom") or current_user().get("email") or "Consultant responsable";report_date=datetime.now().strftime("%d/%m/%Y")
+            irr=st.session_state.get("irrigation_result") or calculate_irrigation(5.56,1.0,float(c.get("surface_ha") or c.get("zone_surface_ha") or 35.43),0.75)
+            k1,k2,k3,k4=st.columns(4);k1.metric("Qualité",f"{q}/100");k2.metric("Confiance",f"{conf*100:.0f}%");k3.metric("Risque",f"{risk}/100");k4.metric("Besoin brut",f"{irr['besoin_brut_m3_j']:.1f} m³/j")
+            if st.button("📝 Générer le rapport complet",type="primary",use_container_width=True,key="report_prepare_xxl"):
+                data=_report_data_full(c)
+                text=(f"RAPPORT SYNTHÉTIQUE DE DIAGNOSTIC\nDate : {report_date}\nConsultant : {consultant}\n\nCLIENT : {c.get('client') or '—'}\nDOSSIER : {c.get('dossier') or '—'}\nPARCELLE : {c.get('parcelle') or '—'}\nCULTURE : {c.get('culture') or '—'}\nSURFACE : {float(c.get('surface_ha') or 0):.2f} ha\nRÉGION : {c.get('region') or '—'}\n\nQUALITÉ : {q}/100\nCONFIANCE : {conf*100:.0f}%\nRISQUE : {risk}/100\n\nIRRIGATION\nETo : {data['irr']['eto_mm_j']:.2f} mm/j\nKc : {data['irr']['kc']:.2f}\nSurface : {data['irr']['surface_ha']:.2f} ha\nEfficacité : {data['irr']['efficacite']*100:.0f}%\nETc : {data['irr']['etc_mm_j']:.2f} mm/j\nBesoin net : {data['irr']['besoin_net_m3_j']:.1f} m³/j\nBesoin brut : {data['irr']['besoin_brut_m3_j']:.1f} m³/j\nBesoin hebdomadaire : {data['irr']['besoin_brut_m3_semaine']:.1f} m³/semaine\n\nPÉDOLOGIE : {len(data['pedo']) if isinstance(data['pedo'],pd.DataFrame) else 0} unité(s) intersectée(s)\nOBSERVATIONS : {len(data['obs'])}\nANALYSES : {len(data['ana'])}\nACTIONS : {len(data['actions'])}\nMISSIONS : {len(data['missions'])}\nALERTES : {len(data['alerts'])}\nENTRETIENS : {len(data['entretiens'])}\nDOCUMENTS : {len(data['documents'])}")
+                db_exec("""INSERT INTO reports(id,dossier_id,mission_id,type_rapport,titre,contenu,confidence,created_at) VALUES(?,?,?,?,?,?,?,?)""",(new_id("RPT"),c["dossier_id"],st.session_state.get("selected_mission"),report_type,title,text,conf,now()))
+                st.session_state["report_text"]=text;st.session_state["report_meta"]={"title":title,"date":report_date,"consultant":consultant,"type":report_type,"confidence":conf,"risk":risk,"quality":q};st.session_state["report_data"]=data
+                audit("RAPPORT_SYNTHETIQUE","report",c["dossier_id"],report_type);st.success("Rapport complet généré avec les données du dossier, la pédologie et l'irrigation.")
             if st.session_state.get("report_text"):
-                meta = st.session_state.get("report_meta", {})
-                st.markdown("#### 👁️ Aperçu du rapport")
-                st.text_area("Contenu", st.session_state["report_text"], height=380, key="report_text_view_xxl")
+                meta=st.session_state.get("report_meta",{});data=st.session_state.get("report_data") or _report_data_full(c)
+                st.markdown("#### 👁️ Aperçu synthétique");st.text_area("Contenu",st.session_state["report_text"],height=380,key="report_text_view_xxl")
                 if HAS_PDF:
-                    buf = io.BytesIO()
-                    styles = _pdf_styles()
-                    doc = SimpleDocTemplate(buf, pagesize=A4, rightMargin=38, leftMargin=38, topMargin=43, bottomMargin=40, title=meta.get("title", title), author="YouAgronoMe")
-                    report_title=xml_escape(str(meta.get("title", title)))
-                    report_text=st.session_state["report_text"]
-                    story=[Spacer(1,28),Paragraph("YO UAGRONOME",styles["cover"]),Paragraph("CABINET DE CONSULTANCE AGRICOLE • RAPPORT 360°",styles["kicker"]),Spacer(1,14),
-                           Table([[Paragraph(report_title,styles["cover"])]],colWidths=[519],style=TableStyle([("BACKGROUND",(0,0),(-1,-1),colors.HexColor("#edf6f1")),("BOX",(0,0),(-1,-1),1,colors.HexColor("#9db9ad")),("TOPPADDING",(0,0),(-1,-1),13),("BOTTOMPADDING",(0,0),(-1,-1),13)])),Spacer(1,15),
-                           _pdf_meta_table([("Type de rapport",meta.get("type","Rapport synthétique")),("Date",meta.get("date",report_date)),("Consultant",meta.get("consultant",consultant)),("Niveau de confiance",f"{float(meta.get('confidence',0))*100:.0f}%"),("Indice de risque",str(meta.get("risk","—")))]),Spacer(1,15),Paragraph("SYNTHÈSE ET CONSTATS",styles["section"])]
-                    for line in report_text.splitlines():
-                        clean=line.strip()
-                        if not clean: story.append(Spacer(1,7)); continue
-                        escaped=xml_escape(clean)
-                        if clean.upper() in {"CONCLUSION","RAPPORT SYNTHÉTIQUE DE DIAGNOSTIC"}: story.append(Paragraph(escaped,styles["section"]))
-                        elif clean.upper().endswith(":") or clean.isupper(): story.append(Paragraph(escaped,styles["subtitle"]))
-                        else: story.append(Paragraph(escaped,styles["body"]))
-                    story += [Spacer(1,16),_pdf_signature_block(meta.get("consultant",consultant)),Spacer(1,9),Paragraph("La signature est un emplacement réservé au responsable du dossier. Elle ne constitue pas une signature électronique qualifiée.",styles["small"])]
-                    doc.build(story,onFirstPage=_pdf_header_footer,onLaterPages=_pdf_header_footer)
-                    buf.seek(0)
-                    st.download_button("📥 Télécharger le rapport PDF professionnel", buf.getvalue(), f"rapport_youagronome_{datetime.now():%Y%m%d_%H%M}.pdf", "application/pdf", key="report_pdf_xxl", use_container_width=True)
-                else:
-                    st.warning("Le module PDF ReportLab n'est pas disponible sur cet environnement.")
+                    pdf=build_full_report_pdf(c,meta,data)
+                    if pdf:st.download_button("📥 Télécharger le rapport PDF professionnel complet",pdf,f"rapport_youagronome_{datetime.now():%Y%m%d_%H%M}.pdf","application/pdf",key="report_pdf_xxl",use_container_width=True)
+                else:st.warning("Le module PDF ReportLab n'est pas disponible sur cet environnement.")
 
     if section == '📚 Documents':
         st.subheader("📚 Documents et référentiels")
