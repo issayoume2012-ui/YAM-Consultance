@@ -22,6 +22,7 @@ import io
 import json
 import math
 import os
+from pathlib import Path
 import uuid
 import re
 import urllib.parse
@@ -1019,55 +1020,95 @@ PEDO_CANDIDATES = [
     "Morpho_Pedo.geojson",
     "data/Morpho_Pedo.geojson",
 ]
-PEDO_DEFAULT_CRS = "EPSG:32628"  # UTM 28N, uniquement comme hypothèse si le fichier n'indique pas son CRS.
+PEDO_DEFAULT_CRS = "EPSG:32628"
+
+
+def _project_root():
+    """Racine réelle du projet, indépendante du current working directory de Streamlit."""
+    try:
+        return Path(__file__).resolve().parent
+    except Exception:
+        return Path.cwd()
+
+
+def _find_pedo_file():
+    """Trouve Morpho_Pedo de manière robuste dans le dépôt Streamlit."""
+    root = _project_root()
+
+    # 1) chemins connus, résolus depuis conyou.py et non depuis cwd
+    for rel in PEDO_CANDIDATES:
+        candidate = root / rel
+        if candidate.is_file():
+            return candidate
+
+    # 2) recherche récursive tolérante aux majuscules, suffixes (1), (2), etc.
+    try:
+        for candidate in root.rglob("*"):
+            if not candidate.is_file():
+                continue
+            name = candidate.name.lower()
+            if name.startswith("morpho_pedo") and candidate.suffix.lower() in {".shp", ".geojson", ".gpkg"}:
+                return candidate
+    except Exception:
+        pass
+    return None
 
 
 @st.cache_data(show_spinner=False)
 def load_pedo_layer():
-    """Charge la couche Morpho_Pedo sans inventer d'attributs absents."""
+    """Charge Morpho_Pedo depuis le dépôt réel de l'application."""
     if not HAS_PEDO:
         return None, "GeoPandas/Shapely/PyProj n'est pas installé."
 
-    path = next((p for p in PEDO_CANDIDATES if os.path.exists(p)), None)
-    if not path:
-        # Recherche tolérante des variantes de nom présentes dans GitHub/Streamlit.
-        for root in (".", "data"):
-            if not os.path.isdir(root):
-                continue
-            for name in sorted(os.listdir(root)):
-                if name.lower().startswith("morpho_pedo") and name.lower().endswith((".shp", ".geojson")):
-                    path = os.path.join(root, name)
-                    break
-            if path:
-                break
-    if not path:
-        return None, "Couche Morpho_Pedo introuvable : ajoutez le jeu complet Morpho_Pedo (.shp + .shx + .dbf + .prj) au dépôt."
+    path = _find_pedo_file()
+    root = _project_root()
+    if path is None:
+        # Message de diagnostic utile : il indique précisément où Streamlit cherche.
+        data_dir = root / "data"
+        visible = []
+        if data_dir.is_dir():
+            try:
+                visible = [x.name for x in data_dir.iterdir()][:30]
+            except Exception:
+                pass
+        suffix = f" Contenu de data/ : {', '.join(visible)}." if visible else " Le dossier data/ est absent ou vide."
+        return None, (
+            "Couche Morpho_Pedo introuvable. Répertoire recherché : "
+            f"{root}. Placez Morpho_Pedo.shp + .shx + .dbf + .prj dans {root / 'data'}." + suffix
+        )
 
     try:
-        # Certains dépôts contiennent le .shp/.dbf/.prj mais pas le .shx.
-        # GDAL sait alors reconstruire l'index SHX automatiquement.
-        os.environ.setdefault("SHAPE_RESTORE_SHX", "YES")
-        gdf = gpd.read_file(path)
-        if gdf.empty:
-            return gdf, "La couche Morpho_Pedo est vide."
+        # Important pour les dépôts où l'index SHX manque ou a été renommé.
+        os.environ["SHAPE_RESTORE_SHX"] = "YES"
 
-        # Le fichier fourni peut ne pas contenir de .prj : on ne prétend pas connaître
-        # son CRS. Ici les coordonnées observées correspondent à de l'UTM 28N,
-        # mais cette hypothèse est explicitement signalée.
-        assumed_crs = False
+        # Pour un shapefile, vérifier les composants disponibles et informer sans bloquer
+        # si GDAL peut reconstruire l'index SHX.
+        if path.suffix.lower() == ".shp":
+            missing = [ext for ext in (".dbf", ".prj") if not path.with_suffix(ext).is_file()]
+            if missing:
+                return None, f"Morpho_Pedo trouvé ici ({path}) mais fichiers associés absents : {', '.join(missing)}."
+
+        gdf = gpd.read_file(str(path))
+        if gdf.empty:
+            return gdf, f"La couche Morpho_Pedo est vide : {path}."
+
         if gdf.crs is None:
             gdf = gdf.set_crs(PEDO_DEFAULT_CRS, allow_override=True)
-            assumed_crs = True
+            assumed = True
+        else:
+            assumed = False
 
         gdf = gdf[gdf.geometry.notna()].copy()
         gdf = gdf[~gdf.geometry.is_empty].copy()
+        if gdf.empty:
+            return gdf, f"Morpho_Pedo a été trouvé mais ne contient aucune géométrie exploitable : {path}."
 
-        msg = f"{len(gdf):,} unités géométriques chargées depuis {path}."
-        if assumed_crs:
-            msg += f" CRS absent du fichier : hypothèse {PEDO_DEFAULT_CRS}. À confirmer avec le .prj/source SIG."
+        msg = f"{len(gdf):,} unités géométriques chargées depuis {path.relative_to(root) if path.is_relative_to(root) else path}. CRS={gdf.crs}."
+        if assumed:
+            msg += f" CRS absent : hypothèse {PEDO_DEFAULT_CRS}."
         return gdf, msg
     except Exception as exc:
-        return None, f"Lecture Morpho_Pedo impossible : {exc}"
+        return None, f"Morpho_Pedo trouvé ({path}) mais lecture impossible : {exc}"
 
 
 def pedo_lookup(coords):
