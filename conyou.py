@@ -2932,32 +2932,196 @@ def _legacy_consultancy_space(selected=None):
             st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
     if section == '📝 Devis':
-        st.subheader("📝 Devis et offres de consultance")
-        cid, did = context()["client_id"], context()["dossier_id"]
-        if cid:
-            with st.form("quote_form"):
+        # Module Devis complet : création, modification, suppression, suivi des statuts et synthèse.
+        st.subheader("📝 Devis & Finance — Gestion commerciale")
+        c = context()
+        cid, did = c["client_id"], c["dossier_id"]
+        clients = accessible_clients()
+        client_map = {str(x.get("id")): x for x in clients}
+
+        if not cid and clients:
+            cid = str(clients[0].get("id"))
+            st.session_state["client_id"] = cid
+        if not cid:
+            st.warning("Créez ou sélectionnez d'abord un client dans « Clients & dossiers ».")
+        else:
+            dossiers = accessible_dossiers(cid)
+            dossier_options = {"Aucun dossier": None}
+            for x in dossiers:
+                dossier_options[f"{x.get('nom','Dossier')} — {x.get('id','')}"] = x.get("id")
+            current_label = next((k for k,v in dossier_options.items() if v == did), "Aucun dossier")
+
+            with st.form("quote_form_xxl"):
                 a,b,c1,d = st.columns(4)
-                ref = a.text_input("Référence", new_id("DEV").upper())
-                objet = b.text_input("Objet")
-                ht = c1.number_input("Montant HT FCFA",0.0,1e12,0.0)
-                taxes = d.number_input("Taxes FCFA",0.0,1e12,0.0)
-                valid = st.date_input("Valide jusqu'au", date.today()+timedelta(days=15))
-                statut = st.selectbox("Statut", ["Brouillon","Envoyé","Accepté","Refusé","Expiré"])
-                if st.form_submit_button("Enregistrer le devis"):
-                    db_exec("""INSERT INTO quotes
-                        (id,client_id,dossier_id,reference,objet,montant_ht,taxes,total,statut,date_creation,date_validite,notes)
-                        VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
-                        (new_id("QTE"),cid,did,ref,objet,ht,taxes,ht+taxes,statut,now(),str(valid),""))
-                    audit("DEVIS","quote",cid,ref)
-            rows = db_exec("SELECT * FROM quotes WHERE client_id=? ORDER BY date_creation DESC",(cid,), fetch=True)
-            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+                ref = a.text_input("Référence du devis", value=f"DEV-{datetime.now().strftime('%Y%m%d%H%M%S')}")
+                objet = b.text_input("Objet du devis", placeholder="Diagnostic agronomique, étude, suivi...")
+                ht = c1.number_input("Montant HT (FCFA)", min_value=0.0, value=0.0, step=1000.0)
+                taxes = d.number_input("Taxes (FCFA)", min_value=0.0, value=0.0, step=1000.0)
+                e,f,g = st.columns(3)
+                dossier_label = e.selectbox("Dossier associé", list(dossier_options.keys()), index=list(dossier_options.keys()).index(current_label), key="quote_dossier_xxl")
+                statut = f.selectbox("Statut", ["Brouillon","Envoyé","Accepté","Refusé","Expiré"], key="quote_status_xxl")
+                valid = g.date_input("Valide jusqu'au", date.today()+timedelta(days=15), key="quote_valid_xxl")
+                notes = st.text_area("Notes / conditions du devis", key="quote_notes_xxl")
+                if st.form_submit_button("➕ Créer le devis", type="primary", use_container_width=True):
+                    if not ref.strip() or not objet.strip():
+                        st.error("La référence et l'objet du devis sont obligatoires.")
+                    else:
+                        qid = new_id("QTE")
+                        qdid = dossier_options[dossier_label]
+                        db_exec("""INSERT INTO quotes
+                            (id,client_id,dossier_id,reference,objet,montant_ht,taxes,total,statut,date_creation,date_validite,notes)
+                            VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
+                            (qid,cid,qdid,ref.strip(),objet.strip(),float(ht),float(taxes),float(ht+taxes),statut,now(),str(valid),notes.strip()))
+                        audit("CREATION","quote",qid,ref.strip())
+                        st.success("Devis créé avec succès.")
+                        st.rerun()
+
+            quote_rows = db_exec("""SELECT q.*, d.nom AS dossier_nom
+                FROM quotes q LEFT JOIN dossiers d ON d.id=q.dossier_id
+                WHERE q.client_id=? ORDER BY q.date_creation DESC""", (cid,), fetch=True)
+            qdf = pd.DataFrame(quote_rows)
+            if qdf.empty:
+                st.info("Aucun devis enregistré pour ce client.")
+            else:
+                q1,q2,q3,q4 = st.columns(4)
+                q1.metric("Nombre de devis", len(qdf))
+                q1v = pd.to_numeric(qdf.get("total", pd.Series(dtype=float)), errors="coerce").fillna(0)
+                q2.metric("Total devis", f"{q1v.sum():,.0f} FCFA")
+                q3.metric("Acceptés", int((qdf.get("statut", pd.Series(dtype=str)) == "Accepté").sum()))
+                q4.metric("En attente", int(qdf.get("statut", pd.Series(dtype=str)).isin(["Brouillon","Envoyé"]).sum()))
+                display_cols = [x for x in ["reference","objet","dossier_nom","montant_ht","taxes","total","statut","date_creation","date_validite"] if x in qdf.columns]
+                st.dataframe(qdf[display_cols], use_container_width=True, hide_index=True)
+
+                quote_ids = qdf["id"].astype(str).tolist()
+                selected_q = st.selectbox("Devis à modifier / supprimer", quote_ids, key="quote_manage_select")
+                q = next((dict(x) for x in quote_rows if str(x.get("id")) == selected_q), None)
+                if q:
+                    with st.form(f"quote_edit_form_{selected_q}"):
+                        a,b,c1,d = st.columns(4)
+                        eref = a.text_input("Référence", value=q.get("reference") or "")
+                        eobj = b.text_input("Objet", value=q.get("objet") or "")
+                        eht = c1.number_input("Montant HT (FCFA)", min_value=0.0, value=float(q.get("montant_ht") or 0), step=1000.0)
+                        etax = d.number_input("Taxes (FCFA)", min_value=0.0, value=float(q.get("taxes") or 0), step=1000.0)
+                        es,ev = st.columns(2)
+                        estat = es.selectbox("Statut", ["Brouillon","Envoyé","Accepté","Refusé","Expiré"], index=max(0,["Brouillon","Envoyé","Accepté","Refusé","Expiré"].index(q.get("statut")) if q.get("statut") in ["Brouillon","Envoyé","Accepté","Refusé","Expiré"] else 0), key=f"quote_edit_status_{selected_q}")
+                        try: default_valid = datetime.strptime(str(q.get("date_validite")), "%Y-%m-%d").date()
+                        except Exception: default_valid = date.today()+timedelta(days=15)
+                        evalid = ev.date_input("Validité", value=default_valid, key=f"quote_edit_valid_{selected_q}")
+                        enotes = st.text_area("Notes", value=q.get("notes") or "", key=f"quote_edit_notes_{selected_q}")
+                        if st.form_submit_button("💾 Enregistrer les modifications", type="primary"):
+                            db_exec("""UPDATE quotes SET reference=?,objet=?,montant_ht=?,taxes=?,total=?,statut=?,date_validite=?,notes=? WHERE id=? AND client_id=?""",
+                                    (eref.strip(),eobj.strip(),float(eht),float(etax),float(eht+etax),estat,str(evalid),enotes.strip(),selected_q,cid))
+                            audit("MISE_A_JOUR","quote",selected_q,eref.strip())
+                            st.success("Devis mis à jour.")
+                            st.rerun()
+                    confirm_q = st.checkbox("Je confirme la suppression définitive de ce devis.", key=f"confirm_quote_delete_{selected_q}")
+                    if st.button("🗑️ Supprimer le devis", disabled=not confirm_q, key=f"delete_quote_{selected_q}"):
+                        db_exec("DELETE FROM quotes WHERE id=? AND client_id=?", (selected_q,cid))
+                        audit("SUPPRESSION","quote",selected_q)
+                        st.success("Devis supprimé.")
+                        st.rerun()
 
     if section == '💳 Finance':
-        st.subheader("💳 Finance et rentabilité du cabinet")
-        did = context()["dossier_id"]
-        if did:
-            rows = db_exec("SELECT * FROM finance WHERE dossier_id=? ORDER BY date_operation DESC",(did,), fetch=True)
-            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+        # Module Finance complet : recettes, dépenses, modification, suppression, filtres et indicateurs.
+        st.subheader("💳 Devis & Finance — Suivi financier")
+        c = context()
+        did = c["dossier_id"]
+        if not did:
+            st.warning("Sélectionnez un dossier dans « Clients & dossiers » pour utiliser la finance.")
+        else:
+            missions = db_exec("SELECT id,objet FROM missions WHERE dossier_id=? ORDER BY COALESCE(updated_at,created_at,'') DESC", (did,), fetch=True)
+            mission_options = {"Aucune mission": None}
+            for m in missions:
+                mission_options[f"{m.get('objet') or 'Mission'} — {m.get('id')}"] = m.get("id")
+
+            with st.form("finance_form_xxl"):
+                a,b,c1,d = st.columns(4)
+                typ = a.selectbox("Type d'opération", ["Recette","Dépense"], key="finance_type_xxl")
+                cat = b.selectbox("Catégorie", ["Intrants","Main-d'œuvre","Irrigation","Transport","Conseil","Vente","Équipement","Formation","Étude","Autre"], key="finance_cat_xxl")
+                lib = c1.text_input("Libellé", placeholder="Ex. prestation diagnostic, carburant, achat intrants...")
+                amount = d.number_input("Montant (FCFA)", min_value=0.0, value=0.0, step=1000.0, key="finance_amount_xxl")
+                e,f,g = st.columns(3)
+                mission_label = e.selectbox("Mission associée", list(mission_options.keys()), key="finance_mission_xxl")
+                op_date = f.date_input("Date de l'opération", date.today(), key="finance_date_xxl")
+                statut_fin = g.selectbox("Statut", ["Enregistré","Prévisionnel","Payé","En attente","Annulé"], key="finance_status_xxl")
+                reference_fin = st.text_input("Référence / facture / reçu", key="finance_ref_xxl")
+                notes_fin = st.text_area("Notes", key="finance_notes_xxl")
+                if st.form_submit_button("➕ Enregistrer l'opération", type="primary", use_container_width=True):
+                    if not lib.strip():
+                        st.error("Le libellé de l'opération est obligatoire.")
+                    elif amount <= 0:
+                        st.error("Le montant doit être supérieur à zéro.")
+                    else:
+                        fid = new_id("FIN")
+                        db_exec("""INSERT INTO finance
+                            (id,dossier_id,mission_id,type_operation,categorie,libelle,montant_fcfa,date_operation,statut,reference,notes)
+                            VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+                            (fid,did,mission_options[mission_label],typ,cat,lib.strip(),float(amount),str(op_date),statut_fin,reference_fin.strip(),notes_fin.strip()))
+                        audit("CREATION","finance",fid,lib.strip())
+                        st.success("Opération financière enregistrée.")
+                        st.rerun()
+
+            rows = db_exec("""SELECT f.*, m.objet AS mission_nom
+                FROM finance f LEFT JOIN missions m ON m.id=f.mission_id
+                WHERE f.dossier_id=? ORDER BY f.date_operation DESC""", (did,), fetch=True)
+            fdf = pd.DataFrame(rows)
+            if fdf.empty:
+                st.info("Aucune opération financière enregistrée pour ce dossier.")
+            else:
+                fdf["montant_fcfa"] = pd.to_numeric(fdf["montant_fcfa"], errors="coerce").fillna(0)
+                recettes = float(fdf.loc[fdf["type_operation"]=="Recette","montant_fcfa"].sum())
+                depenses = float(fdf.loc[fdf["type_operation"]=="Dépense","montant_fcfa"].sum())
+                solde = recettes - depenses
+                nb_rec = int((fdf["type_operation"]=="Recette").sum())
+                nb_dep = int((fdf["type_operation"]=="Dépense").sum())
+                a,b,c1,d = st.columns(4)
+                a.metric("💰 Recettes", f"{recettes:,.0f} FCFA")
+                b.metric("💸 Dépenses", f"{depenses:,.0f} FCFA")
+                c1.metric("📊 Solde", f"{solde:,.0f} FCFA")
+                d.metric("🔢 Opérations", f"{len(fdf)} ({nb_rec} R / {nb_dep} D)")
+
+                st.markdown("### 📋 Journal financier")
+                filter_type = st.selectbox("Filtrer", ["Toutes","Recettes","Dépenses"], key="finance_filter_xxl")
+                view = fdf.copy()
+                if filter_type == "Recettes": view = view[view["type_operation"]=="Recette"]
+                if filter_type == "Dépenses": view = view[view["type_operation"]=="Dépense"]
+                cols = [x for x in ["date_operation","type_operation","categorie","libelle","montant_fcfa","statut","reference","mission_nom","notes"] if x in view.columns]
+                st.dataframe(view[cols], use_container_width=True, hide_index=True)
+
+                finance_ids = fdf["id"].astype(str).tolist()
+                selected_f = st.selectbox("Opération à modifier / supprimer", finance_ids, key="finance_manage_select")
+                fin = next((dict(x) for x in rows if str(x.get("id")) == selected_f), None)
+                if fin:
+                    with st.form(f"finance_edit_form_{selected_f}"):
+                        a,b,c1,d = st.columns(4)
+                        etyp = a.selectbox("Type", ["Recette","Dépense"], index=0 if fin.get("type_operation")=="Recette" else 1, key=f"fin_edit_type_{selected_f}")
+                        cats = ["Intrants","Main-d'œuvre","Irrigation","Transport","Conseil","Vente","Équipement","Formation","Étude","Autre"]
+                        ecat = b.selectbox("Catégorie", cats, index=cats.index(fin.get("categorie")) if fin.get("categorie") in cats else len(cats)-1, key=f"fin_edit_cat_{selected_f}")
+                        elib = c1.text_input("Libellé", value=fin.get("libelle") or "", key=f"fin_edit_lib_{selected_f}")
+                        eamount = d.number_input("Montant FCFA", min_value=0.0, value=float(fin.get("montant_fcfa") or 0), step=1000.0, key=f"fin_edit_amount_{selected_f}")
+                        statuses = ["Enregistré","Prévisionnel","Payé","En attente","Annulé"]
+                        estat = st.selectbox("Statut", statuses, index=statuses.index(fin.get("statut")) if fin.get("statut") in statuses else 0, key=f"fin_edit_status_{selected_f}")
+                        eref = st.text_input("Référence", value=fin.get("reference") or "", key=f"fin_edit_ref_{selected_f}")
+                        enotes = st.text_area("Notes", value=fin.get("notes") or "", key=f"fin_edit_notes_{selected_f}")
+                        if st.form_submit_button("💾 Enregistrer les modifications", type="primary"):
+                            if not elib.strip() or eamount <= 0:
+                                st.error("Le libellé et un montant supérieur à zéro sont obligatoires.")
+                            else:
+                                db_exec("""UPDATE finance SET type_operation=?,categorie=?,libelle=?,montant_fcfa=?,statut=?,reference=?,notes=? WHERE id=? AND dossier_id=?""",
+                                        (etyp,ecat,elib.strip(),float(eamount),estat,eref.strip(),enotes.strip(),selected_f,did))
+                                audit("MISE_A_JOUR","finance",selected_f,elib.strip())
+                                st.success("Opération mise à jour.")
+                                st.rerun()
+                    confirm_f = st.checkbox("Je confirme la suppression définitive de cette opération.", key=f"confirm_fin_delete_{selected_f}")
+                    if st.button("🗑️ Supprimer l'opération", disabled=not confirm_f, key=f"delete_fin_{selected_f}"):
+                        db_exec("DELETE FROM finance WHERE id=? AND dossier_id=?", (selected_f,did))
+                        audit("SUPPRESSION","finance",selected_f)
+                        st.success("Opération supprimée.")
+                        st.rerun()
+
+                st.markdown("### 📈 Répartition par catégorie")
+                cat_df = fdf.groupby(["type_operation","categorie"], dropna=False)["montant_fcfa"].sum().reset_index()
+                st.dataframe(cat_df, use_container_width=True, hide_index=True)
 
     if section == '📄 Rapports':
         st.subheader("📄 Rapports professionnels")
