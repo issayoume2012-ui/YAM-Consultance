@@ -17,6 +17,7 @@ Base PostgreSQL : psycopg[binary,pool]
 """
 
 from datetime import datetime, date, timedelta
+from pathlib import Path
 import hashlib
 import io
 import json
@@ -899,51 +900,62 @@ def _active_geometry():
 # =========================================================
 # COUCHE PÉDOLOGIQUE — Morpho_Pedo
 # =========================================================
-PEDO_CANDIDATES = [
-    "Morpho_Pedo.shp",
-    "Morpho_Pedo(1).shp",
-    "Morpho_Pedo(2).shp",
-    "data/Morpho_Pedo.shp",
-    "data/Morpho_Pedo(1).shp",
-    "data/Morpho_Pedo(2).shp",
-    "Morpho_Pedo.geojson",
-    "data/Morpho_Pedo.geojson",
-]
-PEDO_DEFAULT_CRS = "EPSG:32628"  # UTM 28N, uniquement comme hypothèse si le fichier n'indique pas son CRS.
+# Résolution robuste : Streamlit Cloud peut utiliser un répertoire de travail
+# différent du dossier contenant conyou.py. On travaille donc toujours à partir
+# du dossier réel du script.
+APP_DIR = Path(__file__).resolve().parent
+PEDO_DEFAULT_CRS = "EPSG:32628"  # UTM 28N ; CRS confirmé par le .prj fourni.
+
+
+def _pedo_file_candidates():
+    """Retourne les chemins Morpho_Pedo possibles, indépendamment du cwd."""
+    names = [
+        "Morpho_Pedo.shp",
+        "Morpho_Pedo(1).shp",
+        "Morpho_Pedo(2).shp",
+        "Morpho_Pedo.geojson",
+        "Morpho_Pedo(1).geojson",
+        "Morpho_Pedo(2).geojson",
+    ]
+    roots = [APP_DIR, APP_DIR / "data"]
+    candidates = []
+    for root in roots:
+        for name in names:
+            candidates.append(root / name)
+    # File glob limité au dossier data : accepte aussi un nom légèrement différent.
+    data_dir = APP_DIR / "data"
+    if data_dir.is_dir():
+        candidates.extend(sorted(data_dir.glob("Morpho_Pedo*.shp")))
+        candidates.extend(sorted(data_dir.glob("Morpho_Pedo*.geojson")))
+    # Puis le dossier du script.
+    candidates.extend(sorted(APP_DIR.glob("Morpho_Pedo*.shp")))
+    candidates.extend(sorted(APP_DIR.glob("Morpho_Pedo*.geojson")))
+    # Déduplication en conservant l'ordre.
+    seen = set()
+    return [p for p in candidates if not (str(p) in seen or seen.add(str(p)))]
 
 
 @st.cache_data(show_spinner=False)
 def load_pedo_layer():
-    """Charge la couche Morpho_Pedo sans inventer d'attributs absents."""
+    """Charge Morpho_Pedo depuis le dépôt, avec résolution de chemin robuste."""
     if not HAS_PEDO:
-        return None, "GeoPandas/Shapely/PyProj n'est pas installé."
+        return None, "GeoPandas/Shapely/PyProj n'est pas installé. Ajoutez geopandas, shapely et pyproj dans requirements.txt."
 
-    path = next((p for p in PEDO_CANDIDATES if os.path.exists(p)), None)
-    if not path:
-        # Recherche tolérante des variantes de nom présentes dans GitHub/Streamlit.
-        for root in (".", "data"):
-            if not os.path.isdir(root):
-                continue
-            for name in sorted(os.listdir(root)):
-                if name.lower().startswith("morpho_pedo") and name.lower().endswith((".shp", ".geojson")):
-                    path = os.path.join(root, name)
-                    break
-            if path:
-                break
-    if not path:
-        return None, "Couche Morpho_Pedo introuvable : ajoutez le jeu complet Morpho_Pedo (.shp + .shx + .dbf + .prj) au dépôt."
+    path = next((p for p in _pedo_file_candidates() if p.is_file()), None)
+    if path is None:
+        return None, (
+            "Couche Morpho_Pedo introuvable. Chemins testés : "
+            f"{APP_DIR} et {APP_DIR / 'data'}. "
+            "Le dépôt doit contenir Morpho_Pedo.shp + .shx + .dbf + .prj."
+        )
 
     try:
-        # Certains dépôts contiennent le .shp/.dbf/.prj mais pas le .shx.
-        # GDAL sait alors reconstruire l'index SHX automatiquement.
+        # Autorise GDAL/Fiona à reconstruire un SHX absent, sans dépendre du cwd.
         os.environ.setdefault("SHAPE_RESTORE_SHX", "YES")
-        gdf = gpd.read_file(path)
+        gdf = gpd.read_file(str(path))
         if gdf.empty:
-            return gdf, "La couche Morpho_Pedo est vide."
+            return gdf, f"La couche Morpho_Pedo est vide : {path.name}."
 
-        # Le fichier fourni peut ne pas contenir de .prj : on ne prétend pas connaître
-        # son CRS. Ici les coordonnées observées correspondent à de l'UTM 28N,
-        # mais cette hypothèse est explicitement signalée.
         assumed_crs = False
         if gdf.crs is None:
             gdf = gdf.set_crs(PEDO_DEFAULT_CRS, allow_override=True)
@@ -951,13 +963,15 @@ def load_pedo_layer():
 
         gdf = gdf[gdf.geometry.notna()].copy()
         gdf = gdf[~gdf.geometry.is_empty].copy()
+        if gdf.empty:
+            return gdf, f"La couche Morpho_Pedo ne contient aucune géométrie exploitable : {path.name}."
 
-        msg = f"{len(gdf):,} unités géométriques chargées depuis {path}."
+        msg = f"{len(gdf):,} unités pédologiques chargées depuis {path.relative_to(APP_DIR) if path.is_relative_to(APP_DIR) else path}. CRS={gdf.crs}."
         if assumed_crs:
-            msg += f" CRS absent du fichier : hypothèse {PEDO_DEFAULT_CRS}. À confirmer avec le .prj/source SIG."
+            msg += f" CRS absent du fichier : hypothèse {PEDO_DEFAULT_CRS}."
         return gdf, msg
     except Exception as exc:
-        return None, f"Lecture Morpho_Pedo impossible : {exc}"
+        return None, f"Lecture Morpho_Pedo impossible ({path.name}) : {exc}"
 
 
 def pedo_lookup(coords):
