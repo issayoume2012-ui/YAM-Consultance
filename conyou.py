@@ -2648,9 +2648,261 @@ def _legacy_consultancy_space(selected=None):
     section = selected or st.session_state.get("compact__legacy_consultancy_space", '👥 Clients')
 
     if section == '👥 Clients':
-        st.subheader("👥 Portefeuille clients")
-        rows = db_exec("SELECT * FROM clients ORDER BY COALESCE(updated_at, created_at, '') DESC", fetch=True)
-        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+        # =====================================================
+        # GESTION COMPLÈTE CLIENTS + DOSSIERS
+        # =====================================================
+        # Cette rubrique est volontairement autonome : elle permet de créer,
+        # modifier, sélectionner et supprimer les clients et leurs dossiers,
+        # sans dépendre du sélecteur global. Toute modification est ensuite
+        # répercutée dans le contexte global via session_state.
+        st.subheader("👥 Clients & dossiers")
+        st.caption("Gestion complète : ajouter · modifier · sélectionner · supprimer. Les dossiers restent rattachés à leur client.")
+
+        role = str(user.get("role") or "").lower()
+        can_delete = is_super_admin() or role in {"administrateur", "consultant"}
+        clients = accessible_clients()
+
+        # ---------- NOUVEAU CLIENT ----------
+        with st.expander("➕ Ajouter un nouveau client", expanded=not bool(clients)):
+            with st.form("cabinet_create_client_complete", clear_on_submit=True):
+                a,b,c1 = st.columns(3)
+                nom_n = a.text_input("Nom / exploitation *")
+                tel_n = b.text_input("Téléphone")
+                email_n = c1.text_input("E-mail")
+                a2,b2,c2 = st.columns(3)
+                org_n = a2.text_input("Organisation")
+                region_n = b2.selectbox("Région", list(REGIONS_COORD))
+                adresse_n = c2.text_input("Adresse / localisation")
+                notes_n = st.text_area("Notes client")
+                create_client = st.form_submit_button("💾 Ajouter le client", type="primary")
+                if create_client:
+                    if not nom_n.strip():
+                        st.error("Le nom du client est obligatoire.")
+                    else:
+                        cid_new = new_id("CLI")
+                        db_exec("""INSERT INTO clients
+                            (id,nom,telephone,email,organisation,adresse,region,notes,created_at,updated_at)
+                            VALUES(?,?,?,?,?,?,?,?,?,?)""",
+                            (cid_new,nom_n.strip(),tel_n.strip(),email_n.strip(),org_n.strip(),
+                             adresse_n.strip(),region_n,notes_n.strip(),now(),now()))
+                        st.session_state["client_id"] = cid_new
+                        st.session_state["dossier_id"] = None
+                        st.session_state["parcelle_id"] = None
+                        st.session_state["selected_parcelle_id"] = None
+                        st.session_state["zone_feature_id"] = None
+                        st.session_state.pop("active_parcel_geometry", None)
+                        st.session_state.pop("terrain_geometry", None)
+                        audit("CREATION", "client", cid_new, {"nom": nom_n.strip()})
+                        st.success("Client créé et sélectionné.")
+                        st.rerun()
+
+        clients = accessible_clients()
+        if not clients:
+            st.info("Aucun client accessible. Utilisez « Ajouter un nouveau client » pour commencer.")
+        else:
+            labels = [f"{x['nom']} · {x['region'] or 'Région non renseignée'} · {x['telephone'] or 'sans téléphone'}" for x in clients]
+            ids = [x["id"] for x in clients]
+            current = st.session_state.get("client_id")
+            idx = ids.index(current) if current in ids else 0
+            chosen_id = st.selectbox("👤 Client à gérer", ids, index=idx,
+                                     format_func=lambda x: labels[ids.index(x)],
+                                     key="cabinet_client_crud_select")
+            if chosen_id != st.session_state.get("client_id"):
+                st.session_state["client_id"] = chosen_id
+                st.session_state["dossier_id"] = None
+                st.session_state["parcelle_id"] = None
+                st.session_state["selected_parcelle_id"] = None
+                st.session_state["zone_feature_id"] = None
+                st.session_state.pop("active_parcel_geometry", None)
+                st.session_state.pop("terrain_geometry", None)
+                st.rerun()
+
+            client = next((x for x in clients if x["id"] == chosen_id), None)
+            if client:
+                st.markdown("#### ✏️ Modifier la fiche client")
+                with st.form("cabinet_edit_client_complete"):
+                    a,b,c1 = st.columns(3)
+                    nom_e = a.text_input("Nom / exploitation *", value=client.get("nom") or "")
+                    tel_e = b.text_input("Téléphone", value=client.get("telephone") or "")
+                    email_e = c1.text_input("E-mail", value=client.get("email") or "")
+                    a2,b2,c2 = st.columns(3)
+                    org_e = a2.text_input("Organisation", value=client.get("organisation") or "")
+                    regions = list(REGIONS_COORD)
+                    reg0 = client.get("region") if client.get("region") in regions else regions[0]
+                    region_e = b2.selectbox("Région", regions, index=regions.index(reg0))
+                    adresse_e = c2.text_input("Adresse / localisation", value=client.get("adresse") or "")
+                    notes_e = st.text_area("Notes", value=client.get("notes") or "")
+                    if st.form_submit_button("💾 Enregistrer les modifications", type="primary"):
+                        if not nom_e.strip():
+                            st.error("Le nom du client est obligatoire.")
+                        else:
+                            db_exec("""UPDATE clients SET nom=?,telephone=?,email=?,organisation=?,
+                                adresse=?,region=?,notes=?,updated_at=? WHERE id=?""",
+                                (nom_e.strip(),tel_e.strip(),email_e.strip(),org_e.strip(),adresse_e.strip(),
+                                 region_e,notes_e.strip(),now(),chosen_id))
+                            audit("MISE_A_JOUR", "client", chosen_id, {"nom": nom_e.strip()})
+                            st.success("Fiche client mise à jour.")
+                            st.rerun()
+
+                # ---------- SUPPRESSION CLIENT ----------
+                if can_delete:
+                    with st.expander("🗑️ Supprimer ce client", expanded=False):
+                        dossiers_client = db_exec("SELECT id,nom FROM dossiers WHERE client_id=?", (chosen_id,), fetch=True)
+                        st.warning(f"Cette opération supprimera le client et ses {len(dossiers_client)} dossier(s) associés, ainsi que les données rattachées à ces dossiers.")
+                        confirm = st.checkbox("Je confirme la suppression définitive de ce client et de ses données.", key=f"confirm_delete_client_{chosen_id}")
+                        if st.button("🗑️ Supprimer définitivement le client", type="secondary", disabled=not confirm, key=f"delete_client_{chosen_id}"):
+                            dossier_ids = [r["id"] for r in dossiers_client]
+                            # Nettoyage explicite car les anciennes tables ne possèdent
+                            # pas toutes des contraintes FK/CASCADE.
+                            tables_by_dossier = [
+                                "parcelles","observations","analyses","cultures","livestock","aquaculture",
+                                "agrofood","assets","missions","actions","finance","quotes","reports",
+                                "documents","alerts","gis_features","weather_cache","sync_log","entretiens",
+                                "contacts","user_data_access"
+                            ]
+                            for did_del in dossier_ids:
+                                for table in tables_by_dossier:
+                                    col = "client_id" if table == "quotes" else "dossier_id"
+                                    try:
+                                        db_exec(f"DELETE FROM {table} WHERE {col}=?", (chosen_id if table == "quotes" else did_del,))
+                                    except Exception:
+                                        pass
+                                try:
+                                    db_exec("DELETE FROM audit WHERE entity='dossier' AND entity_id=?", (did_del,))
+                                except Exception:
+                                    pass
+                                db_exec("DELETE FROM dossiers WHERE id=?", (did_del,))
+                            db_exec("DELETE FROM audit WHERE entity='client' AND entity_id=?", (chosen_id,))
+                            db_exec("DELETE FROM clients WHERE id=?", (chosen_id,))
+                            st.session_state["client_id"] = None
+                            st.session_state["dossier_id"] = None
+                            st.session_state["parcelle_id"] = None
+                            st.session_state["selected_parcelle_id"] = None
+                            st.session_state["zone_feature_id"] = None
+                            st.session_state.pop("active_parcel_geometry", None)
+                            st.session_state.pop("terrain_geometry", None)
+                            audit("SUPPRESSION", "client", chosen_id)
+                            st.success("Client supprimé.")
+                            st.rerun()
+
+                # ---------- DOSSIERS DU CLIENT ----------
+                st.markdown("#### 📁 Dossiers du client")
+                dossiers_client = accessible_dossiers(chosen_id)
+                with st.expander("➕ Créer un dossier pour ce client", expanded=not bool(dossiers_client)):
+                    with st.form("cabinet_create_dossier_complete"):
+                        a,b,c1,d = st.columns(4)
+                        nom_d = a.text_input("Nom du dossier *")
+                        type_d = b.selectbox("Type", ["Agriculture","Élevage","Aquaculture","Agroalimentaire","Mixte"])
+                        reg_d = c1.selectbox("Région", list(REGIONS_COORD), key="create_dossier_region")
+                        statut_d = d.selectbox("Statut", ["Actif","En attente","Suspendu","Clôturé"])
+                        a2,b2,c2 = st.columns(3)
+                        commune_d = a2.text_input("Commune")
+                        village_d = b2.text_input("Village")
+                        notes_d = c2.text_area("Notes du dossier")
+                        if st.form_submit_button("💾 Créer le dossier", type="primary"):
+                            if not nom_d.strip():
+                                st.error("Le nom du dossier est obligatoire.")
+                            else:
+                                did_new = new_id("DOS")
+                                lat_d,lon_d = REGIONS_COORD[reg_d]
+                                db_exec("""INSERT INTO dossiers
+                                    (id,client_id,nom,type_exploitation,region,commune,village,latitude,longitude,notes,statut,created_at,updated_at)
+                                    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                                    (did_new,chosen_id,nom_d.strip(),type_d,reg_d,commune_d.strip(),village_d.strip(),
+                                     lat_d,lon_d,notes_d.strip(),statut_d,now(),now()))
+                                # Le créateur reçoit immédiatement l'accès au dossier.
+                                if not is_super_admin():
+                                    try:
+                                        db_exec("INSERT INTO user_data_access(user_email,dossier_id,access_level,created_at) VALUES(?,?,?,?)",
+                                                ((user.get("email") or "").lower(),did_new,"édition",now()))
+                                    except Exception:
+                                        pass
+                                st.session_state["client_id"] = chosen_id
+                                set_active_dossier(did_new)
+                                audit("CREATION", "dossier", did_new, {"client_id": chosen_id, "nom": nom_d.strip()})
+                                st.success("Dossier créé et sélectionné.")
+                                st.rerun()
+
+                dossiers_client = accessible_dossiers(chosen_id)
+                if dossiers_client:
+                    dossier_ids = [x["id"] for x in dossiers_client]
+                    dossier_labels = [f"{x['nom']} · {x['type_exploitation'] or 'Type non renseigné'} · {x['statut'] or 'Actif'}" for x in dossiers_client]
+                    curd = st.session_state.get("dossier_id")
+                    idxd = dossier_ids.index(curd) if curd in dossier_ids else 0
+                    chosen_did = st.selectbox("📁 Dossier à gérer", dossier_ids, index=idxd,
+                                              format_func=lambda x: dossier_labels[dossier_ids.index(x)],
+                                              key=f"cabinet_dossier_crud_select_{chosen_id}")
+                    if chosen_did != st.session_state.get("dossier_id"):
+                        set_active_dossier(chosen_did)
+                        st.rerun()
+
+                    dossier = next((x for x in dossiers_client if x["id"] == chosen_did), None)
+                    if dossier:
+                        with st.form("cabinet_edit_dossier_complete"):
+                            a,b,c1,d = st.columns(4)
+                            nom_de = a.text_input("Nom du dossier *", value=dossier.get("nom") or "")
+                            types = ["Agriculture","Élevage","Aquaculture","Agroalimentaire","Mixte"]
+                            td0 = dossier.get("type_exploitation") if dossier.get("type_exploitation") in types else types[0]
+                            type_de = b.selectbox("Type", types, index=types.index(td0))
+                            regs = list(REGIONS_COORD)
+                            rd0 = dossier.get("region") if dossier.get("region") in regs else regs[0]
+                            region_de = c1.selectbox("Région", regs, index=regs.index(rd0))
+                            statuses = ["Actif","En attente","Suspendu","Clôturé"]
+                            sd0 = dossier.get("statut") if dossier.get("statut") in statuses else statuses[0]
+                            statut_de = d.selectbox("Statut", statuses, index=statuses.index(sd0))
+                            a2,b2,c2 = st.columns(3)
+                            commune_de = a2.text_input("Commune", value=dossier.get("commune") or "")
+                            village_de = b2.text_input("Village", value=dossier.get("village") or "")
+                            notes_de = c2.text_area("Notes", value=dossier.get("notes") or "")
+                            if st.form_submit_button("💾 Enregistrer les modifications du dossier", type="primary"):
+                                if not nom_de.strip():
+                                    st.error("Le nom du dossier est obligatoire.")
+                                else:
+                                    lat_de,lon_de = REGIONS_COORD[region_de]
+                                    db_exec("""UPDATE dossiers SET nom=?,type_exploitation=?,region=?,commune=?,village=?,
+                                        latitude=?,longitude=?,notes=?,statut=?,updated_at=? WHERE id=? AND client_id=?""",
+                                        (nom_de.strip(),type_de,region_de,commune_de.strip(),village_de.strip(),lat_de,lon_de,
+                                         notes_de.strip(),statut_de,now(),chosen_did,chosen_id))
+                                    st.session_state["client_id"] = chosen_id
+                                    st.session_state["dossier_id"] = chosen_did
+                                    audit("MISE_A_JOUR", "dossier", chosen_did, {"nom": nom_de.strip()})
+                                    st.success("Dossier mis à jour.")
+                                    st.rerun()
+
+                        if can_delete:
+                            with st.expander("🗑️ Supprimer ce dossier", expanded=False):
+                                confirm_d = st.checkbox("Je confirme la suppression définitive de ce dossier et de ses données.", key=f"confirm_delete_dossier_{chosen_did}")
+                                if st.button("🗑️ Supprimer définitivement le dossier", disabled=not confirm_d, key=f"delete_dossier_{chosen_did}"):
+                                    tables = [
+                                        "parcelles","observations","analyses","cultures","livestock","aquaculture",
+                                        "agrofood","assets","missions","actions","finance","quotes","reports",
+                                        "documents","alerts","gis_features","weather_cache","sync_log","entretiens",
+                                        "contacts","user_data_access"
+                                    ]
+                                    for table in tables:
+                                        try:
+                                            if table == "quotes":
+                                                db_exec("DELETE FROM quotes WHERE dossier_id=?", (chosen_did,))
+                                            else:
+                                                db_exec(f"DELETE FROM {table} WHERE dossier_id=?", (chosen_did,))
+                                        except Exception:
+                                            pass
+                                    try:
+                                        db_exec("DELETE FROM audit WHERE entity='dossier' AND entity_id=?", (chosen_did,))
+                                    except Exception:
+                                        pass
+                                    db_exec("DELETE FROM dossiers WHERE id=? AND client_id=?", (chosen_did,chosen_id))
+                                    st.session_state["dossier_id"] = None
+                                    st.session_state["parcelle_id"] = None
+                                    st.session_state["selected_parcelle_id"] = None
+                                    st.session_state["zone_feature_id"] = None
+                                    st.session_state.pop("active_parcel_geometry", None)
+                                    st.session_state.pop("terrain_geometry", None)
+                                    audit("SUPPRESSION", "dossier", chosen_did)
+                                    st.success("Dossier supprimé.")
+                                    st.rerun()
+                else:
+                    st.info("Ce client n'a encore aucun dossier accessible. Créez-en un ci-dessus.")
 
     if section == '📋 Missions':
         st.subheader("📋 Workflow professionnel des missions")
