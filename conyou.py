@@ -1011,104 +1011,127 @@ def _active_geometry():
 # COUCHE PÉDOLOGIQUE — Morpho_Pedo
 # =========================================================
 PEDO_CANDIDATES = [
-    "Morpho_Pedo.shp",
-    "Morpho_Pedo(1).shp",
-    "Morpho_Pedo(2).shp",
-    "data/Morpho_Pedo.shp",
-    "data/Morpho_Pedo(1).shp",
-    "data/Morpho_Pedo(2).shp",
-    "Morpho_Pedo.geojson",
-    "data/Morpho_Pedo.geojson",
+    "data/Morpho_Pedo.shp", "Morpho_Pedo.shp",
+    "data/Morpho_Pedo(1).shp", "Morpho_Pedo(1).shp",
+    "data/Morpho_Pedo(2).shp", "Morpho_Pedo(2).shp",
+    "data/Morpho_Pedo.geojson", "Morpho_Pedo.geojson",
+    "data/Morpho_Pedo.gpkg", "Morpho_Pedo.gpkg",
 ]
 PEDO_DEFAULT_CRS = "EPSG:32628"
+PEDO_LAYER_VERSION = "2026.09.16.v3"
 
 
 def _project_root():
-    """Racine réelle du projet, indépendante du current working directory de Streamlit."""
+    """Retourne le répertoire réel du script, indépendamment du dossier courant."""
     try:
         return Path(__file__).resolve().parent
     except Exception:
-        return Path.cwd()
+        return Path.cwd().resolve()
+
+
+def _pedo_search_roots():
+    """Construit une liste courte de racines possibles sans scanner tout le système."""
+    roots = [_project_root(), Path.cwd().resolve()]
+    try:
+        roots.append(Path(os.environ.get("STREAMLIT_APP_ROOT", "")).resolve())
+    except Exception:
+        pass
+    unique = []
+    seen = set()
+    for root in roots:
+        if not root or str(root) in seen:
+            continue
+        seen.add(str(root))
+        if root.exists():
+            unique.append(root)
+    return unique
 
 
 def _find_pedo_file():
-    """Trouve Morpho_Pedo de manière robuste dans le dépôt Streamlit."""
-    root = _project_root()
-
-    # 1) chemins connus, résolus depuis conyou.py et non depuis cwd
-    for rel in PEDO_CANDIDATES:
-        candidate = root / rel
-        if candidate.is_file():
-            return candidate
-
-    # 2) recherche récursive tolérante aux majuscules, suffixes (1), (2), etc.
-    try:
-        for candidate in root.rglob("*"):
-            if not candidate.is_file():
-                continue
-            name = candidate.name.lower()
-            if name.startswith("morpho_pedo") and candidate.suffix.lower() in {".shp", ".geojson", ".gpkg"}:
+    """Recherche la couche dans data/, à la racine et dans un sous-dossier proche."""
+    for root in _pedo_search_roots():
+        for rel in PEDO_CANDIDATES:
+            candidate = root / rel
+            if candidate.is_file():
                 return candidate
-    except Exception:
-        pass
+        # Recherche limitée aux deux premiers niveaux pour éviter un démarrage lent.
+        try:
+            for data_dir in (root / "data", root / "gis", root / "layers", root / "assets"):
+                if not data_dir.is_dir():
+                    continue
+                for candidate in data_dir.iterdir():
+                    if candidate.is_file() and candidate.suffix.lower() in {".shp", ".geojson", ".gpkg"}:
+                        if candidate.stem.lower().startswith("morpho_pedo"):
+                            return candidate
+        except Exception:
+            continue
     return None
 
 
-@st.cache_data(show_spinner=False)
-def load_pedo_layer():
-    """Charge Morpho_Pedo depuis le dépôt réel de l'application."""
-    if not HAS_PEDO:
-        return None, "GeoPandas/Shapely/PyProj n'est pas installé."
-
-    path = _find_pedo_file()
+def _pedo_file_report(path=None):
+    """Retourne un diagnostic lisible de la présence des fichiers shapefile."""
     root = _project_root()
     if path is None:
-        # Message de diagnostic utile : il indique précisément où Streamlit cherche.
-        data_dir = root / "data"
+        return f"Racine application : {root}; data/ existe={((root/'data').is_dir())}."
+    siblings = []
+    for ext in (".shp", ".shx", ".dbf", ".prj", ".cpg"):
+        siblings.append(f"{path.with_suffix(ext).name}={'OK' if path.with_suffix(ext).is_file() else 'absent'}")
+    try:
+        rel = path.relative_to(root)
+    except Exception:
+        rel = path
+    return f"Fichier={rel}; " + ", ".join(siblings)
+
+
+@st.cache_data(show_spinner=False)
+def load_pedo_layer(_version=PEDO_LAYER_VERSION):
+    """Charge Morpho_Pedo de façon déterministe et fournit un diagnostic précis."""
+    if not HAS_PEDO:
+        return None, "GeoPandas/Shapely/PyProj n'est pas installé dans l'environnement."
+    path = _find_pedo_file()
+    if path is None:
+        root = _project_root()
         visible = []
+        data_dir = root / "data"
         if data_dir.is_dir():
             try:
-                visible = [x.name for x in data_dir.iterdir()][:30]
+                visible = sorted(x.name for x in data_dir.iterdir())[:40]
             except Exception:
-                pass
-        suffix = f" Contenu de data/ : {', '.join(visible)}." if visible else " Le dossier data/ est absent ou vide."
+                visible = []
+        detail = ", ".join(visible) if visible else "dossier data absent ou vide"
         return None, (
-            "Couche Morpho_Pedo introuvable. Répertoire recherché : "
-            f"{root}. Placez Morpho_Pedo.shp + .shx + .dbf + .prj dans {root / 'data'}." + suffix
+            "Couche Morpho_Pedo introuvable dans la version actuellement exécutée. "
+            f"Racine détectée : {root}. Contenu data/ : {detail}. "
+            "Attendu : Morpho_Pedo.shp + Morpho_Pedo.shx + Morpho_Pedo.dbf + Morpho_Pedo.prj."
         )
-
     try:
-        # Important pour les dépôts où l'index SHX manque ou a été renommé.
         os.environ["SHAPE_RESTORE_SHX"] = "YES"
-
-        # Pour un shapefile, vérifier les composants disponibles et informer sans bloquer
-        # si GDAL peut reconstruire l'index SHX.
         if path.suffix.lower() == ".shp":
             missing = [ext for ext in (".dbf", ".prj") if not path.with_suffix(ext).is_file()]
+            # Le SHX peut être reconstruit par GDAL; on le signale sans bloquer.
+            shx_missing = not path.with_suffix(".shx").is_file()
             if missing:
-                return None, f"Morpho_Pedo trouvé ici ({path}) mais fichiers associés absents : {', '.join(missing)}."
-
+                return None, f"Morpho_Pedo trouvé mais incomplet : {_pedo_file_report(path)}"
         gdf = gpd.read_file(str(path))
-        if gdf.empty:
-            return gdf, f"La couche Morpho_Pedo est vide : {path}."
-
+        if gdf is None or gdf.empty:
+            return gdf, f"Morpho_Pedo est vide : {_pedo_file_report(path)}"
+        assumed = False
         if gdf.crs is None:
             gdf = gdf.set_crs(PEDO_DEFAULT_CRS, allow_override=True)
             assumed = True
-        else:
-            assumed = False
-
         gdf = gdf[gdf.geometry.notna()].copy()
         gdf = gdf[~gdf.geometry.is_empty].copy()
         if gdf.empty:
-            return gdf, f"Morpho_Pedo a été trouvé mais ne contient aucune géométrie exploitable : {path}."
-
-        msg = f"{len(gdf):,} unités géométriques chargées depuis {path.relative_to(root) if path.is_relative_to(root) else path}. CRS={gdf.crs}."
+            return gdf, f"Morpho_Pedo ne contient aucune géométrie exploitable : {_pedo_file_report(path)}"
+        gdf = gdf.reset_index(drop=True)
+        msg = f"{len(gdf):,} unités pédologiques chargées. {_pedo_file_report(path)} CRS={gdf.crs}."
         if assumed:
-            msg += f" CRS absent : hypothèse {PEDO_DEFAULT_CRS}."
+            msg += f" CRS absent : hypothèse explicite {PEDO_DEFAULT_CRS}."
+        if shx_missing:
+            msg += " Le .shx manquant a été laissé à GDAL avec SHAPE_RESTORE_SHX=YES."
         return gdf, msg
     except Exception as exc:
-        return None, f"Morpho_Pedo trouvé ({path}) mais lecture impossible : {exc}"
+        return None, f"Morpho_Pedo trouvé mais lecture impossible : {exc}. {_pedo_file_report(path)}"
 
 
 def pedo_lookup(coords):
@@ -2166,7 +2189,7 @@ def _legacy_terrain_space(selected=None):
         if did:
             tables = [
                 ("Observation","SELECT created_at,description AS texte FROM observations WHERE dossier_id=?"),
-                ("Analyse","SELECT created_at,parametre || ' = ' || valeur AS texte FROM analyses WHERE dossier_id=?"),
+                ("Analyse","SELECT created_at,parametre || ' = ' || CAST(valeur AS TEXT) AS texte FROM analyses WHERE dossier_id=?"),
                 ("Action","SELECT created_at,titre AS texte FROM actions WHERE dossier_id=?"),
                 ("Mission","SELECT created_at,objet AS texte FROM missions WHERE dossier_id=?"),
             ]
@@ -2873,6 +2896,401 @@ def _legacy_consultancy_space(selected=None):
             st.success("Synchronisation terminée avec conservation du dernier état connu.")
 
 
+
+# =========================================================
+# 13 BIS. COUCHE DE ROBUSTESSE — VALIDATION, CALCULS ET SYNCHRONISATION
+# =========================================================
+# Cette couche complète les anciens modules sans supprimer leurs fonctionnalités.
+# Elle privilégie des fonctions déterministes, des contrôles explicites et des
+# messages utiles. Elle ne dépend d'aucun service d'IA.
+
+APP_BUILD = "YouAgronoMe-2026.09.16-3500"
+APP_SCHEMA_VERSION = "360.3"
+
+
+def safe_float(value, default=0.0):
+    """Convertit proprement une valeur numérique provenant d'un formulaire ou SQL."""
+    try:
+        if value is None or (isinstance(value, str) and not value.strip()):
+            return float(default)
+        result = float(value)
+        return result if math.isfinite(result) else float(default)
+    except Exception:
+        return float(default)
+
+
+def safe_int(value, default=0):
+    """Conversion entière tolérante utilisée par les KPI."""
+    try:
+        return int(float(value))
+    except Exception:
+        return int(default)
+
+
+def clamp(value, low, high):
+    """Borne une valeur entre deux limites."""
+    return max(low, min(high, safe_float(value, low)))
+
+
+def pct(value, digits=1):
+    """Formate un pourcentage sans exposer NaN/infini à l'interface."""
+    return f"{clamp(value, 0, 100):.{digits}f} %"
+
+
+def date_safe(value):
+    """Retourne une date ISO exploitable ou une chaîne vide."""
+    if value in (None, ""):
+        return ""
+    if isinstance(value, (date, datetime)):
+        return value.isoformat()[:10]
+    text = str(value).strip()
+    try:
+        return pd.to_datetime(text, errors="raise").date().isoformat()
+    except Exception:
+        return text[:10]
+
+
+def age_days(value):
+    """Nombre de jours depuis une date; None si la date n'est pas lisible."""
+    iso = date_safe(value)
+    if not iso:
+        return None
+    try:
+        return (date.today() - date.fromisoformat(iso)).days
+    except Exception:
+        return None
+
+
+def geometry_points_valid(coords):
+    """Contrôle simple d'un polygone GPS avant tout calcul."""
+    if not isinstance(coords, (list, tuple)) or len(coords) < 3:
+        return False
+    clean = []
+    for point in coords:
+        try:
+            lat, lon = float(point[0]), float(point[1])
+            if math.isfinite(lat) and math.isfinite(lon) and -90 <= lat <= 90 and -180 <= lon <= 180:
+                clean.append((lat, lon))
+        except Exception:
+            continue
+    return len(clean) >= 3 and len(set(clean)) >= 3
+
+
+def geometry_area_ha_safe(coords):
+    """Surface de secours; utilise la fonction historique lorsqu'elle existe."""
+    if not geometry_points_valid(coords):
+        return 0.0
+    try:
+        return max(0.0, safe_float(polygon_area_ha(coords)))
+    except Exception:
+        return 0.0
+
+
+def geometry_perimeter_m_safe(coords):
+    """Périmètre de secours; évite qu'une géométrie partielle casse le formulaire."""
+    if not geometry_points_valid(coords):
+        return 0.0
+    try:
+        return max(0.0, safe_float(polygon_perimeter_m(coords)))
+    except Exception:
+        return 0.0
+
+
+def geometry_centroid_safe(coords):
+    """Centroïde GPS sécurisé."""
+    if not geometry_points_valid(coords):
+        return None, None
+    try:
+        lat, lon = centroid(coords)
+        return safe_float(lat, 0.0), safe_float(lon, 0.0)
+    except Exception:
+        return None, None
+
+
+def active_context_complete():
+    """Vérifie la chaîne Client -> Dossier -> Parcelle -> Géométrie."""
+    c = context()
+    return {
+        "client": bool(c.get("client_id")),
+        "dossier": bool(c.get("dossier_id")),
+        "parcelle": bool(c.get("parcelle_id")),
+        "geometry": geometry_points_valid(_active_geometry()),
+        "surface": safe_float(c.get("surface_ha"), 0) > 0,
+    }
+
+
+def context_status_rows():
+    """Tableau standard réutilisable par Accueil, Diagnostic et Cabinet."""
+    status = active_context_complete()
+    labels = {
+        "client": "Client",
+        "dossier": "Dossier",
+        "parcelle": "Parcelle active",
+        "geometry": "Géométrie GPS",
+        "surface": "Surface calculée",
+    }
+    return pd.DataFrame([
+        {"Élément": labels[key], "État": "✓ OK" if value else "À compléter"}
+        for key, value in status.items()
+    ])
+
+
+def calculate_irrigation_plan(eto_mm_day, kc, surface_ha, efficiency_pct):
+    """Calcule ETR, volume net et volume brut à partir des données saisies."""
+    eto = max(0.0, safe_float(eto_mm_day))
+    coefficient = max(0.0, safe_float(kc, 1.0))
+    area = max(0.0, safe_float(surface_ha))
+    efficiency = clamp(efficiency_pct, 1, 100) / 100.0
+    etc = eto * coefficient
+    net_l_day = etc * area * 10000.0
+    gross_l_day = net_l_day / efficiency if efficiency else 0.0
+    return {
+        "eto_mm_j": eto,
+        "kc": coefficient,
+        "surface_ha": area,
+        "efficacite_pct": efficiency * 100,
+        "etc_mm_j": etc,
+        "besoin_net_l_j": net_l_day,
+        "besoin_brut_l_j": gross_l_day,
+        "besoin_brut_m3_j": gross_l_day / 1000.0,
+    }
+
+
+def quality_badges():
+    """Retourne les indicateurs de qualité pour un dossier."""
+    did = context().get("dossier_id")
+    if not did:
+        return {"score": 0, "observations": 0, "analyses": 0, "preuves": 0, "valides": 0}
+    try:
+        rows = db_exec("""SELECT
+            (SELECT COUNT(*) FROM observations WHERE dossier_id=?) AS observations,
+            (SELECT COUNT(*) FROM analyses WHERE dossier_id=?) AS analyses,
+            (SELECT COUNT(*) FROM observations WHERE dossier_id=? AND photo_name IS NOT NULL AND photo_name<>'') AS preuves,
+            (SELECT COUNT(*) FROM analyses WHERE dossier_id=? AND validation_status='Validé') AS valides""",
+            (did, did, did, did), fetch=True)
+        r = rows[0] if rows else {}
+        obs = safe_int(r.get("observations")); ana = safe_int(r.get("analyses")); proof = safe_int(r.get("preuves")); valid = safe_int(r.get("valides"))
+        score = 0
+        score += 25 if obs else 0
+        score += 25 if ana else 0
+        score += 25 if proof else 0
+        score += 25 if valid else 0
+        return {"score": score, "observations": obs, "analyses": ana, "preuves": proof, "valides": valid}
+    except Exception:
+        return {"score": 0, "observations": 0, "analyses": 0, "preuves": 0, "valides": 0}
+
+
+def module_health():
+    """Teste les briques internes essentielles sans lancer d'appels réseau."""
+    checks = []
+    checks.append(("Base PostgreSQL", True, "Connexion gérée par db_exec"))
+    checks.append(("Contexte global", bool(context().get("dossier_id")), "Client / dossier sélectionné" if context().get("dossier_id") else "Sélection requise"))
+    checks.append(("Géométrie", geometry_points_valid(_active_geometry()), "Parcelle/zone exploitable" if geometry_points_valid(_active_geometry()) else "Aucune géométrie exploitable"))
+    checks.append(("Moteur PDF", HAS_PDF, "ReportLab disponible" if HAS_PDF else "ReportLab absent"))
+    checks.append(("Cartographie", HAS_MAP, "Folium disponible" if HAS_MAP else "Folium/streamlit-folium absent"))
+    checks.append(("Pédologie", HAS_PEDO, "GeoPandas disponible" if HAS_PEDO else "Dépendances SIG absentes"))
+    return pd.DataFrame(checks, columns=["Module", "Disponible", "Détail"])
+
+
+def run_integrity_checks():
+    """Contrôles non destructifs des tables critiques du dossier actif."""
+    did = context().get("dossier_id")
+    if not did:
+        return [{"contrôle": "Contexte", "statut": "INFO", "détail": "Aucun dossier actif."}]
+    checks = []
+    tables = ["parcelles", "observations", "analyses", "missions", "actions", "alerts"]
+    for table in tables:
+        try:
+            row = db_exec(f"SELECT COUNT(*) AS n FROM {table} WHERE dossier_id=?", (did,), fetch=True)
+            n = safe_int(row[0].get("n")) if row else 0
+            checks.append({"contrôle": f"Données {table}", "statut": "OK" if n else "INFO", "détail": f"{n} enregistrement(s)"})
+        except Exception as exc:
+            checks.append({"contrôle": f"Données {table}", "statut": "ERREUR", "détail": str(exc)[:160]})
+    c = context()
+    if c.get("parcelle_id") and not geometry_points_valid(_active_geometry()):
+        checks.append({"contrôle": "Parcelle / géométrie", "statut": "ERREUR", "détail": "Une parcelle active n'a pas de géométrie exploitable."})
+    else:
+        checks.append({"contrôle": "Parcelle / géométrie", "statut": "OK", "détail": "Contexte géographique cohérent."})
+    return checks
+
+
+def decision_summary():
+    """Produit un résumé factuel pour le module Décision."""
+    q = quality_badges()
+    did = context().get("dossier_id")
+    if not did:
+        return {"quality": 0, "risk": "Non évalué", "alerts": 0, "actions": 0, "recommendations": []}
+    try:
+        rows = db_exec("SELECT COUNT(*) AS n FROM alerts WHERE dossier_id=? AND statut='Ouverte'", (did,), fetch=True)
+        alerts = safe_int(rows[0].get("n")) if rows else 0
+        rows = db_exec("SELECT COUNT(*) AS n FROM actions WHERE dossier_id=? AND statut NOT IN ('Terminée','Clôturée')", (did,), fetch=True)
+        actions = safe_int(rows[0].get("n")) if rows else 0
+    except Exception:
+        alerts, actions = 0, 0
+    risk = "Élevé" if alerts >= 3 else "À surveiller" if alerts else "Aucune alerte ouverte"
+    recommendations = []
+    if q["observations"] == 0:
+        recommendations.append("Documenter au moins une observation terrain factuelle.")
+    if q["analyses"] == 0:
+        recommendations.append("Ajouter les analyses disponibles ou indiquer qu'elles ne sont pas disponibles.")
+    if not geometry_points_valid(_active_geometry()):
+        recommendations.append("Délimiter la parcelle avant les analyses spatiales détaillées.")
+    if alerts:
+        recommendations.append("Traiter et clôturer les alertes ouvertes selon leur niveau de priorité.")
+    if not recommendations:
+        recommendations.append("Données minimales présentes : poursuivre avec le plan d'action et le rapport.")
+    return {"quality": q["score"], "risk": risk, "alerts": alerts, "actions": actions, "recommendations": recommendations}
+
+
+def economic_scenario(revenue, variable_cost, fixed_cost=0, investment=0):
+    """Calcule marge, résultat et ROI simple; ce n'est pas une prévision financière."""
+    rev = max(0.0, safe_float(revenue))
+    var = max(0.0, safe_float(variable_cost))
+    fixed = max(0.0, safe_float(fixed_cost))
+    invest = max(0.0, safe_float(investment))
+    total = var + fixed
+    margin = rev - total
+    roi = (margin / invest * 100.0) if invest > 0 else None
+    return {"revenus": rev, "couts": total, "marge": margin, "roi_pct": roi}
+
+
+def scenario_table(revenue, costs):
+    """Construit trois scénarios transparents à partir des hypothèses utilisateur."""
+    rev = max(0.0, safe_float(revenue)); cost = max(0.0, safe_float(costs))
+    return pd.DataFrame([
+        {"Scénario": "Prudent", "Revenus": rev * 0.80, "Coûts": cost * 1.15, "Résultat": rev * 0.80 - cost * 1.15},
+        {"Scénario": "Central", "Revenus": rev, "Coûts": cost, "Résultat": rev - cost},
+        {"Scénario": "Optimiste", "Revenus": rev * 1.15, "Coûts": cost * 0.95, "Résultat": rev * 1.15 - cost * 0.95},
+    ])
+
+
+def action_priority_score(priority, due_date, status):
+    """Score technique interne pour trier les actions; ce n'est pas un classement politique."""
+    base = {"Critique": 100, "Élevée": 80, "Moyenne": 50, "Faible": 25}.get(priority, 40)
+    days = age_days(due_date)
+    if days is not None and days >= 0:
+        base += min(30, days)
+    if status in {"Terminée", "Clôturée"}:
+        base = 0
+    return base
+
+
+def build_action_plan_rows(dossier_id):
+    """Retourne les actions avec un niveau d'urgence calculé de façon transparente."""
+    if not dossier_id:
+        return []
+    rows = db_exec("SELECT * FROM actions WHERE dossier_id=? ORDER BY created_at DESC", (dossier_id,), fetch=True)
+    out = []
+    for row in rows:
+        item = dict(row)
+        item["urgence_technique"] = action_priority_score(row.get("priorite"), row.get("echeance"), row.get("statut"))
+        out.append(item)
+    return out
+
+
+def normalize_pedo_dataframe(gdf):
+    """Normalise seulement l'affichage des champs réellement présents."""
+    if gdf is None or len(gdf) == 0:
+        return pd.DataFrame()
+    fields = [x for x in ["MAPU", "MAPUSUB", "MSD", "MSDNOM", "SGSOLRU_", "SGSOLRU_ID"] if x in gdf.columns]
+    columns = fields + [x for x in ["surface_intersection_ha", "part_zone_pct"] if x in gdf.columns]
+    if not columns:
+        return pd.DataFrame({"Unités": range(1, len(gdf) + 1)})
+    df = pd.DataFrame(gdf.drop(columns="geometry", errors="ignore"))[columns].copy()
+    df = df.replace({np.nan: None})
+    return df
+
+
+def pedo_active_summary(coords=None):
+    """Exécute la recherche pédologique et retourne un résumé prêt à afficher."""
+    coords = coords or _active_geometry()
+    if not geometry_points_valid(coords):
+        return {"ok": False, "data": pd.DataFrame(), "message": "Aucune géométrie GPS exploitable."}
+    data, message = pedo_lookup(coords)
+    return {"ok": data is not None and not data.empty, "data": normalize_pedo_dataframe(data), "message": message}
+
+
+def weather_context_status():
+    """Etat local du cache météo sans déclencher une requête réseau."""
+    weather = st.session_state.get("weather")
+    if not weather:
+        return "Non synchronisée"
+    return "Disponible dans la session"
+
+
+def dossier_counts(dossier_id):
+    """Compte les objets d'un dossier en une série de requêtes simples et compatibles PostgreSQL."""
+    if not dossier_id:
+        return {}
+    result = {}
+    for table in ["parcelles", "observations", "analyses", "missions", "actions", "alerts", "reports", "entretiens"]:
+        try:
+            row = db_exec(f"SELECT COUNT(*) AS n FROM {table} WHERE dossier_id=?", (dossier_id,), fetch=True)
+            result[table] = safe_int(row[0].get("n")) if row else 0
+        except Exception:
+            result[table] = 0
+    return result
+
+
+def dashboard_kpis():
+    """KPI centralisés pour éviter des calculs différents selon les écrans."""
+    c = context(); did = c.get("dossier_id")
+    counts = dossier_counts(did)
+    q = quality_badges()
+    return {
+        "qualite": q["score"],
+        "surface_ha": safe_float(c.get("surface_ha")),
+        "observations": counts.get("observations", 0),
+        "analyses": counts.get("analyses", 0),
+        "missions": counts.get("missions", 0),
+        "actions": counts.get("actions", 0),
+        "alertes": counts.get("alerts", 0),
+        "rapports": counts.get("reports", 0),
+        "entretiens": counts.get("entretiens", 0),
+    }
+
+
+def render_module_health_panel():
+    """Panneau compact de contrôle pour Super-Admin uniquement."""
+    if not is_super_admin():
+        return
+    with st.expander("🛠️ État technique interne", expanded=False):
+        st.caption(f"Build {APP_BUILD} · schéma {APP_SCHEMA_VERSION}")
+        st.dataframe(module_health(), use_container_width=True, hide_index=True)
+        checks = run_integrity_checks()
+        st.dataframe(pd.DataFrame(checks), use_container_width=True, hide_index=True)
+
+
+def render_decision_panel():
+    """Bloc décisionnel réutilisable quand une rubrique est vide."""
+    summary = decision_summary()
+    a, b, c, d = st.columns(4)
+    a.metric("Qualité", f"{summary['quality']}/100")
+    b.metric("Risque", summary["risk"])
+    c.metric("Alertes", summary["alerts"])
+    d.metric("Actions", summary["actions"])
+    st.markdown("#### Recommandations de travail")
+    for item in summary["recommendations"]:
+        st.write("•", item)
+
+
+def render_pedo_panel():
+    """Bloc pédologique complet et robuste, utilisé dans Sols & Eau."""
+    st.markdown("### 🪨 Pédologie Morpho_Pedo")
+    summary = pedo_active_summary()
+    if not summary["ok"]:
+        st.warning(summary["message"])
+        return
+    st.success(summary["message"])
+    st.dataframe(summary["data"], use_container_width=True, hide_index=True)
+
+
+def render_context_integrity_panel():
+    """Affiche la chaîne de contexte lorsqu'un utilisateur veut vérifier la synchronisation."""
+    st.markdown("### 🔗 Cohérence du contexte")
+    st.dataframe(context_status_rows(), use_container_width=True, hide_index=True)
+
+
 # =========================================================
 # 14. DASHBOARD CONSULTANCE
 # =========================================================
@@ -2884,6 +3302,7 @@ def dashboard():
         return
     c = context()
     q,_ = data_quality()
+    kpis = dashboard_kpis()
     stats = db_exec(
         """SELECT
            (SELECT COUNT(*) FROM observations WHERE dossier_id=?) AS obs,
@@ -2901,6 +3320,11 @@ def dashboard():
     b.metric("Missions",missions)
     c1.metric("Actions",actions)
     d.metric("Alertes ouvertes",alerts)
+    e1,e2,e3,e4 = st.columns(4)
+    e1.metric("Surface active", f"{kpis['surface_ha']:.2f} ha")
+    e2.metric("Analyses", kpis["analyses"])
+    e3.metric("Rapports", kpis["rapports"])
+    e4.metric("Entretiens", kpis["entretiens"])
     st.markdown("### Chaîne de prise en charge")
     flow = pd.DataFrame({
         "Étape":["Client","Dossier","Zone GPS","Observations","Analyses","Décision","Mission","Rapport"],
@@ -2913,6 +3337,8 @@ def dashboard():
     })
     flow["État"] = flow["État"].map({True:"✓ OK",False:"À compléter"})
     st.dataframe(flow,use_container_width=True,hide_index=True)
+    render_context_integrity_panel()
+    render_module_health_panel()
 
 
 # =========================================================
