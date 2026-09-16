@@ -1659,6 +1659,37 @@ def global_selector():
 # =========================================================
 # 9. EN-TÊTE PROFESSIONNEL
 # =========================================================
+
+def usage_guide():
+    """Guide d'utilisation intégré à l'accueil, pensé pour téléphone, tablette et ordinateur."""
+    st.markdown("""
+    <style>
+    .ya-guide{border:1px solid #dfe8e2;border-radius:16px;padding:18px 20px;margin-top:14px;background:#fff}
+    .ya-step{border-left:4px solid #176b4f;padding:10px 14px;margin:10px 0;background:#f7faf8;border-radius:10px}
+    .ya-step b{color:#174d3b}.ya-tip{padding:12px 14px;border-radius:10px;background:#eef6f1;margin-top:10px}
+    </style>
+    """, unsafe_allow_html=True)
+    st.markdown("## 📘 Guide d'utilisation")
+    st.caption("Mode d'emploi rapide de YouAgronoMe — du premier dossier jusqu'au rapport final.")
+    st.markdown('<div class="ya-guide">', unsafe_allow_html=True)
+    for title, body in [
+        ("1. 🏠 Accueil","Consultez le tableau de bord, vérifiez le contexte actif et utilisez les accès rapides."),
+        ("2. 👥 Clients & dossiers","Créez ou sélectionnez un client, puis son dossier. Modifiez ou supprimez les fiches selon vos droits."),
+        ("3. 🌍 Terrain","Travaillez sur le dossier 360°, production, observations, analyses, entretien/messages, équipements et historique."),
+        ("4. 🗺️ Diagnostic","Délimitez la zone/parcelle, consultez les couches SIG, sols & eaux, risques, phytosanitaire et diagnostic 360°."),
+        ("5. 📊 Décision","Utilisez recommandations, simulations/ROI, alertes, KPI, plan d’action et contrôle de cohérence."),
+        ("6. 💼 Cabinet","Gérez clients, missions, devis & finance, rapports, documents, agenda, administration, accès et traçabilité."),
+        ("7. 💰 Devis & Finance","Créez les devis et suivez prestations, montants, règlements et situation financière."),
+        ("8. 📄 Rapports","Préparez le rapport à partir des données enregistrées puis générez la version professionnelle.")
+    ]:
+        st.markdown(f"### {title}")
+        st.markdown(f'<div class="ya-step">{body}</div>', unsafe_allow_html=True)
+    st.markdown("### 🔄 Ordre conseillé")
+    st.markdown('<div class="ya-tip"><b>Client → Dossier → Parcelle/Zone → Données → Diagnostic → Décision → Rapport.</b><br>Gardez le bon dossier actif avant toute saisie ou consultation.</div>', unsafe_allow_html=True)
+    st.markdown("### 📱 Téléphone & tablette")
+    st.markdown('<div class="ya-tip">L’interface s’adapte automatiquement à la largeur de l’écran. Les colonnes passent en une ou deux colonnes selon la taille et les champs restent lisibles sur mobile.</div>', unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
+
 def professional_header():
     """Interface professionnelle compacte : masque les contrôles de déploiement Streamlit visibles par l'utilisateur final."""
     st.markdown("""
@@ -1668,6 +1699,20 @@ def professional_header():
     .stButton>button{border-radius:10px;font-weight:650;min-height:40px}
     .stSelectbox>div>div,.stTextInput>div>div,.stTextArea>div>div{border-radius:10px}
     .stMetric{border:1px solid #dfe8e2;border-radius:12px;padding:8px 12px}
+    @media (max-width: 900px){
+        .block-container{padding:.55rem .7rem 1.2rem;max-width:100%}
+        [data-testid="stHorizontalBlock"]{flex-wrap:wrap!important;gap:.55rem!important}
+        [data-testid="stHorizontalBlock"]>[data-testid="column"]{min-width:calc(50% - .35rem)!important;flex:1 1 calc(50% - .35rem)!important}
+        .stButton>button{min-height:44px;font-size:.94rem}
+        input,textarea{font-size:16px!important}
+        [data-testid="stSidebar"]{min-width:240px;max-width:82vw}
+    }
+    @media (max-width:560px){
+        .block-container{padding-left:.45rem;padding-right:.45rem}
+        [data-testid="stHorizontalBlock"]>[data-testid="column"]{min-width:100%!important;flex:1 1 100%!important}
+        h1{font-size:1.55rem!important} h2{font-size:1.3rem!important} h3{font-size:1.1rem!important}
+    }
+    *,*::before,*::after{scroll-behavior:auto!important;transition:none!important;animation:none!important}
 
     /* Nettoyage de l'habillage Streamlit Cloud : Share, étoile, édition, GitHub, menu, etc. */
     [data-testid="stToolbar"],
@@ -3964,7 +4009,7 @@ space=st.segmented_control(
 if space == "🏠 Accueil":
     dashboard()
     st.markdown("### ⚡ Accès rapide")
-    a,b,c,d=st.columns(4)
+    a,b,c,d,e=st.columns(5)
     if a.button("📁 Ouvrir le dossier",use_container_width=True,key="quick_dossier"):
         st.session_state["v10_space_target"]="🌍 Terrain"; st.session_state["terrain_v10_section_target"]="📁 Dossier 360°"; st.rerun()
     if b.button("💬 Entretien agriculteur",use_container_width=True,key="quick_interview"):
@@ -3973,6 +4018,8 @@ if space == "🏠 Accueil":
         st.session_state["v10_space_target"]="🗺️ Diagnostic"; st.session_state["diagnostic_v10_section_target"]="🔬 Diagnostic 360°"; st.rerun()
     if d.button("📄 Rapports",use_container_width=True,key="quick_report"):
         st.session_state["v10_space_target"]="💼 Cabinet"; st.session_state["cabinet_v10_section_target"]="📄 Rapports"; st.rerun()
+    if e.button("📘 Guide d'utilisation",use_container_width=True,key="quick_guide"):
+        usage_guide()
 
 elif space == "🌍 Terrain":
     st.markdown("### 🌍 Terrain")
